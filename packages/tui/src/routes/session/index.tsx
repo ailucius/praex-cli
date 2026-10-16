@@ -1479,6 +1479,19 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
 
   const childShortcut = useCommandShortcut("session.child.first")
   const backgroundShortcut = useCommandShortcut("session.background")
+  const historyShortcut = useCommandShortcut("prompt.history.previous")
+
+  // A turn that finished cleanly with no text and no tool calls (in any step of the turn)
+  // would otherwise render as a blank block, e.g. a hosted model returning one empty token.
+  const empty = createMemo(() => {
+    if (!final() || props.message.error) return false
+    const steps = messages().filter((x) => x.role === "assistant" && x.parentID === props.message.parentID)
+    return steps.every((step) =>
+      (step.id === props.message.id ? props.parts : (sync.data.part[step.id] ?? [])).every(
+        (part) => part.type !== "tool" && !(part.type === "text" && part.text.trim()),
+      ),
+    )
+  })
 
   return (
     <>
@@ -1515,6 +1528,15 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
               {backgroundShortcut()}
               <span style={{ fg: theme.textMuted }}> background</span>
             </Show>
+          </text>
+        </box>
+      </Show>
+      <Show when={empty()}>
+        <box paddingLeft={3} marginTop={1}>
+          <text fg={theme.textMuted}>
+            {historyShortcut()
+              ? `No reply. Press ${historyShortcut()} then enter to retry.`
+              : "No reply. Send your message again to retry."}
           </text>
         </box>
       </Show>
