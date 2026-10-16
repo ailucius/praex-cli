@@ -285,14 +285,10 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                               <KVProvider>
                                 <ToastProvider>
                                   <RouteProvider
-                                    initialRoute={
-                                      input.args.continue
-                                        ? {
-                                            type: "session",
-                                            sessionID: "dummy",
-                                          }
-                                        : undefined
-                                    }
+                                    // -c used to start on a placeholder session id ("dummy"), which the session
+                                    // route rejected ("Expected a string starting with ses"). Start on home; the
+                                    // continue effect below navigates to the latest session once the list loads.
+                                    initialRoute={undefined}
                                   >
                                     <TuiConfigProvider config={input.config}>
                                       <PluginRuntimeProvider value={pluginRuntime}>
