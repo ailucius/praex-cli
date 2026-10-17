@@ -1,0 +1,57 @@
+{
+  "$schema": "https://opencode.ai/desktop-theme.json",
+  "name": "Praex",
+  "id": "praex",
+  "light": {
+    "palette": {
+      "neutral": "#fdfcff",
+      "ink": "#1d1730",
+      "primary": "#6d4fc2",
+      "accent": "#9a7a2d",
+      "success": "#2f8f52",
+      "warning": "#bf7a2e",
+      "error": "#c43d52",
+      "info": "#2e7f96",
+      "interactive": "#6d4fc2",
+      "diffAdd": "#1e725c",
+      "diffDelete": "#c53b53"
+    },
+    "overrides": {
+      "syntax-comment": "#756d8a",
+      "syntax-keyword": "#6d4fc2",
+      "syntax-string": "#2f8f52",
+      "syntax-primitive": "#9a7a2d",
+      "syntax-property": "#2e7f96",
+      "syntax-constant": "#bf7a2e",
+      "syntax-type": "#9c7e1f",
+      "markdown-code": "#5b3fa8",
+      "text-interactive-base": "#5b3fa8"
+    }
+  },
+  "dark": {
+    "palette": {
+      "neutral": "#0c0a12",
+      "ink": "#f0edf7",
+      "primary": "#a78bfa",
+      "accent": "#d9b36c",
+      "success": "#82d99a",
+      "warning": "#e8a15c",
+      "error": "#e0687a",
+      "info": "#6fc7d9",
+      "interactive": "#a78bfa",
+      "diffAdd": "#4fd6be",
+      "diffDelete": "#c53b53"
+    },
+    "overrides": {
+      "syntax-comment": "#8e86a3",
+      "syntax-keyword": "#a78bfa",
+      "syntax-string": "#82d99a",
+      "syntax-primitive": "#d9b36c",
+      "syntax-property": "#6fc7d9",
+      "syntax-constant": "#e8a15c",
+      "syntax-type": "#e3c578",
+      "markdown-code": "#c4b5fd",
+      "text-interactive-base": "#c4b5fd"
+    }
+  }
+}

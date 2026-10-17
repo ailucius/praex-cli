@@ -1,6 +1,6 @@
 ;(function () {
   var key = "opencode-theme-id"
-  var themeId = localStorage.getItem(key) || "oc-2"
+  var themeId = localStorage.getItem(key) || "praex"
 
   if (themeId === "oc-1") {
     themeId = "oc-2"
@@ -18,7 +18,7 @@
 
   // Update theme-color meta tag to match app color scheme
   var metas = document.querySelectorAll("meta[name='theme-color']")
-  if (metas.length > 0) metas[0].setAttribute("content", isDark ? "#131010" : "#F8F7F7")
+  if (metas.length > 0) metas[0].setAttribute("content", isDark ? "#0c0a12" : "#fdfcff")
 
   if (themeId === "oc-2") return
 

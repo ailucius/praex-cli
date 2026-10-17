@@ -22,6 +22,7 @@ import mercuryThemeJson from "./themes/mercury.json"
 import monokaiThemeJson from "./themes/monokai.json"
 import nightowlThemeJson from "./themes/nightowl.json"
 import nordThemeJson from "./themes/nord.json"
+import praexThemeJson from "./themes/praex.json"
 import oneDarkThemeJson from "./themes/one-dark.json"
 import oneDarkProThemeJson from "./themes/onedarkpro.json"
 import opencodeThemeJson from "./themes/opencode.json"
@@ -60,6 +61,7 @@ export const mercuryTheme = mercuryThemeJson as DesktopTheme
 export const monokaiTheme = monokaiThemeJson as DesktopTheme
 export const nightowlTheme = nightowlThemeJson as DesktopTheme
 export const nordTheme = nordThemeJson as DesktopTheme
+export const praexTheme = praexThemeJson as DesktopTheme
 export const oneDarkTheme = oneDarkThemeJson as DesktopTheme
 export const oneDarkProTheme = oneDarkProThemeJson as DesktopTheme
 export const opencodeTheme = opencodeThemeJson as DesktopTheme
@@ -99,6 +101,7 @@ export const DEFAULT_THEMES: Record<string, DesktopTheme> = {
   monokai: monokaiTheme,
   nightowl: nightowlTheme,
   nord: nordTheme,
+  praex: praexTheme,
   "one-dark": oneDarkTheme,
   onedarkpro: oneDarkProTheme,
   opencode: opencodeTheme,
