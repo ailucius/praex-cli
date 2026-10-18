@@ -795,7 +795,8 @@ export const RunCommand = effectCmd({
         if (!args.interactive) {
           const events = await client.event.subscribe()
           const completed = loop(client, events).catch((e) => {
-            console.error(e)
+            // Show the message, not a stack trace.
+            UI.error(FormatError(e) ?? (e instanceof Error && e.message ? e.message : formatRunError(e)))
             process.exitCode = 1
           })
           async function finish() {

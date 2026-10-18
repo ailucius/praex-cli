@@ -354,7 +354,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
               onClick={() => platform.openLink("https://github.com/ailucius/praex-cli/issues")}
             >
               <div>{language.t("error.page.report.discord")}</div>
-              <Icon name="discord" class="text-text-interactive-base" />
+              <Icon name="github" class="text-text-interactive-base" />
             </button>
           </div>
           <Show when={platform.version}>
