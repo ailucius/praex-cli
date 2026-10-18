@@ -56,7 +56,9 @@ function testLayer(
   return Installation.layer.pipe(Layer.provide(mockHttpClient(httpHandler)), Layer.provide(appProcess))
 }
 
-describe("installation", () => {
+// Praex: latest/upgrade use the praex.ai release channel (src/installation/praex-update.ts); the upstream
+// package-manager and install-script paths these tests cover are gone.
+describe.skip("installation", () => {
   describe("latest", () => {
     testEffect(testLayer(() => jsonResponse({ tag_name: "v1.2.3" }))).effect(
       "reads release version from GitHub releases",

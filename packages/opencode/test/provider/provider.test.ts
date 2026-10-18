@@ -69,9 +69,10 @@ const providerLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
 
 const list = Provider.use.list()
 
+// Praex never autoloads the opencode provider without a key (no anonymous free tier): absent counts as 0 paid.
 const paid = (providers: Record<string, { models: Record<string, { cost: { input: number } }> }>) => {
   const item = providers[ProviderV2.ID.make("opencode")]
-  expect(item).toBeDefined()
+  if (!item) return 0
   return Object.values(item.models).filter((model) => model.cost.input > 0).length
 }
 
@@ -1121,8 +1122,8 @@ it.instance(
   Effect.gen(function* () {
     const providers = yield* list
     expect(providers[ProviderV2.ID.make("nvidia")].options.headers).toEqual({
-      "HTTP-Referer": "https://opencode.ai/",
-      "X-Title": "opencode",
+      "HTTP-Referer": "https://praex.ai/",
+      "X-Title": "praex",
       "X-BILLING-INVOKE-ORIGIN": "OpenCode",
     })
   }),
@@ -1134,8 +1135,8 @@ it.instance(
   Effect.gen(function* () {
     const providers = yield* list
     expect(providers[ProviderV2.ID.make("nvidia")].options.headers).toEqual({
-      "HTTP-Referer": "https://opencode.ai/",
-      "X-Title": "opencode",
+      "HTTP-Referer": "https://praex.ai/",
+      "X-Title": "praex",
       "X-BILLING-INVOKE-ORIGIN": "OpenCode",
     })
   }),
