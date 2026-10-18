@@ -15,7 +15,7 @@ import { NotFoundError } from "@/storage/storage"
 import { Effect, Layer, Context } from "effect"
 import * as DateTime from "effect/DateTime"
 import { InstanceState } from "@/effect/instance-state"
-import { isOverflow as overflow, usable } from "./overflow"
+import { compactionPlan, isOverflow as overflow, usable } from "./overflow"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -142,6 +142,12 @@ export interface Interface {
     tokens: SessionV1.Assistant["tokens"]
     model: Provider.Model
   }) => Effect.Effect<boolean>
+  /** Whether compacting would free meaningful room, and how much the fixed prompt uses. */
+  readonly plan: (input: {
+    messages: SessionV1.WithParts[]
+    tokens: SessionV1.Assistant["tokens"]
+    model: Provider.Model
+  }) => Effect.Effect<{ worthwhile: boolean; overhead: number; freed: number; context: number }>
   readonly prune: (input: { sessionID: SessionID }) => Effect.Effect<void>
   readonly process: (input: {
     parentID: MessageID
@@ -193,6 +199,28 @@ export const layer = Layer.effect(
     }) {
       const msgs = yield* MessageV2.toModelMessagesEffect(input.messages, input.model)
       return Token.estimate(JSON.stringify(msgs))
+    })
+
+    const plan = Effect.fn("SessionCompaction.plan")(function* (input: {
+      messages: SessionV1.WithParts[]
+      tokens: SessionV1.Assistant["tokens"]
+      model: Provider.Model
+    }) {
+      const cfg = yield* config.get()
+      const count =
+        input.tokens.total ||
+        input.tokens.input + input.tokens.output + input.tokens.cache.read + input.tokens.cache.write
+      const history = input.messages.filter(
+        (msg) => !(msg.info.role === "user" && msg.parts.every((part) => part.type === "compaction")),
+      )
+      const conversation = history.length ? yield* estimate({ messages: history, model: input.model }) : 0
+      const result = compactionPlan({
+        count,
+        conversation,
+        usable: usable({ cfg, model: input.model, outputTokenMax: flags.outputTokenMax }),
+        preserve: preserveRecentBudget({ cfg, model: input.model }),
+      })
+      return { ...result, context: input.model.limit.context }
     })
 
     const select = Effect.fn("SessionCompaction.select")(function* (input: {
@@ -586,6 +614,7 @@ export const layer = Layer.effect(
 
     return Service.of({
       isOverflow,
+      plan,
       prune,
       process: processCompaction,
       create,

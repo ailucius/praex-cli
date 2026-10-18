@@ -13,6 +13,8 @@ import { Provider } from "@/provider/provider"
 import { type Tool as AITool, tool, jsonSchema } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
+import { overheadHint } from "./overflow"
+import { TuiEvent } from "@/server/tui-event"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
 import { Memory } from "./memory"
@@ -123,6 +125,29 @@ export const layer = Layer.effect(
     const sys = yield* SystemPrompt.Service
     const llm = yield* LLM.Service
     const events = yield* EventV2Bridge.Service
+    // Sessions already told that their fixed prompt crowds the window (one hint per session).
+    const hinted = new Set<SessionID>()
+    const contextHint = Effect.fn("SessionPrompt.contextHint")(function* (input: {
+      sessionID: SessionID
+      overhead: number
+      context: number
+      modelName: string
+    }) {
+      if (hinted.has(input.sessionID)) return
+      hinted.add(input.sessionID)
+      yield* Effect.logInfo("skipping auto-compaction: fixed prompt fills the context", {
+        "session.id": input.sessionID,
+        overhead: input.overhead,
+        context: input.context,
+      })
+      yield* events
+        .publish(TuiEvent.ToastShow, {
+          message: overheadHint(input),
+          variant: "warning",
+          duration: 10_000,
+        })
+        .pipe(Effect.ignore)
+    })
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
     const { db } = database
@@ -1237,8 +1262,14 @@ export const layer = Layer.effect(
             lastFinished.summary !== true &&
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
-            yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
-            continue
+            const plan = yield* compaction.plan({ messages: msgs, tokens: lastFinished.tokens, model })
+            if (plan.worthwhile) {
+              yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
+              continue
+            }
+            // The fixed prompt alone fills the window: a summary would free nothing and the
+            // next turn would compact again. Carry on and say where the space went.
+            yield* contextHint({ sessionID, overhead: plan.overhead, context: plan.context, modelName: model.name })
           }
 
           const agent = yield* agents.get(lastUser.agent)
@@ -1401,6 +1432,22 @@ export const layer = Layer.effect(
 
             if (result === "stop") return "break" as const
             if (result === "compact") {
+              const overflowed = !handle.message.finish
+              const plan = yield* compaction.plan({ messages: msgs, tokens: handle.message.tokens, model })
+              if (!plan.worthwhile) {
+                if (overflowed) {
+                  // The provider rejected the request and there is too little conversation
+                  // to summarise away: compacting would only loop. Stop with a plain reason.
+                  handle.message.error = new SessionV1.ContextOverflowError({
+                    message: overheadHint({ overhead: plan.overhead, context: plan.context, modelName: model.name }),
+                  }).toObject()
+                  handle.message.finish = "error"
+                  yield* sessions.updateMessage(handle.message)
+                  return "break" as const
+                }
+                yield* contextHint({ sessionID, overhead: plan.overhead, context: plan.context, modelName: model.name })
+                return "continue" as const
+              }
               yield* compaction.create({
                 sessionID,
                 agent: lastUser.agent,

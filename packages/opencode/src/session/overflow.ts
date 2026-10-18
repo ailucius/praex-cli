@@ -32,3 +32,41 @@ export function isOverflow(input: {
     input.tokens.total || input.tokens.input + input.tokens.output + input.tokens.cache.read + input.tokens.cache.write
   return count >= usable(input)
 }
+
+// Rough size of the summary a compaction writes back (template headings plus a few lines each).
+export const SUMMARY_ESTIMATE = 1_500
+
+/**
+ * Decide whether auto-compaction can actually help.
+ *
+ * Compaction can only shrink the conversation. The fixed part of every request (system
+ * prompt, tool schemas, MCP tools, skills) stays the same size, so when that overhead alone
+ * fills most of a small window (hosted tiers: 32K context, 8K output, 24.5K usable) a summary
+ * frees nothing and auto-compaction would fire again on every turn. In that case the caller
+ * should skip compaction and tell the user where the space went.
+ *
+ * `count` is what the last request used, `conversation` is the estimated size of the history
+ * compaction would replace, `preserve` is the recent tail it keeps verbatim.
+ */
+export function compactionPlan(input: { count: number; conversation: number; usable: number; preserve: number }) {
+  const conversation = Math.max(0, input.conversation)
+  const overhead = Math.max(0, input.count - conversation)
+  const kept = Math.min(input.preserve, conversation) + SUMMARY_ESTIMATE
+  const freed = Math.max(0, conversation - kept)
+  // Large windows keep upstream behavior: anything that frees 8K+ is worth it. Small windows
+  // need a fifth of the usable budget back, or the next turn overflows again.
+  const minimum = Math.min(8_000, Math.max(2_000, Math.floor(input.usable * 0.2)))
+  return { overhead, freed, worthwhile: freed >= minimum }
+}
+
+function kilo(tokens: number) {
+  if (tokens >= 1000) return `${Math.floor(tokens / 1000)}K`
+  return String(tokens)
+}
+
+/** One plain line explaining why the conversation was not compacted. */
+export function overheadHint(input: { overhead: number; context: number; modelName?: string }) {
+  const model = input.modelName ? `${input.modelName}'s` : "the model's"
+  const used = input.overhead > 0 ? `~${kilo(input.overhead)} of ${model} ${kilo(input.context)}` : `most of ${model} ${kilo(input.context)}`
+  return `Tools and instructions use ${used} context. Disable unused MCP servers or skills to make room for the conversation.`
+}
