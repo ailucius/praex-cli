@@ -603,6 +603,18 @@ export const RunCommand = effectCmd({
       }
 
       async function execute(sdk: OpencodeClient) {
+        // Check --model before a session exists: a typo gets one clean line instead of a stack
+        // trace and an empty session. The same list gives the header its display name.
+        const providers = await sdk.config
+          .providers()
+          .then((x) => x.data?.providers)
+          .catch(() => undefined)
+        const names = new Map(
+          (providers ?? []).flatMap((p) => Object.entries(p.models).map(([id, m]) => [`${p.id}/${id}`, m.name] as const)),
+        )
+        if (args.model && providers && !names.has(args.model))
+          die(`Model not found: ${args.model}. Run \`praex models\` to see the list.`)
+
         const sess = await session(sdk)
         if (!sess?.id) {
           UI.error("Session not found")
@@ -643,7 +655,8 @@ export const RunCommand = effectCmd({
               toggles.get("start") !== true
             ) {
               UI.empty()
-              UI.println(`> ${event.properties.info.agent} · ${event.properties.info.modelID}`)
+              const info = event.properties.info
+              UI.println(`> ${info.agent} · ${names.get(`${info.providerID}/${info.modelID}`) ?? info.modelID}`)
               UI.empty()
               toggles.set("start", true)
             }
