@@ -86,6 +86,9 @@ function json(input: unknown) {
   return undefined
 }
 
+export const CONTEXT_OVERFLOW_MESSAGE =
+  "This conversation is longer than the model's context window. Start a new session or run /compact."
+
 export type ParsedStreamError =
   | {
       type: "context_overflow"
@@ -111,7 +114,7 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
     case "context_length_exceeded":
       return {
         type: "context_overflow",
-        message: "Input exceeds context window of this model",
+        message: CONTEXT_OVERFLOW_MESSAGE,
         responseBody,
       }
     case "insufficient_quota":
@@ -168,7 +171,8 @@ export function parseAPICallError(input: { providerID: ProviderV2.ID; error: API
   if (isContextOverflow(m) || input.error.statusCode === 413 || body?.error?.code === "context_length_exceeded") {
     return {
       type: "context_overflow",
-      message: m,
+      // Plain words for the user; the provider's raw text stays in responseBody for debugging.
+      message: CONTEXT_OVERFLOW_MESSAGE,
       responseBody: input.error.responseBody,
     }
   }

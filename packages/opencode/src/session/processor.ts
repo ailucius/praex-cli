@@ -931,8 +931,9 @@ export const layer = Layer.effect(
             yield* status.set(ctx.sessionID, { type: "idle" })
             return
           }
+          // Auto-compaction takes it from here and the transcript shows a "Compacting
+          // conversation" line, so no error toast for an overflow that is being handled.
           ctx.needsCompaction = true
-          yield* events.publish(Session.Event.Error, { sessionID: ctx.sessionID, error })
           return
         }
         if (!ctx.assistantMessage.summary) {
