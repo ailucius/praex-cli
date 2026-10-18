@@ -59,7 +59,7 @@ describe("session.overflow.overheadHint", () => {
   })
 
   test("drops the plan suffix from hosted model names", () => {
-    expect(overheadHint({ overhead: 23_000, context: 32_768, modelName: "Velox II · free" })).toStartWith(
+    expect(overheadHint({ overhead: 23_000, context: 32_768, modelName: "Velox II · Free" })).toStartWith(
       "Tools and instructions use ~23K of Velox II's 32K context.",
     )
   })

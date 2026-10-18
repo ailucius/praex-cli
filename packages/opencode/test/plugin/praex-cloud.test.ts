@@ -36,8 +36,9 @@ describe("praex-cloud hosted lineup", () => {
     const p = hostedProvider(undefined, BAKED_LINEUP)
     expect(p.name).toBe("Praex")
     expect(p.options.baseURL).toMatch(/^https:\/\/praex-gateway-.*\/v1$/)
-    expect(p.models["velox-ii-baked"].name).toBe("Velox II · free")
+    expect(p.models["velox-ii-baked"].name).toBe("Velox II · Free")
     expect(p.models["faber-ii"].name).toBe("Faber II · Pro")
+    expect(p.models["lucia-ii"].name).toBe("Lucia II · Max")
   })
 
   test("plain gateway names get their plan suffix, and the free tier is listed first", () => {
@@ -51,7 +52,7 @@ describe("praex-cloud hosted lineup", () => {
     expect(l["velox-ii-baked"].plan).toBe("free")
     const p = hostedProvider(undefined, l)
     expect(Object.keys(p.models)).toEqual(["velox-ii-baked", "faber-ii", "z"])
-    expect(p.models["velox-ii-baked"].name).toBe("Velox II · free")
+    expect(p.models["velox-ii-baked"].name).toBe("Velox II · Free")
     expect(p.models["faber-ii"].name).toBe("Faber II · Pro")
     expect(p.models["z"].name).toBe("Z")
   })

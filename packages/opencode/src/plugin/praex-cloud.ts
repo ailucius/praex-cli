@@ -193,11 +193,12 @@ const GATEWAY_BASE_URL = "https://praex-gateway-384599766402.us-central1.run.app
 const TIER_LIMITS = { context: 32768, output: 8192 }
 export type HostedModel = { name: string; plan?: string; limit: { context: number; output: number } }
 export type HostedLineup = Record<string, HostedModel>
-// 09-23 (founder decision): Praex ships ONE hosted model. Pro is more Velox, not another model.
-// The live gateway list still wins; this is only the offline / first-run fallback.
+// Offline / first-run fallback only; the live gateway list always wins. Mirrors the gateway
+// lineup as of 2026-10-19: Velox II (free), Faber II (Pro, on demand), Lucia II (Max).
 export const BAKED_LINEUP: HostedLineup = {
   "velox-ii-baked": { name: "Velox II", plan: "free", limit: { ...TIER_LIMITS } },
   "faber-ii": { name: "Faber II · Pro", plan: "pro", limit: { ...TIER_LIMITS } }, // on demand, paying Pro only
+  "lucia-ii": { name: "Lucia II · Max", plan: "max", limit: { ...TIER_LIMITS } },
 }
 const LINEUP_TIMEOUT_MS = 1500 // first launch with no cache blocks at most this long
 const LINEUP_TTL_MS = 60 * 60 * 1000 // cache is served immediately; older than this = refresh in the background
@@ -287,7 +288,7 @@ export function freeModelID(lineup: HostedLineup) {
 
 // The gateway may name a tier plainly ("Velox II") and carry its plan separately. The picker labels
 // and orders tiers by a "· <plan>" suffix (tierRank in tui dialog-model), so add one when it is missing.
-const PLAN_LABEL: Record<string, string> = { free: "free", pro: "Pro", max: "Max" }
+const PLAN_LABEL: Record<string, string> = { free: "Free", pro: "Pro", max: "Max" }
 function displayName(m: HostedModel) {
   const label = m.plan ? PLAN_LABEL[m.plan] : undefined
   return label && !m.name.includes("·") ? `${m.name} · ${label}` : m.name
