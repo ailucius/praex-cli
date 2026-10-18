@@ -200,20 +200,12 @@ export const DESKTOP_MENU: DesktopMenu[] = [
     id: "help",
     label: "Help",
     items: [
-      { type: "item", label: "Praex Documentation", href: "https://praex.ai" },
-      { type: "item", label: "Support Forum", href: "https://discord.com/invite/opencode" },
+      { type: "item", label: "Praex Website", href: "https://praex.ai" },
       { type: "item", label: "Export Logs...", command: "logs.export" },
       { type: "separator" },
-      {
-        type: "item",
-        label: "Share Feedback",
-        href: "https://github.com/anomalyco/opencode/issues/new?template=feature_request.yml",
-      },
-      {
-        type: "item",
-        label: "Report a Bug",
-        href: "https://github.com/anomalyco/opencode/issues/new?template=bug_report.yml",
-      },
+      // Same tracker the in-app help and error pages already use (no Praex forum exists yet).
+      { type: "item", label: "Share Feedback", href: "https://github.com/ailucius/praex-cli/issues/new" },
+      { type: "item", label: "Report a Bug", href: "https://github.com/ailucius/praex-cli/issues/new" },
     ],
   },
 ]

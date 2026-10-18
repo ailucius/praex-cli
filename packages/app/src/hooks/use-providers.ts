@@ -10,8 +10,6 @@ export const popularProviders = [
   "lucia",
   "glm",
   "lucia-lite",
-  "opencode",
-  "opencode-go",
   "anthropic",
   "github-copilot",
   "openai",

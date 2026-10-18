@@ -209,7 +209,8 @@ const createPlatform = (): Platform => {
 
       const notification = new Notification(title, {
         body: description ?? "",
-        icon: "https://opencode.ai/favicon-96x96-v3.png",
+        // Bundled Praex mark (renderer publicDir is packages/app/public).
+        icon: new URL("./favicon-96x96-v3.png", window.location.href).toString(),
       })
       notification.onclick = () => {
         void window.api.showWindow()
