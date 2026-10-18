@@ -1269,6 +1269,12 @@ export function Session() {
                           pending={pending()}
                         />
                       </Match>
+                      <Match when={message.role === "assistant" && (message as AssistantMessage).summary === true}>
+                        <CompactionNotice
+                          message={message as AssistantMessage}
+                          parts={sync.data.part[message.id] ?? []}
+                        />
+                      </Match>
                       <Match when={message.role === "assistant"}>
                         <AssistantMessage
                           last={lastAssistant()?.id === message.id}
@@ -1386,8 +1392,6 @@ function UserMessage(props: {
   const queuedFg = createMemo(() => selectedForeground(theme, color()))
   const metadataVisible = createMemo(() => queued() || ctx.showTimestamps())
 
-  const compaction = createMemo(() => props.parts.find((x) => x.type === "compaction"))
-
   return (
     <>
       <Show when={text()}>
@@ -1444,16 +1448,71 @@ function UserMessage(props: {
           </box>
         </box>
       </Show>
-      <Show when={compaction()}>
-        <box
-          marginTop={1}
-          border={["top"]}
-          title=" Compaction "
-          titleAlignment="center"
-          borderColor={theme.borderActive}
-        />
-      </Show>
     </>
+  )
+}
+
+// A compaction renders as one quiet line, the way Claude Code shows it. The summary the
+// model wrote is for the model; the user can click the line to read it, never inline.
+export function compactionLabel(message: Pick<AssistantMessage, "error" | "finish" | "time">) {
+  if (message.error?.name === "MessageAbortedError") return { state: "aborted" as const, text: "Compaction interrupted" }
+  if (message.error) return { state: "failed" as const, text: "Could not compact the conversation" }
+  if (message.finish || message.time.completed) return { state: "done" as const, text: "Conversation compacted" }
+  return { state: "running" as const, text: "Compacting conversation" }
+}
+
+function CompactionNotice(props: { message: AssistantMessage; parts: Part[] }) {
+  const { theme } = useTheme()
+  const ctx = use()
+  const [open, setOpen] = createSignal(false)
+  const syntax = createSyntaxStyleMemo(() => generateSubtleSyntax(theme))
+  const label = createMemo(() => compactionLabel(props.message))
+  const summary = createMemo(() =>
+    props.parts
+      .flatMap((part) => (part.type === "text" && part.text.trim() ? [part.text.trim()] : []))
+      .join("\n\n"),
+  )
+  const toggleable = createMemo(() => label().state === "done" && !!summary())
+
+  return (
+    <box id={props.message.id} paddingLeft={3} marginTop={1} flexDirection="column" flexShrink={0}>
+      <Switch>
+        <Match when={label().state === "running"}>
+          <Spinner>{label().text}</Spinner>
+        </Match>
+        <Match when={true}>
+          <box onMouseUp={() => toggleable() && setOpen((prev) => !prev)}>
+            <text fg={theme.textMuted} wrapMode="none">
+              <span style={{ fg: label().state === "failed" ? theme.error : theme.textMuted }}>
+                {label().state === "done" ? "✓ " : label().state === "failed" ? "✗ " : "· "}
+              </span>
+              {label().text}
+              <Show when={toggleable()}>
+                <span>{open() ? " · click to hide summary" : " · click to view summary"}</span>
+              </Show>
+            </text>
+          </box>
+        </Match>
+      </Switch>
+      <Show when={label().state === "failed" && props.message.error?.data.message}>
+        <text fg={theme.textMuted} paddingLeft={2}>
+          {String(props.message.error?.data.message)}
+        </text>
+      </Show>
+      <Show when={open() && toggleable()}>
+        <box paddingLeft={2} marginTop={1}>
+          <code
+            filetype="markdown"
+            drawUnstyledText={false}
+            streaming={false}
+            syntaxStyle={syntax()}
+            content={summary()}
+            conceal={ctx.conceal()}
+            fg={theme.textMuted}
+          />
+        </box>
+      </Show>
+    </box>
   )
 }
 

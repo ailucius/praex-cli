@@ -126,8 +126,10 @@ export namespace Timeline {
     const interrupted = interruptedMessageIndex !== -1
     const error = assistantMessages.find((m) => m.error && m.error.name !== "MessageAbortedError")?.error
 
+    // A compaction turn shows only its "Conversation compacted" divider. The summary the model
+    // wrote (Goal / Progress / Next Steps template) is context for the model, not chat.
     const assistantPartRefs = assistantMessages.flatMap((message, messageIndex) =>
-      getMessageParts(message.id)
+      (compaction && message.summary === true ? [] : getMessageParts(message.id))
         .filter((part) => renderable(part, showReasoning))
         .map((part) => ({ messageID: message.id, messageIndex, part })),
     )
