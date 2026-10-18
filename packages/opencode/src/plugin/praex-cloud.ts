@@ -191,13 +191,13 @@ function waitForCallback(state: string): Promise<TokenResponse> {
 // the display name — nothing else. Retiring or adding a model is now a gateway deploy only.
 const GATEWAY_BASE_URL = "https://praex-gateway-384599766402.us-central1.run.app/v1"
 const TIER_LIMITS = { context: 32768, output: 8192 }
-export type HostedModel = { name: string; limit: { context: number; output: number } }
+export type HostedModel = { name: string; plan?: string; limit: { context: number; output: number } }
 export type HostedLineup = Record<string, HostedModel>
 // 09-23 (founder decision): Praex ships ONE hosted model. Pro is more Velox, not another model.
 // The live gateway list still wins; this is only the offline / first-run fallback.
 export const BAKED_LINEUP: HostedLineup = {
-  "velox-ii-baked": { name: "Velox II", limit: { ...TIER_LIMITS } },
-  "faber-ii": { name: "Faber II · Pro", limit: { ...TIER_LIMITS } }, // on demand, paying Pro only
+  "velox-ii-baked": { name: "Velox II", plan: "free", limit: { ...TIER_LIMITS } },
+  "faber-ii": { name: "Faber II · Pro", plan: "pro", limit: { ...TIER_LIMITS } }, // on demand, paying Pro only
 }
 const LINEUP_TIMEOUT_MS = 1500 // first launch with no cache blocks at most this long
 const LINEUP_TTL_MS = 60 * 60 * 1000 // cache is served immediately; older than this = refresh in the background
@@ -212,6 +212,7 @@ export function parseLineup(body: unknown): HostedLineup | undefined {
     const output = Number(m.limit?.output)
     out[m.id] = {
       name: typeof m.name === "string" && m.name ? m.name : m.id,
+      ...(typeof m.plan === "string" && m.plan ? { plan: m.plan } : {}),
       limit: {
         context: Number.isFinite(context) && context > 0 ? context : TIER_LIMITS.context,
         output: Number.isFinite(output) && output > 0 ? output : TIER_LIMITS.output,
@@ -276,20 +277,36 @@ export function hostedBaseURL(user: Record<string, any> | undefined): string {
 
 // The provider block the CLI actually uses: the user's endpoint/name survive, the model list
 // is always the lineup (so a stale user block can never resurrect a retired model).
-/** The free tier's id: the entry whose display name ends in "· free", else the first entry. */
+/** The free tier's id: the entry with plan "free", else a display name ending in "· free", else the first entry. */
 export function freeModelID(lineup: HostedLineup) {
   const ids = Object.keys(lineup)
-  return ids.find((id) => /·\s*free$/i.test(lineup[id].name)) ?? ids[0]
+  return (
+    ids.find((id) => lineup[id].plan === "free") ?? ids.find((id) => /·\s*free$/i.test(lineup[id].name)) ?? ids[0]
+  )
+}
+
+// The gateway may name a tier plainly ("Velox II") and carry its plan separately. The picker labels
+// and orders tiers by a "· <plan>" suffix (tierRank in tui dialog-model), so add one when it is missing.
+const PLAN_LABEL: Record<string, string> = { free: "free", pro: "Pro", max: "Max" }
+function displayName(m: HostedModel) {
+  const label = m.plan ? PLAN_LABEL[m.plan] : undefined
+  return label && !m.name.includes("·") ? `${m.name} · ${label}` : m.name
 }
 
 export function hostedProvider(user: Record<string, any> | undefined, lineup: HostedLineup) {
   const u = user ?? {}
+  const free = freeModelID(lineup)
   return {
     ...u,
     npm: "@ai-sdk/openai-compatible",
     name: typeof u.name === "string" && u.name ? u.name : "Praex",
     options: { ...(u.options ?? {}), baseURL: hostedBaseURL(user) },
-    models: Object.fromEntries(Object.entries(lineup).map(([id, m]) => [id, { name: m.name, limit: { ...m.limit } }])),
+    // free tier first, for any client that keeps the provider's model order
+    models: Object.fromEntries(
+      Object.entries(lineup)
+        .sort(([a], [b]) => Number(b === free) - Number(a === free))
+        .map(([id, m]) => [id, { name: displayName(m), limit: { ...m.limit } }]),
+    ),
   }
 }
 

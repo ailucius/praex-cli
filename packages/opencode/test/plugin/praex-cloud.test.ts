@@ -36,7 +36,24 @@ describe("praex-cloud hosted lineup", () => {
     const p = hostedProvider(undefined, BAKED_LINEUP)
     expect(p.name).toBe("Praex")
     expect(p.options.baseURL).toMatch(/^https:\/\/praex-gateway-.*\/v1$/)
-    expect(p.models["velox-ii-baked"].name).toBe("Velox II")
+    expect(p.models["velox-ii-baked"].name).toBe("Velox II · free")
+    expect(p.models["faber-ii"].name).toBe("Faber II · Pro")
+  })
+
+  test("plain gateway names get their plan suffix, and the free tier is listed first", () => {
+    const l = parseLineup({
+      data: [
+        { id: "faber-ii", name: "Faber II", plan: "pro" },
+        { id: "velox-ii-baked", name: "Velox II", plan: "free" },
+        { id: "z", name: "Z" },
+      ],
+    })!
+    expect(l["velox-ii-baked"].plan).toBe("free")
+    const p = hostedProvider(undefined, l)
+    expect(Object.keys(p.models)).toEqual(["velox-ii-baked", "faber-ii", "z"])
+    expect(p.models["velox-ii-baked"].name).toBe("Velox II · free")
+    expect(p.models["faber-ii"].name).toBe("Faber II · Pro")
+    expect(p.models["z"].name).toBe("Z")
   })
 
   test("live gateway list wins and is written to the cache", async () => {
@@ -47,7 +64,7 @@ describe("praex-cloud hosted lineup", () => {
     try {
       const file = await tmpCache()
       const l = await hostedLineup(`http://127.0.0.1:${srv.port}/v1`, { cacheFile: file })
-      expect(l).toEqual({ "x-1": { name: "X · free", limit: { context: 4096, output: 512 } } })
+      expect(l).toEqual({ "x-1": { name: "X · free", plan: "free", limit: { context: 4096, output: 512 } } })
       const c = JSON.parse(await fs.readFile(file, "utf8"))
       expect(c.models["x-1"].name).toBe("X · free")
       expect(c.baseURL).toBe(`http://127.0.0.1:${srv.port}/v1`)
@@ -77,8 +94,9 @@ describe("praex-cloud hosted lineup", () => {
     expect(l).toEqual(BAKED_LINEUP)
   })
 
-  test("freeModelID picks the '· free' tier, else the first entry", () => {
+  test("freeModelID picks plan free, else the '· free' tier, else the first entry", () => {
     expect(freeModelID(BAKED_LINEUP)).toBe("velox-ii-baked")
+    expect(freeModelID({ "p": { name: "Faber II", plan: "pro", limit: { context: 1, output: 1 } }, "f": { name: "Velox II", plan: "free", limit: { context: 1, output: 1 } } })).toBe("f")
     expect(freeModelID({ "b": { name: "B · Pro", limit: { context: 1, output: 1 } }, "a": { name: "A · free", limit: { context: 1, output: 1 } } })).toBe("a")
     expect(freeModelID({ "x": { name: "X", limit: { context: 1, output: 1 } } })).toBe("x")
   })
