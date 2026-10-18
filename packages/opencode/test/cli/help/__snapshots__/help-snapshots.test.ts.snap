@@ -212,7 +212,7 @@ Options:
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode serve --help 1`] = `
 "praex serve
 
-starts a headless praex server
+start a headless praex server
 
 Options:
   -h, --help         show help                                                             [boolean]
@@ -324,30 +324,29 @@ exports[`opencode CLI help-text snapshots every documented command emits stable 
 █▄▄▄▄▄▄▄▄▄█ █     █  ▀▄ █   █ █▄▄▄▄ ▄▀ ▀▄
 
 Commands:
-  praex completion          generate shell completion script
-  praex acp                 start ACP (Agent Client Protocol) server
-  praex mcp                 manage MCP (Model Context Protocol) servers
-  praex [project]           Praex — your own frontier models in the terminal (starts the TUI)
-                                                                                           [default]
-  praex attach <url>        attach to a running praex server
+  praex [project]           start Praex in the terminal (your own frontier models)         [default]
   praex run [message..]     run praex with a message
-  praex debug               debugging and troubleshooting tools
-  praex providers           manage AI providers and credentials                      [aliases: auth]
   praex login               sign in to Praex · Velox II free with your Google account
   praex logout              sign out of Praex
-  praex agent               manage agents
-  praex upgrade             update praex to the latest version                     [aliases: update]
-  praex uninstall           uninstall praex and remove all related files
-  praex serve               starts a headless praex server
-  praex web                 start praex server and open web interface
   praex models [provider]   list all available models
+  praex upgrade             update praex to the latest version                     [aliases: update]
+  praex providers           manage AI providers and credentials                      [aliases: auth]
+  praex mcp                 manage MCP (Model Context Protocol) servers
+  praex agent               manage agents
+  praex session             manage sessions
   praex stats               show token usage and cost statistics
   praex export [sessionID]  export session data as JSON
   praex import <file>       import session data from JSON file or URL
   praex pr <number>         fetch and checkout a GitHub PR branch, then run praex
-  praex session             manage sessions
   praex plugin <module>     install plugin and update config                         [aliases: plug]
+  praex attach <url>        attach to a running praex server
+  praex serve               start a headless praex server
+  praex web                 start praex server and open web interface
+  praex acp                 start ACP (Agent Client Protocol) server
+  praex debug               debugging and troubleshooting tools
   praex db                  database tools
+  praex uninstall           uninstall praex and remove all related files
+  praex completion          generate shell completion script
 
 Positionals:
   project  path to start praex in                                                           [string]
@@ -630,30 +629,29 @@ exports[`opencode CLI help-text snapshots every documented command emits stable 
 █▄▄▄▄▄▄▄▄▄█ █     █  ▀▄ █   █ █▄▄▄▄ ▄▀ ▀▄
 
 Commands:
-  praex completion          generate shell completion script
-  praex acp                 start ACP (Agent Client Protocol) server
-  praex mcp                 manage MCP (Model Context Protocol) servers
-  praex [project]           Praex — your own frontier models in the terminal (starts the TUI)
-                                                                                           [default]
-  praex attach <url>        attach to a running praex server
+  praex [project]           start Praex in the terminal (your own frontier models)         [default]
   praex run [message..]     run praex with a message
-  praex debug               debugging and troubleshooting tools
-  praex providers           manage AI providers and credentials                      [aliases: auth]
   praex login               sign in to Praex · Velox II free with your Google account
   praex logout              sign out of Praex
-  praex agent               manage agents
-  praex upgrade             update praex to the latest version                     [aliases: update]
-  praex uninstall           uninstall praex and remove all related files
-  praex serve               starts a headless praex server
-  praex web                 start praex server and open web interface
   praex models [provider]   list all available models
+  praex upgrade             update praex to the latest version                     [aliases: update]
+  praex providers           manage AI providers and credentials                      [aliases: auth]
+  praex mcp                 manage MCP (Model Context Protocol) servers
+  praex agent               manage agents
+  praex session             manage sessions
   praex stats               show token usage and cost statistics
   praex export [sessionID]  export session data as JSON
   praex import <file>       import session data from JSON file or URL
   praex pr <number>         fetch and checkout a GitHub PR branch, then run praex
-  praex session             manage sessions
   praex plugin <module>     install plugin and update config                         [aliases: plug]
+  praex attach <url>        attach to a running praex server
+  praex serve               start a headless praex server
+  praex web                 start praex server and open web interface
+  praex acp                 start ACP (Agent Client Protocol) server
+  praex debug               debugging and troubleshooting tools
   praex db                  database tools
+  praex uninstall           uninstall praex and remove all related files
+  praex completion          generate shell completion script
 
 Positionals:
   project  path to start praex in                                                           [string]
@@ -686,30 +684,29 @@ exports[`opencode CLI help-text snapshots every documented command emits stable 
 █▄▄▄▄▄▄▄▄▄█ █     █  ▀▄ █   █ █▄▄▄▄ ▄▀ ▀▄
 
 Commands:
-  praex completion          generate shell completion script
-  praex acp                 start ACP (Agent Client Protocol) server
-  praex mcp                 manage MCP (Model Context Protocol) servers
-  praex [project]           Praex — your own frontier models in the terminal (starts the TUI)
-                                                                                           [default]
-  praex attach <url>        attach to a running praex server
+  praex [project]           start Praex in the terminal (your own frontier models)         [default]
   praex run [message..]     run praex with a message
-  praex debug               debugging and troubleshooting tools
-  praex providers           manage AI providers and credentials                      [aliases: auth]
   praex login               sign in to Praex · Velox II free with your Google account
   praex logout              sign out of Praex
-  praex agent               manage agents
-  praex upgrade             update praex to the latest version                     [aliases: update]
-  praex uninstall           uninstall praex and remove all related files
-  praex serve               starts a headless praex server
-  praex web                 start praex server and open web interface
   praex models [provider]   list all available models
+  praex upgrade             update praex to the latest version                     [aliases: update]
+  praex providers           manage AI providers and credentials                      [aliases: auth]
+  praex mcp                 manage MCP (Model Context Protocol) servers
+  praex agent               manage agents
+  praex session             manage sessions
   praex stats               show token usage and cost statistics
   praex export [sessionID]  export session data as JSON
   praex import <file>       import session data from JSON file or URL
   praex pr <number>         fetch and checkout a GitHub PR branch, then run praex
-  praex session             manage sessions
   praex plugin <module>     install plugin and update config                         [aliases: plug]
+  praex attach <url>        attach to a running praex server
+  praex serve               start a headless praex server
+  praex web                 start praex server and open web interface
+  praex acp                 start ACP (Agent Client Protocol) server
+  praex debug               debugging and troubleshooting tools
   praex db                  database tools
+  praex uninstall           uninstall praex and remove all related files
+  praex completion          generate shell completion script
 
 Positionals:
   project  path to start praex in                                                           [string]
