@@ -27,7 +27,7 @@ export function DialogAfk(props: { info: AfkInfo; onStop?: () => Promise<void> }
 
   const stop = async () => {
     await props.onStop?.().catch(() => {})
-    toast.show({ message: "AFK stopped — session is no longer exposed", variant: "info", duration: 4000 })
+    toast.show({ message: "AFK stopped. This session is no longer exposed.", variant: "info", duration: 4000 })
     dialog.clear()
   }
 
@@ -77,7 +77,7 @@ export function DialogAfk(props: { info: AfkInfo; onStop?: () => Promise<void> }
         </text>
       </box>
       <text fg={theme.textMuted}>
-        Control this session remotely — prompt, switch models, and approve permissions from your phone or the
+        Control this session remotely: prompt, switch models, and approve permissions from your phone or the
         web, like a remote. Scan below (same Wi-Fi or tailnet), then add to home screen.
       </text>
       <box alignSelf="flex-start" backgroundColor="#FFFFFF" paddingLeft={2} paddingRight={2}>
@@ -96,12 +96,12 @@ export function DialogAfk(props: { info: AfkInfo; onStop?: () => Promise<void> }
           when={props.info.password}
           fallback={
             <text fg={theme.error}>
-              No server password is set — anyone who can reach this port controls this machine.
+              No server password is set. Anyone who can reach this port controls this machine.
             </text>
           }
         >
           <text fg={theme.textMuted}>
-            sign in — user: {props.info.username} password: {props.info.password}
+            sign in with user {props.info.username}, password {props.info.password}
           </text>
         </Show>
       </box>

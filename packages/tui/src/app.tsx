@@ -746,8 +746,8 @@ function App(props: {
             variant: local.permission.current() === "auto" ? "warning" : "info",
             message:
               local.permission.current() === "auto"
-                ? "Auto mode — tools run without asking"
-                : "Manual mode — sensitive tools ask first",
+                ? "Auto mode: tools run without asking"
+                : "Manual mode: sensitive tools ask first",
             duration: 2000,
           })
         },
@@ -826,7 +826,7 @@ function App(props: {
       },
       {
         name: "docs.open",
-        title: "Open docs",
+        title: "Open praex.ai",
         run: () => {
           open("https://praex.ai").catch(() => {})
           dialog.clear()
@@ -835,7 +835,7 @@ function App(props: {
       },
       {
         name: "app.afk",
-        title: "AFK — control this session from your phone",
+        title: "AFK: control this session from your phone",
         slashName: "afk",
         slashAliases: ["remote"],
         category: "System",
@@ -845,7 +845,7 @@ function App(props: {
             const info = await props.onExpose!()
             toast.show({
               variant: "success",
-              message: "AFK is now active — control this session from your phone or the web",
+              message: "AFK is on. Control this session from your phone or the web.",
               duration: 4000,
             })
             dialog.replace(() => <DialogAfk info={info} onStop={props.onExposeStop} />)
@@ -857,7 +857,7 @@ function App(props: {
       },
       {
         name: "session.usage",
-        title: "Usage — tokens & cost this session",
+        title: "Usage: tokens and cost for this session",
         slashName: "usage",
         category: "Session",
         enabled: () => route.data.type === "session",
@@ -1081,8 +1081,8 @@ function App(props: {
 
     const choice = await DialogConfirm.show(
       dialog,
-      `Update Available`,
-      `A new release v${version} is available. Would you like to update now?`,
+      `Update available`,
+      `Praex v${version} is available. Update now?`,
       "skip",
     )
 
@@ -1102,10 +1102,11 @@ function App(props: {
     const result = await sdk.client.global.upgrade({ target: version })
 
     if (result.error || !result.data?.success) {
+      const reason = result.error ? errorMessage(result.error) : undefined
       toast.show({
         variant: "error",
-        title: "Update Failed",
-        message: "Update failed",
+        title: "Update failed",
+        message: reason && reason !== "[object Object]" ? reason : "Run praex update in a terminal to retry.",
         duration: 10000,
       })
       return
@@ -1113,8 +1114,8 @@ function App(props: {
 
     await DialogAlert.show(
       dialog,
-      "Update Complete",
-      `Updated to Praex v${result.data.version}. Restart praex to use the new version.`,
+      "Update complete",
+      `Updated to Praex v${result.data.version}. Restart praex to use it.`,
     )
 
     void exit()

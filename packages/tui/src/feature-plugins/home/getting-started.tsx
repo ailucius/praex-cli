@@ -28,8 +28,8 @@ function View(props: { api: TuiPluginApi; first: boolean; signedIn: boolean }) {
           <text fg={theme().text} wrapMode="word">
             <span style={{ fg: theme().warning }}>● </span>Not signed in.{" "}
             <span style={{ fg: theme().textMuted }}>
-              <span style={{ fg: theme().text }}>praex login</span> gets you the free hosted model, Velox II, every
-              day. Own keys: <span style={{ fg: theme().text }}>{connect() || "/connect"}</span>
+              Run <span style={{ fg: theme().text }}>{connect() || "/connect"}</span> and pick Praex to use Velox II
+              for free, or add your own provider keys there.
             </span>
           </text>
         </box>

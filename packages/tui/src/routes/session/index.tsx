@@ -469,7 +469,7 @@ export function Session() {
         const copy = (url: string) =>
           clipboard
             .write?.(url)
-            .then(() => toast.show({ message: "Share URL copied to clipboard!", variant: "success" }))
+            .then(() => toast.show({ message: "Share URL copied to clipboard", variant: "success" }))
             .catch(() => toast.show({ message: "Failed to copy URL to clipboard", variant: "error" }))
         const url = session()?.share?.url
         if (url) {
@@ -905,7 +905,7 @@ export function Session() {
 
         clipboard
           .write?.(text)
-          .then(() => toast.show({ message: "Message copied to clipboard!", variant: "success" }))
+          .then(() => toast.show({ message: "Message copied to clipboard", variant: "success" }))
           .catch(() => toast.show({ message: "Failed to copy to clipboard", variant: "error" }))
         dialog.clear()
       },
@@ -933,7 +933,7 @@ export function Session() {
             },
           )
           await clipboard.write?.(transcript)
-          toast.show({ message: "Session transcript copied to clipboard!", variant: "success" })
+          toast.show({ message: "Session transcript copied to clipboard", variant: "success" })
         } catch {
           toast.show({ message: "Failed to copy session transcript", variant: "error" })
         }

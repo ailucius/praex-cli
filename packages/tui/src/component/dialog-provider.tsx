@@ -15,14 +15,15 @@ import { isConsoleManagedProvider } from "../util/provider-origin"
 import { useConnected } from "./use-connected"
 import { useBindings } from "../keymap"
 import { useClipboard } from "../context/clipboard"
+import { errorMessage } from "../util/error"
 
+// Praex's own hosted models come first; the rest are bring-your-own-key providers.
 const PROVIDER_PRIORITY: Record<string, number> = {
-  opencode: 0,
-  "opencode-go": 1,
-  openai: 2,
-  "github-copilot": 3,
-  anthropic: 4,
-  google: 5,
+  "praex-cloud": 0,
+  openai: 1,
+  "github-copilot": 2,
+  anthropic: 3,
+  google: 4,
 }
 
 const CUSTOM_PROVIDER_OPTION_VALUE = "__opencode_custom_provider__"
@@ -59,10 +60,9 @@ export function providerOptions(list: { id: string; name: string }[]): ProviderO
         value: provider.id,
         providerID: provider.id,
         description: {
-          opencode: "(Recommended)",
+          "praex-cloud": "(Recommended · Velox II is free)",
           anthropic: "(API key)",
           openai: "(ChatGPT Plus/Pro or API key)",
-          "opencode-go": "Low cost subscription for everyone",
         }[provider.id],
         category: provider.id in PROVIDER_PRIORITY ? "Popular" : "Providers",
       })),
@@ -190,7 +190,7 @@ export function createDialogProviderOptions() {
               if (result.error) {
                 toast.show({
                   variant: "error",
-                  message: JSON.stringify(result.error),
+                  message: errorMessage(result.error),
                 })
                 dialog.clear()
                 return
@@ -272,8 +272,8 @@ function AutoMethod(props: AutoMethodProps) {
         variant: "error",
         message:
           "name" in result.error && result.error.name === "ProviderAuthOauthCallbackFailed"
-            ? "OAuth authorization failed. Try /connect again."
-            : JSON.stringify(result.error),
+            ? "Sign-in did not finish. Try /connect again."
+            : errorMessage(result.error),
       })
       dialog.clear()
       return
@@ -407,7 +407,7 @@ function ApiMethod(props: ApiMethodProps) {
         if (props.custom && !sync.data.provider_next.all.some((provider) => provider.id === props.providerID)) {
           toast.show({
             variant: "info",
-            message: `Saved credential for ${props.providerID}. Configure it in opencode.json to use it.`,
+            message: `Saved credential for ${props.providerID}. Configure it in praex.json to use it.`,
           })
           dialog.clear()
           return

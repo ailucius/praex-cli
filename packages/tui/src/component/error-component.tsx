@@ -50,19 +50,10 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
 
   return (
     <box flexDirection="column" gap={1} backgroundColor={colors.bg}>
-      <box flexDirection="row" gap={1} alignItems="center">
-        <text attributes={TextAttributes.BOLD} fg={colors.text}>
-          Please report an issue.
-        </text>
-        <box onMouseUp={copyIssueURL} backgroundColor={colors.primary} padding={1}>
-          <text attributes={TextAttributes.BOLD} fg={colors.bg}>
-            Copy issue URL (exception info pre-filled)
-          </text>
-        </box>
-        {copied() && <text fg={colors.muted}>Successfully copied</text>}
-      </box>
       <box flexDirection="row" gap={2} alignItems="center">
-        <text fg={colors.text}>A fatal error occurred!</text>
+        <text attributes={TextAttributes.BOLD} fg={colors.text}>
+          Praex hit an unexpected error.
+        </text>
         <box onMouseUp={props.reset} backgroundColor={colors.primary} padding={1}>
           <text fg={colors.bg}>Reset TUI</text>
         </box>
@@ -70,10 +61,19 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
           <text fg={colors.bg}>Exit</text>
         </box>
       </box>
+      <text fg={colors.text}>{props.error.message}</text>
+      <box flexDirection="row" gap={1} alignItems="center">
+        <text fg={colors.muted}>Help us fix it:</text>
+        <box onMouseUp={copyIssueURL} backgroundColor={colors.primary} padding={1}>
+          <text attributes={TextAttributes.BOLD} fg={colors.bg}>
+            Copy issue link (error details included)
+          </text>
+        </box>
+        {copied() && <text fg={colors.muted}>Copied</text>}
+      </box>
       <scrollbox height={Math.floor(term().height * 0.7)} scrollAcceleration={getScrollAcceleration()}>
         <text fg={colors.muted}>{props.error.stack}</text>
       </scrollbox>
-      <text fg={colors.text}>{props.error.message}</text>
     </box>
   )
 }

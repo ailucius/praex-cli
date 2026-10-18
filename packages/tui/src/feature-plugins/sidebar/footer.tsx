@@ -55,7 +55,7 @@ function View(props: { api: TuiPluginApi; sessionID: string }) {
             </box>
             <text fg={theme().textMuted}>Praex includes free models so you can start immediately.</text>
             <text fg={theme().textMuted}>
-              Connect from 75+ providers to use other models, including Claude, GPT, Gemini etc
+              Connect from 75+ providers to use other models, including Claude, GPT and Gemini.
             </text>
             <box flexDirection="row" gap={1} justifyContent="space-between">
               <text fg={theme().text}>Connect provider</text>
@@ -69,9 +69,9 @@ function View(props: { api: TuiPluginApi; sessionID: string }) {
         <span style={{ fg: theme().text }}>{path().name}</span>
       </text>
       <text fg={theme().textMuted}>
-        <span style={{ fg: theme().success }}>•</span> <b>Open</b>
+        <span style={{ fg: theme().success }}>•</span>{" "}
         <span style={{ fg: theme().text }}>
-          <b>Code</b>
+          <b>Praex</b>
         </span>{" "}
         <span>{props.api.app.version}</span>
       </text>
