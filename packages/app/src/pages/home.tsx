@@ -1283,20 +1283,23 @@ function LegacyHome() {
     >
     <div class="mx-auto mt-55 w-full md:w-auto px-4">
       <Logo class="md:w-xl opacity-90" />
-      <Button
-        size="large"
-        variant="ghost"
-        class="mt-4 mx-auto text-14-regular text-text-weak"
-        onClick={() => dialog.show(() => <DialogSelectServer />)}
-      >
-        <div
-          classList={{
-            "size-2 rounded-full": true,
-            [serverDotClass()]: true,
-          }}
-        />
-        {server.name}
-      </Button>
+      {/* The button is inline-flex, so mx-auto alone left it hugging the left edge under the logo. */}
+      <div class="mt-4 flex justify-center">
+        <Button
+          size="large"
+          variant="ghost"
+          class="text-14-regular text-text-weak"
+          onClick={() => dialog.show(() => <DialogSelectServer />)}
+        >
+          <div
+            classList={{
+              "size-2 rounded-full": true,
+              [serverDotClass()]: true,
+            }}
+          />
+          {server.name}
+        </Button>
+      </div>
       <Switch>
         <Match when={recent().length > 0}>
           <div class="mt-20 w-full flex flex-col gap-4">

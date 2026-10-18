@@ -496,7 +496,7 @@ export const dict = {
 
   "home.recentProjects": "โปรเจกต์ล่าสุด",
 
-  "home.welcome.tagline": "Your own frontier models, on your machine. No nannying.",
+  "home.welcome.tagline": "Praex's own frontier models, in an app on your machine. No nannying.",
 
   "home.welcome.tiers": "Hosted models",
 

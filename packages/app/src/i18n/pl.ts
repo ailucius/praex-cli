@@ -447,7 +447,7 @@ export const dict = {
   "notification.session.error.title": "Błąd sesji",
   "notification.session.error.fallbackDescription": "Wystąpił błąd",
   "home.recentProjects": "Ostatnie projekty",
-  "home.welcome.tagline": "Your own frontier models, on your machine. No nannying.",
+  "home.welcome.tagline": "Praex's own frontier models, in an app on your machine. No nannying.",
   "home.welcome.tiers": "Hosted models",
   "home.welcome.signIn": "Sign in with Google",
   "home.welcome.skip": "Continue without signing in",

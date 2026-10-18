@@ -448,7 +448,7 @@ export const dict = {
   "notification.session.error.title": "Erro na sessão",
   "notification.session.error.fallbackDescription": "Ocorreu um erro",
   "home.recentProjects": "Projetos recentes",
-  "home.welcome.tagline": "Your own frontier models, on your machine. No nannying.",
+  "home.welcome.tagline": "Praex's own frontier models, in an app on your machine. No nannying.",
   "home.welcome.tiers": "Hosted models",
   "home.welcome.signIn": "Sign in with Google",
   "home.welcome.skip": "Continue without signing in",
