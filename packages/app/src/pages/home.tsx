@@ -388,7 +388,7 @@ function HomeDesign() {
           clearNotifications={clearNotifications}
           unseenCount={unseenCount}
           openSettings={openSettings}
-          openHelp={() => platform.openLink("https://github.com/downoff/praex-cli/issues")}
+          openHelp={() => platform.openLink("https://github.com/ailucius/praex-cli/issues")}
           language={language}
         />
 

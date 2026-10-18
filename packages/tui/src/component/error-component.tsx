@@ -18,7 +18,7 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
   })
   const [copied, setCopied] = createSignal(false)
 
-  const issueURL = new URL("https://github.com/downoff/praex-cli/issues/new")
+  const issueURL = new URL("https://github.com/ailucius/praex-cli/issues/new")
 
   // Choose safe fallback colors per mode since theme context may not be available
   const isLight = props.mode === "light"
