@@ -4,8 +4,9 @@ name: desktop
 # workflow run. Nothing is published from here: download the artifacts, verify them, then
 # upload to gs://praex-web-data/dl/desktop/ with the release script.
 #
-# Signing/notarization is intentionally absent for now (unsigned builds are fine for testers):
-#   macOS: CSC_IDENTITY_AUTO_DISCOVERY=false skips codesign; notarization stays off until
+# No Developer ID signing yet:
+#   macOS: CSC_IDENTITY_AUTO_DISCOVERY=false skips the keychain search and the app is signed ad
+#          hoc (electron-builder.config.ts); notarization stays off until
 #          APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER are set as secrets.
 #   Windows: signing only runs when AZURE_CLIENT_ID is present (see electron-builder.config.ts).
 

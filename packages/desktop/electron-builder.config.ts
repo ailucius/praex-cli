@@ -45,6 +45,12 @@ const UPDATE_URL = "https://praex.ai/dl/desktop"
 // macOS notarization needs an Apple API key; without one electron-builder must not try.
 const notarize = Boolean(process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER)
 
+// Without an Apple certificate the app is signed ad hoc, so the bundle is sealed. A downloaded
+// app with no bundle signature at all is reported as "damaged" on Apple Silicon, with no way to
+// open it; an ad-hoc one gets the normal "Open Anyway" path in System Settings. Hardened runtime
+// only matters for notarization, so it stays off until there is a certificate.
+const macCert = Boolean(process.env.CSC_LINK || process.env.CSC_NAME)
+
 // The macOS native helper (packages/desktop/native) is only built on macOS runners.
 const nativeDir = path.join(packageDir, "native")
 
@@ -72,7 +78,8 @@ const getBase = (appId: string): Configuration => ({
   mac: {
     category: "public.app-category.developer-tools",
     icon: `resources/icons/icon.icns`,
-    hardenedRuntime: true,
+    identity: macCert ? undefined : "-",
+    hardenedRuntime: macCert,
     gatekeeperAssess: false,
     entitlements: "resources/entitlements.plist",
     entitlementsInherit: "resources/entitlements.plist",
