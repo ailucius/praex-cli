@@ -26,6 +26,10 @@ export const layer = Layer.effect(
     const share = Effect.fn("SessionShare.share")(function* (sessionID: SessionID) {
       const conf = yield* cfg.get()
       if (conf.share === "disabled") throw new Error("Sharing is disabled in configuration")
+      // Praex has no share host yet. Without a configured server, upstream would upload the
+      // conversation to OpenCode's public service (opncd.ai), so refuse instead.
+      if (!conf.enterprise?.url)
+        throw new Error("Sharing is not available in Praex yet. Nothing was uploaded.")
       const result = yield* shareNext.create(sessionID)
       yield* session.setShare({ sessionID, share: { url: result.url } })
       return result
