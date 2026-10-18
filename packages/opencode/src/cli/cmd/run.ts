@@ -632,6 +632,7 @@ export const RunCommand = effectCmd({
         async function loop(client: OpencodeClient, events: Awaited<ReturnType<typeof sdk.event.subscribe>>) {
           const toggles = new Map<string, boolean>()
           let error: string | undefined
+          let retried: number | undefined
 
           for await (const event of events.stream) {
             if (
@@ -726,6 +727,24 @@ export const RunCommand = effectCmd({
               event.properties.status.type === "idle"
             ) {
               break
+            }
+
+            // A model that is waking up (or a provider that keeps failing) would otherwise look
+            // like a frozen terminal: say why we are waiting and when the next try is.
+            if (
+              event.type === "session.status" &&
+              event.properties.sessionID === sessionID &&
+              event.properties.status.type === "retry" &&
+              event.properties.status.attempt !== retried
+            ) {
+              const status = event.properties.status
+              retried = status.attempt
+              if (emit("retry", { status })) continue
+              const wait = Math.max(0, Math.round((status.next - Date.now()) / 1000))
+              UI.println(
+                UI.Style.TEXT_WARNING_BOLD + "~",
+                UI.Style.TEXT_NORMAL + `${status.message.replace(/\.$/, "")} · retrying in ${wait}s (attempt ${status.attempt})`,
+              )
             }
 
             if (event.type === "permission.asked") {

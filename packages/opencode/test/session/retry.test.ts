@@ -227,6 +227,21 @@ describe("session.retry.retryable", () => {
     expect(SessionRetry.retryable(error, retryProvider)).toEqual({ message: "Service unavailable" })
   })
 
+  test("praex-cloud: a model that could not start is final; waking up keeps retrying", () => {
+    const gateway = (message: string) =>
+      Schema.decodeUnknownSync(SessionV1.APIError.Schema)(
+        new SessionV1.APIError({ message, isRetryable: false, statusCode: 503, responseHeaders: { "retry-after": "60" } }).toObject(),
+      )
+    const full = gateway("Faber II could not start: GPU capacity is full. Try again in a few minutes.")
+    expect(SessionRetry.retryable(full, "praex-cloud")).toBeUndefined()
+    expect(SessionRetry.retryable(gateway("Faber II has used this month's capacity. Back on the 1st."), "praex-cloud")).toBeUndefined()
+    expect(SessionRetry.retryable(gateway("Faber II is waking up, usually live in ~15 minutes."), "praex-cloud")).toEqual({
+      message: "Faber II is waking up, usually live in ~15 minutes.",
+    })
+    // other providers keep upstream behaviour
+    expect(SessionRetry.retryable(full, retryProvider)).toBeDefined()
+  })
+
   test("does not retry 4xx errors when isRetryable is false", () => {
     const error = Schema.decodeUnknownSync(SessionV1.APIError.Schema)(
       new SessionV1.APIError({

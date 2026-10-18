@@ -65,10 +65,16 @@ export function delay(attempt: number, error?: SessionV1.APIError) {
   return cap(Math.min(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1), RETRY_MAX_DELAY_NO_HEADERS))
 }
 
+// Praex gateway: a failed GPU start ("Faber II could not start: GPU capacity is full…") or a spent
+// monthly wake budget will not clear in 60s, and every retry asks for the GPU again. Waking/warming
+// messages stay retryable: the wake path relies on the CLI polling until the model is live.
+const PRAEX_FINAL = /\bcould not start\b|used this month's capacity/i
+
 export function retryable(error: Err, provider: string) {
   // context overflow errors should not be retried
   if (SessionV1.ContextOverflowError.isInstance(error)) return undefined
   if (SessionV1.APIError.isInstance(error)) {
+    if (provider === "praex-cloud" && PRAEX_FINAL.test(error.data.message)) return undefined
     const status = error.data.statusCode
     // 5xx errors are transient server failures and should always be retried,
     // even when the provider SDK doesn't explicitly mark them as retryable.
