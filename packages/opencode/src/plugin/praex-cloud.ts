@@ -311,15 +311,21 @@ export function hostedProvider(user: Record<string, any> | undefined, lineup: Ho
 }
 
 export async function PraexCloudAuthPlugin(input: PluginInput): Promise<Hooks> {
+  let lineup: HostedLineup = BAKED_LINEUP
   return {
     config: async (cfg) => {
       cfg.provider ??= {}
       const user = cfg.provider["praex-cloud"] as Record<string, any> | undefined
-      const lineup = await hostedLineup(hostedBaseURL(user))
+      lineup = await hostedLineup(hostedBaseURL(user))
       cfg.provider["praex-cloud"] = hostedProvider(user, lineup) as any
       // Praex is the default even when other providers are configured (a GEMINI_API_KEY in the
       // shell, say); a model the user set themselves always wins.
       cfg.model ??= `praex-cloud/${freeModelID(lineup)}`
+    },
+    // Session titles and other small-model work run on the free tier, never on a paid one.
+    "experimental.provider.small_model": async (incoming, output) => {
+      if (incoming.provider.id !== "praex-cloud") return
+      output.model ??= incoming.provider.models[freeModelID(lineup)]
     },
     auth: {
       provider: "praex-cloud",

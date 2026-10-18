@@ -111,4 +111,15 @@ describe("praex-cloud hosted lineup", () => {
     await hooks.config!(mine)
     expect(mine.model).toBe("google/gemini-3.5-flash")
   })
+
+  test("small model hook: titles run on the free tier, other providers untouched", async () => {
+    const hooks = await PraexCloudAuthPlugin({} as any)
+    const models = { "faber-ii": { id: "faber-ii" }, "velox-ii-baked": { id: "velox-ii-baked" } }
+    const out: any = { model: undefined }
+    await hooks["experimental.provider.small_model"]!({ provider: { id: "praex-cloud", models } } as any, out)
+    expect(out.model?.id).toBe("velox-ii-baked")
+    const other: any = { model: undefined }
+    await hooks["experimental.provider.small_model"]!({ provider: { id: "google", models } } as any, other)
+    expect(other.model).toBeUndefined()
+  })
 })
