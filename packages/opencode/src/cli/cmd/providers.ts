@@ -54,7 +54,10 @@ const handlePluginAuth = Effect.fn("Cli.providers.pluginAuth")(function* (
         }),
       )
     }
-    const match = plugin.auth.methods.findIndex((x) => x.label.toLowerCase() === methodName.toLowerCase())
+    const match = methodIndex(
+      plugin.auth.methods.map((x) => x.label),
+      methodName,
+    )
     if (match === -1) {
       return yield* fail(
         `Unknown method "${methodName}" for ${provider}. Available: ${plugin.auth.methods.map((x) => x.label).join(", ")}`,
@@ -107,7 +110,9 @@ const handlePluginAuth = Effect.fn("Cli.providers.pluginAuth")(function* (
       yield* spinner.start("Waiting for authorization...")
       const result = yield* cliTry("Failed to authorize: ", () => authorize.callback())
       if (result.type === "failed") {
-        yield* spinner.stop("Failed to authorize", 1)
+        yield* spinner.stop("Sign-in did not finish. Run the command again to retry.", 1)
+        process.exitCode = 1
+        return true
       }
       if (result.type === "success") {
         const saveProvider = result.provider ?? provider
@@ -134,13 +139,15 @@ const handlePluginAuth = Effect.fn("Cli.providers.pluginAuth")(function* (
 
     if (authorize.method === "code") {
       const code = yield* Prompt.text({
-        message: "Paste the authorization code here: ",
+        message: "Paste the connect code",
         validate: (x) => (x && x.length > 0 ? undefined : "Required"),
       })
       const authorizationCode = yield* promptValue(code)
       const result = yield* cliTry("Failed to authorize: ", () => authorize.callback(authorizationCode))
       if (result.type === "failed") {
-        yield* Prompt.log.error("Failed to authorize")
+        yield* Prompt.log.error("That code did not work. Copy a fresh one and run the command again.")
+        process.exitCode = 1
+        return true
       }
       if (result.type === "success") {
         const saveProvider = result.provider ?? provider
@@ -208,6 +215,16 @@ const handlePluginAuth = Effect.fn("Cli.providers.pluginAuth")(function* (
 
   return false
 })
+
+
+/** Exact label, or a unique case-insensitive fragment of one ("browser", "code"). */
+export function methodIndex(labels: string[], name: string) {
+  const wanted = name.trim().toLowerCase()
+  const exact = labels.findIndex((label) => label.toLowerCase() === wanted)
+  if (exact !== -1 || !wanted) return exact
+  const partial = labels.flatMap((label, index) => (label.toLowerCase().includes(wanted) ? [index] : []))
+  return partial.length === 1 ? partial[0] : -1
+}
 
 export function resolvePluginProviders(input: {
   hooks: Hooks[]
@@ -451,7 +468,7 @@ export const ProvidersLoginCommand = effectCmd({
       }
 
       yield* Prompt.log.warn(
-        `This only stores a credential for ${provider} - you will need configure it in praex.json, check the docs for examples.`,
+        `This only stores a credential for ${provider}. Configure the provider in praex.json to use it.`,
       )
     }
 

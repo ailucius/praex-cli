@@ -72,7 +72,7 @@ export function resolveThreadDirectory(project?: string, envPWD = process.env.PW
 
 export const TuiThreadCommand = cmd({
   command: "$0 [project]",
-  describe: "Praex — your own frontier models in the terminal (starts the TUI)",
+  describe: "start Praex in the terminal (your own frontier models)",
   builder: (yargs) =>
     withNetworkOptions(yargs)
       .positional("project", {
@@ -148,18 +148,24 @@ export const TuiThreadCommand = cmd({
           if (!auth || typeof auth !== "object" || Object.keys(auth).length === 0) {
             console.log()
             console.log("  Welcome to Praex.")
-            console.log("  Velox II is free · sign in with your Google account to start.")
-            console.log("  Bringing your own keys instead? Skip now, `praex auth login` any time.")
+            console.log("  Velox II is free. Sign in with your Google account to start.")
+            console.log("  Using your own API keys instead? Skip, then run `praex auth login` any time.")
             console.log()
             const readline = await import("node:readline/promises")
             const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
             const answer = await rl.question("  Press Enter to sign in with Google, or type s to skip: ")
             rl.close()
             if (!answer.trim().toLowerCase().startsWith("s")) {
+              // They already chose Google sign-in; skip the method menu when a local browser can
+              // receive the callback. Over SSH or without a display, keep the menu (connect code).
+              const browser =
+                !process.env.SSH_CONNECTION &&
+                (process.platform !== "linux" || !!process.env.DISPLAY || !!process.env.WAYLAND_DISPLAY)
+              const method = browser ? ["--method", "browser"] : []
               const login =
                 typeof OPENCODE_WORKER_PATH !== "undefined"
-                  ? [process.execPath, "login"]
-                  : [process.execPath, process.argv[1], "login"]
+                  ? [process.execPath, "login", ...method]
+                  : [process.execPath, process.argv[1], "login", ...method]
               await Bun.spawn({ cmd: login, stdio: ["inherit", "inherit", "inherit"] }).exited
             }
           }
