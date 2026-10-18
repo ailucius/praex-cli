@@ -58,6 +58,12 @@ describe("session.overflow.overheadHint", () => {
     expect(hint).not.toContain("\n")
   })
 
+  test("drops the plan suffix from hosted model names", () => {
+    expect(overheadHint({ overhead: 23_000, context: 32_768, modelName: "Velox II · free" })).toStartWith(
+      "Tools and instructions use ~23K of Velox II's 32K context.",
+    )
+  })
+
   test("falls back to wording without a number when the overhead is unknown", () => {
     expect(overheadHint({ overhead: 0, context: 32_768 })).toStartWith(
       "Tools and instructions use most of the model's 32K context.",

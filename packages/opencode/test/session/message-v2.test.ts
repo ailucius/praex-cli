@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { APICallError } from "ai"
 import { MessageV2 } from "../../src/session/message-v2"
+import { CONTEXT_OVERFLOW_MESSAGE } from "../../src/provider/error"
 import { ProviderTransform } from "@/provider/transform"
 import type { Provider } from "@/provider/provider"
 
@@ -1376,7 +1377,7 @@ describe("session.message-v2.fromError", () => {
     expect(result).toStrictEqual({
       name: "ContextOverflowError",
       data: {
-        message: "Input exceeds context window of this model",
+        message: CONTEXT_OVERFLOW_MESSAGE,
         responseBody: JSON.stringify(input),
       },
     })

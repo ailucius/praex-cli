@@ -1443,6 +1443,7 @@ export const layer = Layer.effect(
                   }).toObject()
                   handle.message.finish = "error"
                   yield* sessions.updateMessage(handle.message)
+                  yield* events.publish(Session.Event.Error, { sessionID, error: handle.message.error })
                   return "break" as const
                 }
                 yield* contextHint({ sessionID, overhead: plan.overhead, context: plan.context, modelName: model.name })

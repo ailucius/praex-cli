@@ -66,7 +66,9 @@ function kilo(tokens: number) {
 
 /** One plain line explaining why the conversation was not compacted. */
 export function overheadHint(input: { overhead: number; context: number; modelName?: string }) {
-  const model = input.modelName ? `${input.modelName}'s` : "the model's"
+  // Hosted names carry a plan suffix ("Velox II · free"); the hint wants the bare name.
+  const name = input.modelName?.split(" · ")[0]?.trim()
+  const model = name ? `${name}'s` : "the model's"
   const used = input.overhead > 0 ? `~${kilo(input.overhead)} of ${model} ${kilo(input.context)}` : `most of ${model} ${kilo(input.context)}`
   return `Tools and instructions use ${used} context. Disable unused MCP servers or skills to make room for the conversation.`
 }
