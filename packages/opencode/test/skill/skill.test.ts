@@ -1,4 +1,4 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import { Skill } from "../../src/skill"
 import { Discovery } from "../../src/skill/discovery"
@@ -255,6 +255,44 @@ description: A skill in the .claude/skills directory.
       { git: true },
     ),
   )
+
+  it.live("skips deleted skills under a hidden .trash folder", () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const body = (description: string) => `---
+name: claude-skill
+description: ${description}
+---
+
+# Claude Skill
+`
+          yield* Effect.promise(() =>
+            Bun.write(path.join(dir, ".claude", "skills", "claude-skill", "SKILL.md"), body("The live copy.")),
+          )
+          yield* Effect.promise(() =>
+            Bun.write(
+              path.join(dir, ".claude", "skills", ".trash", "1790780307360-6706", "claude-skill", "SKILL.md"),
+              body("A deleted copy."),
+            ),
+          )
+
+          const skill = yield* Skill.Service
+          const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
+          expect(list.length).toBe(1)
+          expect(list[0].description).toBe("The live copy.")
+          expect(list[0].location).not.toContain(".trash")
+        }),
+      { git: true },
+    ),
+  )
+
+  test("hiddenBelow only looks at folders inside the scan root", () => {
+    const root = path.join("/home", "u", ".claude")
+    expect(Skill.hiddenBelow(root, path.join(root, "skills", "docs", "SKILL.md"))).toBe(false)
+    expect(Skill.hiddenBelow(root, path.join(root, "skills", ".trash", "1", "docs", "SKILL.md"))).toBe(true)
+    expect(Skill.hiddenBelow(root, path.join(root, "skills", "synced", "abc", "docx", "SKILL.md"))).toBe(false)
+  })
 
   it.live("discovers global skills from ~/.claude/skills/ directory", () =>
     Effect.gen(function* () {

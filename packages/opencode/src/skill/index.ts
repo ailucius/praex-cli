@@ -123,7 +123,8 @@ const add = Effect.fnUntraced(function* (state: State, match: string, events: Ev
   if (!isSkillFrontmatter(md.data)) return
 
   if (state.skills[md.data.name]) {
-    yield* Effect.logWarning("duplicate skill name", {
+    // Synced and copied skill folders make duplicates routine; the last one wins either way.
+    yield* Effect.logDebug("duplicate skill name", {
       name: md.data.name,
       existing: state.skills[md.data.name].location,
       duplicate: match,
@@ -138,6 +139,20 @@ const add = Effect.fnUntraced(function* (state: State, match: string, events: Ev
     content: md.content,
   }
 })
+
+/**
+ * True when a skill sits under a hidden folder below the scan root, e.g.
+ * ~/.claude/skills/.trash/<id>/docs/SKILL.md (deleted skills) or a .git checkout.
+ * The root itself may be hidden (~/.claude); only folders inside it count.
+ */
+export function hiddenBelow(root: string, match: string) {
+  const rel = path.relative(root, match)
+  if (rel.startsWith("..")) return false
+  return rel
+    .split(path.sep)
+    .slice(0, -1)
+    .some((segment) => segment.startsWith("."))
+}
 
 const scan = Effect.fnUntraced(function* (
   state: ScanState,
@@ -165,6 +180,7 @@ const scan = Effect.fnUntraced(function* (
   )
 
   for (const match of matches) {
+    if (hiddenBelow(root, match)) continue
     state.matches.add(match)
     state.dirs.add(path.dirname(match))
   }
