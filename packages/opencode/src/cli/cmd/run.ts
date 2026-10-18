@@ -609,7 +609,7 @@ export const RunCommand = effectCmd({
           .providers()
           .then((x) => x.data?.providers)
           .catch(() => undefined)
-        const names = new Map(
+        const names = new Map<string, string>(
           (providers ?? []).flatMap((p) => Object.entries(p.models).map(([id, m]) => [`${p.id}/${id}`, m.name] as const)),
         )
         if (args.model && providers && !names.has(args.model))

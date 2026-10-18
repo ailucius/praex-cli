@@ -71,7 +71,7 @@ export function delay(attempt: number, error?: SessionV1.APIError) {
 // messages stay retryable: the wake path relies on the CLI polling until the model is live.
 const PRAEX_FINAL = /\bcould not start\b|used this month's capacity/i
 
-export function retryable(error: Err, provider: string) {
+export function retryable(error: Err, provider: string): Retryable | undefined {
   // context overflow errors should not be retried
   if (SessionV1.ContextOverflowError.isInstance(error)) return undefined
   if (SessionV1.APIError.isInstance(error)) {
