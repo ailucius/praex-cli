@@ -25,7 +25,12 @@
       "syntax-constant": "#bf7a2e",
       "syntax-type": "#9c7e1f",
       "markdown-code": "#5b3fa8",
-      "text-interactive-base": "#5b3fa8"
+      "text-interactive-base": "#5b3fa8",
+      "text-base": "#28223b",
+      "text-weak": "#5e5872",
+      "text-weaker": "#8a849b",
+      "icon-weak": "#8b859b",
+      "icon-weaker": "#aca7b9"
     }
   },
   "dark": {
@@ -51,7 +56,12 @@
       "syntax-constant": "#e8a15c",
       "syntax-type": "#e3c578",
       "markdown-code": "#c4b5fd",
-      "text-interactive-base": "#c4b5fd"
+      "text-interactive-base": "#c4b5fd",
+      "text-base": "#e7e3ef",
+      "text-weak": "#a59fb3",
+      "text-weaker": "#787289",
+      "icon-weak": "#827c94",
+      "icon-weaker": "#5f5a70"
     }
   }
 }
