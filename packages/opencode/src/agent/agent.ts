@@ -15,6 +15,7 @@ import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import PROMPT_CHAT from "./prompt/chat.txt"
+import PROMPT_COWORK from "./prompt/cowork.txt"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@opencode-ai/core/global"
@@ -59,8 +60,16 @@ export type Info = DeepMutable<Schema.Schema.Type<typeof Info>>
 /** The tool-less agent used by plain chats (see the `chat` entry below). */
 export const CHAT_AGENT = "chat"
 
+/** "Hand it a job": works through a task with files and the web inside the private workspace. */
+export const COWORK_AGENT = "cowork"
+
 export function isChat(agent: Pick<Info, "name">) {
   return agent.name === CHAT_AGENT
+}
+
+/** Agents that run in the private chat workspace and carry no project context. */
+export function isWorkspaceAgent(agent: Pick<Info, "name">) {
+  return agent.name === CHAT_AGENT || agent.name === COWORK_AGENT
 }
 
 const GeneratedAgent = Schema.Struct({
@@ -235,6 +244,35 @@ export const layer = Layer.effect(
             hidden: true,
             prompt: PROMPT_CHAT,
             permission: Permission.merge(defaults, user, Permission.fromConfig({ "*": "deny" })),
+            options: {},
+          },
+          // Cowork: a smaller tool set than build (files, web, todos; shell asks first) and
+          // nothing outside its own workspace. Hidden like chat; clients pick it explicitly.
+          [COWORK_AGENT]: {
+            name: COWORK_AGENT,
+            description: "Cowork. Works through a task with files and the web in its own workspace.",
+            mode: "primary",
+            native: true,
+            hidden: true,
+            prompt: PROMPT_COWORK,
+            permission: Permission.merge(
+              defaults,
+              user,
+              Permission.fromConfig({
+                "*": "deny",
+                read: { "*": "allow", "*.env": "ask", "*.env.*": "ask", "*.env.example": "allow" },
+                edit: "allow",
+                glob: "allow",
+                grep: "allow",
+                list: "allow",
+                webfetch: "allow",
+                websearch: "allow",
+                todowrite: "allow",
+                question: "allow",
+                bash: "ask",
+                external_directory: "deny",
+              }),
+            ),
             options: {},
           },
           compaction: {

@@ -1378,12 +1378,14 @@ export const layer = Layer.effect(
 
             // Plain chats carry no project context: no working directory, no AGENTS.md/CLAUDE.md,
             // no memory index (it asks for a tool the chat agent does not have), no skills.
+            // Cowork keeps the environment block (it works in that folder) but no project context.
             const chat = Agent.isChat(agent)
+            const workspace = Agent.isWorkspaceAgent(agent)
             const [skills, env, instructions, memory, modelMsgs] = yield* Effect.all([
-              chat ? Effect.succeed(undefined) : sys.skills(agent),
+              workspace ? Effect.succeed(undefined) : sys.skills(agent),
               chat ? Effect.succeed([`Today's date: ${new Date().toDateString()}`]) : sys.environment(model),
-              chat ? Effect.succeed([] as string[]) : instruction.system().pipe(Effect.orDie),
-              chat ? Effect.succeed(undefined) : Memory.system().pipe(Effect.orElseSucceed(() => undefined)),
+              workspace ? Effect.succeed([] as string[]) : instruction.system().pipe(Effect.orDie),
+              workspace ? Effect.succeed(undefined) : Memory.system().pipe(Effect.orElseSucceed(() => undefined)),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
             const system = [...env, ...instructions, ...(memory ? [memory] : []), ...(skills ? [skills] : [])]
