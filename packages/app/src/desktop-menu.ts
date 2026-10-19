@@ -93,13 +93,20 @@ export const DESKTOP_MENU: DesktopMenu[] = [
     id: "file",
     label: "File",
     items: [
+      { type: "item", label: "New Chat", command: "chat.new", accelerator: { macos: "Cmd+N", windows: "Ctrl+N" } },
+      {
+        type: "item",
+        label: "Search Chats...",
+        command: "chat.search",
+        accelerator: { macos: "Cmd+K", windows: "Ctrl+K" },
+      },
       {
         type: "item",
         label: "New Session",
         command: "session.new",
         accelerator: { macos: "Shift+Cmd+S" },
       },
-      { type: "item", label: "Open Project...", command: "project.open", accelerator: { macos: "Cmd+O" } },
+      { type: "item", label: "Open Folder...", command: "project.open", accelerator: { macos: "Cmd+O" } },
       {
         type: "item",
         label: "Settings",

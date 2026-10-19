@@ -129,6 +129,9 @@ export function createMainWindow() {
     y: state.y,
     width: state.width,
     height: state.height,
+    // below this the sidebar becomes a drawer and the composer still fits
+    minWidth: 720,
+    minHeight: 520,
     show: false,
     autoHideMenuBar: true,
     title: "Praex",
