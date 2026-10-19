@@ -254,7 +254,15 @@ export const layer = Layer.effect(
       const cleaned = text
         .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
         .split("\n")
-        .map((line) => line.trim())
+        .map((line) =>
+          line
+            .trim()
+            // titles are plain text: drop markdown a small model adds ("### `let` vs `const`")
+            .replace(/^(?:#{1,6}\s+|[-*>]\s+)/, "")
+            .replace(/(\*\*|__|`)/g, "")
+            .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "")
+            .trim(),
+        )
         .find((line) => line.length > 0)
       if (!cleaned) return
       const t = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned

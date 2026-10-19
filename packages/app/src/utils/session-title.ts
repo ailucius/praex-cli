@@ -5,8 +5,19 @@ export function isPlaceholderTitle(title?: string) {
   return !title || pattern.test(title)
 }
 
+/** Markdown a small model sometimes puts in a title ("### `let` vs `const`") never shows. */
+export function plainTitle(title: string) {
+  return (
+    title
+      .replace(/^\s*(?:#{1,6}\s+|[-*>]\s+)/, "")
+      .replace(/(\*\*|__|`)/g, "")
+      .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "")
+      .trim() || title
+  )
+}
+
 export function sessionTitle(title?: string) {
   if (!title) return title
   const match = title.match(pattern)
-  return match?.[1] ?? title
+  return match?.[1] ?? plainTitle(title)
 }

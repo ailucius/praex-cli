@@ -160,9 +160,10 @@ export function SidebarHome(props: SidebarHomeProps) {
 
   const pins = usePins()
   const [mode, setMode] = createSignal<SidebarMode>("chat")
-  // the route decides the mode: a project means Code, the chat workspace means Chat
+  // the route decides the mode: a project means Code, the chat workspace means Chat. Re-derived on
+  // every navigation (not only a folder change), so opening a chat after a Code click shows Chat.
   createEffect(
-    on(currentDir, (dir) => {
+    on([currentDir, () => params.id], ([dir]) => {
       if (!dir) return
       setMode(inChat() ? "chat" : "code")
     }),
