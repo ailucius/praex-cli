@@ -78,6 +78,25 @@ const emptyTools: ToolPart[] = []
 const emptyAssistantMessages: AssistantMessage[] = []
 const idle = { type: "idle" as const }
 
+const TURN_GAP_MS = 60 * 60 * 1000
+
+/** "Today 9:02 AM", "Yesterday 11:51 PM", "Mon 3:40 PM" (this week) or "Oct 12, 3:40 PM". */
+export function formatTurnTime(at: number, locale: string, now = Date.now()) {
+  const date = new Date(at)
+  const time = date.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" })
+  const startOf = (value: number) => {
+    const d = new Date(value)
+    d.setHours(0, 0, 0, 0)
+    return d.getTime()
+  }
+  const days = Math.round((startOf(now) - startOf(at)) / 86_400_000)
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" })
+  const capitalize = (value: string) => value.charAt(0).toLocaleUpperCase(locale) + value.slice(1)
+  if (days === 0 || days === 1) return `${capitalize(rtf.format(-days, "day"))} ${time}`
+  if (days > 1 && days < 7) return `${date.toLocaleDateString(locale, { weekday: "short" })} ${time}`
+  return `${date.toLocaleDateString(locale, { month: "short", day: "numeric" })}, ${time}`
+}
+
 type FramedTimelineRow = Exclude<TimelineRow.TimelineRow, { _tag: "BottomSpacer" }>
 type TimelineRowByTag<T extends TimelineRow.TimelineRow["_tag"]> = Extract<TimelineRow.TimelineRow, { _tag: T }>
 
@@ -1153,11 +1172,31 @@ export function MessageTimeline(props: {
           const m = messageByID().get(userMessageRow().userMessageID)
           if (m?.role === "user") return m
         })
+        // A quiet day/time label above a turn that starts more than an hour after the previous one.
+        const separator = createMemo(() => {
+          const m = message()
+          if (!m) return
+          const index = props.userMessages.findIndex((item) => item.id === m.id)
+          const previous = index > 0 ? props.userMessages[index - 1] : undefined
+          if (!previous) return
+          if (m.time.created - previous.time.created < TURN_GAP_MS) return
+          return formatTurnTime(m.time.created, language.intl())
+        })
         return (
           <TimelineRowFrame row={userMessageRow}>
             <Show when={message()}>
               {(message) => (
                 <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
+                  <Show when={separator()}>
+                    {(label) => (
+                      <div
+                        data-slot="session-turn-time"
+                        class="flex justify-center pt-2 pb-4 text-12-regular text-text-weak select-none"
+                      >
+                        {label()}
+                      </div>
+                    )}
+                  </Show>
                   <div data-slot="session-turn-message-content" aria-live="off">
                     <Message
                       message={message()}
@@ -1371,8 +1410,9 @@ export function MessageTimeline(props: {
                       fallback={
                         <h1
                           data-slot="session-title-child"
-                          class="text-14-medium text-text-strong truncate grow-1 min-w-0"
-                          onDblClick={openTitleEditor}
+                          class="text-14-medium text-text-strong truncate grow-1 min-w-0 cursor-text"
+                          title={language.t("common.rename")}
+                          onClick={openTitleEditor}
                         >
                           {childTitle()}
                         </h1>
