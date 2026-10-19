@@ -31,9 +31,9 @@ const PROJECT_SHOWN = 5
 const PAGE = 40
 
 const ROW =
-  "group/row relative flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-[13px] text-text-base outline-none transition-colors hover:bg-surface-raised-base-hover hover:text-text-strong focus-visible:shadow-xs-border-focus"
+  "group/row relative flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2.5 text-left text-[13px] text-text-base outline-none transition-colors duration-150 hover:bg-surface-raised-base-hover hover:text-text-strong focus-visible:shadow-xs-border-focus"
 const ROW_ACTIVE = "bg-surface-base-active text-text-strong hover:bg-surface-base-active"
-const SECTION = "flex h-7 items-center justify-between pl-2 pr-1 text-12-medium text-text-weak select-none"
+const SECTION = "flex h-7 items-center justify-between pl-2.5 pr-1 text-12-medium text-text-weaker select-none"
 const HINT =
   "shrink-0 text-12-regular text-text-weaker opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-visible/row:opacity-100"
 
@@ -160,9 +160,10 @@ export function SidebarHome(props: SidebarHomeProps) {
 
   const pins = usePins()
   const [mode, setMode] = createSignal<SidebarMode>("chat")
-  // the route decides the mode: a project means Code, the chat workspace means Chat
+  // the route decides the mode: a project means Code, the chat workspace means Chat. Re-derived on
+  // every navigation (not only a folder change), so opening a chat after a Code click shows Chat.
   createEffect(
-    on(currentDir, (dir) => {
+    on([currentDir, () => params.id], ([dir]) => {
       if (!dir) return
       setMode(inChat() ? "chat" : "code")
     }),
@@ -239,7 +240,7 @@ export function SidebarHome(props: SidebarHomeProps) {
           role="radiogroup"
           aria-label={language.t("sidebar.mode.label")}
           data-component="sidebar-mode-switch"
-          class="flex h-7 shrink-0 items-center rounded-md bg-surface-base p-0.5 shadow-xs-border-base"
+          class="flex h-7 shrink-0 items-center rounded-lg bg-surface-base p-0.5"
         >
           <For each={["chat", "code"] as const}>
             {(value) => (
@@ -248,9 +249,9 @@ export function SidebarHome(props: SidebarHomeProps) {
                 role="radio"
                 aria-checked={mode() === value}
                 data-action={`sidebar-mode-${value}`}
-                class="h-6 rounded-[5px] px-2.5 text-12-medium outline-none transition-colors focus-visible:shadow-xs-border-focus"
+                class="h-6 rounded-md px-2.5 text-12-medium outline-none transition-colors duration-150 focus-visible:shadow-xs-border-focus"
                 classList={{
-                  "bg-background-base text-text-strong shadow-xs-border-base": mode() === value,
+                  "bg-surface-raised-stronger-non-alpha text-text-strong shadow-xs-border-base": mode() === value,
                   "text-text-weak hover:text-text-base": mode() !== value,
                 }}
                 onClick={() => switchMode(value)}
@@ -634,7 +635,7 @@ function SessionRow(props: { session: Session; indent?: boolean; pinned?: boolea
         fallback={
           <input
             ref={(el) => requestAnimationFrame(() => el.select())}
-            class="h-8 w-full rounded-md bg-background-stronger px-2 text-[13px] text-text-strong outline-none shadow-xs-border-focus"
+            class="h-8 w-full rounded-lg bg-background-stronger px-2.5 text-[13px] text-text-strong outline-none shadow-xs-border-focus"
             classList={{ "ml-[36px]": props.indent }}
             value={props.session.title ?? ""}
             aria-label={language.t("sidebar.chat.rename")}

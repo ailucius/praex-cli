@@ -1,6 +1,14 @@
 [data-component="card"][data-kind="tool-error-card"] {
   --card-pad-y: 8px;
   --card-line-pad: 12px;
+  --card-pad-l: 12px;
+  background: color-mix(in srgb, var(--icon-critical-base) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--icon-critical-base) 18%, transparent);
+  border-radius: 10px;
+
+  &::before {
+    display: none;
+  }
 
   > [data-component="collapsible"].tool-collapsible {
     gap: 0px;

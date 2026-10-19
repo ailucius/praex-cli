@@ -75,17 +75,18 @@ export const ModelTooltip: Component<{ model: ModelInfo; latest?: boolean; free?
   const context = () => language.t("model.tooltip.context", { limit: props.model.limit.context.toLocaleString() })
 
   return (
-    <div class="flex flex-col gap-1 py-1">
-      <div class="text-13-medium">{title()}</div>
+    <div class="flex min-w-[190px] flex-col gap-1 py-1.5">
+      <div class="pb-1 text-13-medium">{title()}</div>
+      <div class="mb-1 h-px w-full bg-current opacity-10" aria-hidden="true" />
       <Show when={inputs()}>
         {(value) => (
-          <div class="text-12-regular text-text-invert-base">
+          <div class="text-12-regular text-text-invert-base opacity-80">
             {language.t("model.tooltip.allows", { inputs: value() })}
           </div>
         )}
       </Show>
-      <div class="text-12-regular text-text-invert-base">{reasoning()}</div>
-      <div class="text-12-regular text-text-invert-base">{context()}</div>
+      <div class="text-12-regular text-text-invert-base opacity-80">{reasoning()}</div>
+      <div class="text-12-regular tabular-nums text-text-invert-base opacity-80">{context()}</div>
     </div>
   )
 }

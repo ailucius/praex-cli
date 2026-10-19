@@ -130,10 +130,12 @@
     white-space: pre-wrap;
     word-break: break-word;
     overflow: hidden;
-    background: var(--surface-base);
-    border: 1px solid var(--border-weak-base);
-    padding: 8px 12px;
-    border-radius: 6px;
+    background: color-mix(in srgb, var(--surface-base) 88%, var(--text-interactive-base) 4%);
+    border: 1px solid color-mix(in srgb, var(--border-weaker-base) 70%, transparent);
+    padding: 9px 14px;
+    border-radius: 14px 14px 4px 14px;
+    font-size: 14.5px;
+    line-height: 1.6;
 
     [data-highlight="file"] {
       color: var(--syntax-property);
@@ -209,10 +211,19 @@
 
 [data-component="text-part"] {
   width: 100%;
-  margin-top: 24px;
+  margin-top: 20px;
 
   [data-slot="text-part-body"] {
     margin-top: 0;
+  }
+
+  [data-slot="text-part-body"] > [data-component="markdown"] {
+    font-size: 15px;
+    line-height: 1.7;
+
+    > :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6) {
+      max-width: 70ch;
+    }
   }
 
   [data-slot="text-part-copy-wrapper"] {
@@ -235,6 +246,8 @@
 
   [data-slot="text-part-meta"] {
     user-select: none;
+    color: var(--text-weaker);
+    font-size: var(--font-size-small);
   }
 
   [data-slot="text-part-copy-wrapper"][data-interrupted] {
@@ -493,15 +506,15 @@
     flex: 1 1 auto;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     min-width: 0;
     font-family: var(--font-family-sans);
-    font-size: 14px;
+    font-size: 13.5px;
     font-style: normal;
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-large);
     letter-spacing: var(--letter-spacing-normal);
-    color: var(--text-base);
+    color: var(--text-weak);
   }
 
   [data-slot="message-part-title-spinner"] {
@@ -523,7 +536,8 @@
   [data-slot="message-part-title-text"] {
     flex-shrink: 0;
     text-transform: capitalize;
-    color: var(--text-strong);
+    color: var(--text-weak);
+    transition: color 0.15s ease;
   }
 
   [data-slot="message-part-title-filename"] {
@@ -533,6 +547,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-weight: var(--font-weight-regular);
+    color: var(--text-base);
   }
 
   [data-slot="message-part-path"] {
@@ -543,7 +558,7 @@
   }
 
   [data-slot="message-part-directory"] {
-    color: var(--text-weak);
+    color: var(--text-weaker);
     text-overflow: ellipsis;
     overflow: hidden;
     white-space: nowrap;
@@ -691,6 +706,21 @@
   [data-slot="context-tool-group-title"] {
     flex-shrink: 1;
     min-width: 0;
+    font-size: 13.5px;
+    gap: 6px;
+  }
+
+  [data-slot="context-tool-group-icon"] {
+    display: inline-flex;
+    color: var(--icon-weak);
+  }
+
+  [data-slot="context-tool-group-label"] {
+    color: var(--text-weak);
+  }
+
+  [data-slot="context-tool-group-summary"] {
+    color: var(--text-weaker);
   }
 
   [data-slot="collapsible-arrow"] {
@@ -700,10 +730,10 @@
 }
 
 [data-component="context-tool-group-list"] {
-  padding-top: 0;
+  padding-top: 4px;
   padding-right: 0;
   padding-bottom: 0;
-  padding-left: 12px;
+  padding-left: 20px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -771,6 +801,29 @@
 
 [data-component="tool-part-wrapper"] {
   width: 100%;
+}
+
+/* Tool rows (shell, write, edit, read, explored): icon + verb + target, quiet until hovered */
+[data-component="tool-part-wrapper"] [data-slot="collapsible-trigger"],
+[data-component="context-tool-group-trigger"] {
+  border-radius: 8px;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+[data-component="tool-part-wrapper"] :is([data-slot="collapsible-trigger"]):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-interactive-base) 55%, transparent);
+}
+
+[data-component="tool-part-wrapper"] [data-slot="collapsible-trigger"]:hover :is([data-slot="basic-tool-tool-title"], [data-slot="message-part-title-text"]),
+[data-component="context-tool-group-trigger"]:hover [data-slot="context-tool-group-label"] {
+  color: var(--text-strong);
+}
+
+[data-component="tool-part-wrapper"] [data-slot="collapsible-trigger"]:hover [data-slot="basic-tool-tool-icon"] {
+  color: var(--icon-base);
 }
 
 [data-component="dock-prompt"][data-kind="permission"] {

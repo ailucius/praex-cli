@@ -48,7 +48,7 @@ export function ChatHomeView(props: { composer: JSX.Element }) {
               {(starter) => (
                 <button
                   type="button"
-                  class="h-8 px-3.5 rounded-full border border-border-weak-base bg-background-base text-[13px] text-text-base transition-colors hover:bg-surface-raised-base-hover hover:text-text-strong outline-none focus-visible:shadow-xs-border-focus"
+                  class="h-8 px-3.5 rounded-lg border border-border-weaker-base bg-transparent text-[13px] text-text-weak transition-colors duration-150 hover:border-border-weak-base hover:bg-surface-raised-base-hover hover:text-text-strong outline-none focus-visible:shadow-xs-border-focus"
                   onClick={() => start(starter.text)}
                 >
                   {language.t(starter.key)}
@@ -56,7 +56,7 @@ export function ChatHomeView(props: { composer: JSX.Element }) {
               )}
             </For>
           </div>
-          <p class="min-h-9 text-12-regular text-text-weak text-center max-w-[460px]">
+          <p class="min-h-9 text-12-regular text-text-weaker text-center max-w-[460px] leading-relaxed">
             {language.t("home.chat.scope")}{" "}
             <button
               type="button"
