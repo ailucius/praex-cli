@@ -40,16 +40,15 @@ function View(props: { api: TuiPluginApi; first: boolean; signedIn: boolean }) {
             Getting started
           </text>
           <box flexDirection="column" paddingLeft={2}>
-            <text fg={theme().textMuted}>Try:</text>
             <For each={TRY}>
               {(item) => (
                 <text fg={theme().textMuted}>
-                  {"  "}
+                  {"› "}
                   <span style={{ fg: theme().text }}>{item}</span>
                 </text>
               )}
             </For>
-            <text fg={theme().textMuted}>
+            <text fg={theme().textMuted} marginTop={1}>
               Praex reads and edits files and runs commands, and asks before each change. Type{" "}
               <span style={{ fg: theme().text }}>@</span> to attach a file,{" "}
               <span style={{ fg: theme().text }}>!</span> to run a shell command
