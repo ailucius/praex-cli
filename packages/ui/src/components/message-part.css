@@ -337,11 +337,12 @@
     font-style: normal;
     font-size: 13px;
     line-height: 1.6;
-    color: var(--text-weak);
+    /* a step brighter than --text-weak, which read too dim on dark */
+    color: color-mix(in srgb, var(--text-weak) 65%, var(--text-base));
 
     strong,
     b {
-      color: var(--text-weak);
+      color: color-mix(in srgb, var(--text-weak) 50%, var(--text-base));
     }
 
     p:has(strong) {
