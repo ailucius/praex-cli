@@ -3,6 +3,7 @@ import type { BuiltinTuiPlugin } from "../builtins"
 import { createMemo, Show } from "solid-js"
 import { abbreviateHome } from "../../runtime"
 import { useTuiPaths } from "../../context/runtime"
+import { truncatePath } from "../../util/status-line"
 
 const id = "internal:sidebar-footer"
 
@@ -21,7 +22,8 @@ function View(props: { api: TuiPluginApi; sessionID: string }) {
     const dir = session?.directory || props.api.state.path.directory || paths.cwd
     const out = abbreviateHome(dir, paths.home)
     const branch = session?.directory === props.api.state.path.directory ? props.api.state.vcs?.branch : undefined
-    const text = branch ? out + ":" + branch : out
+    // One line in the 42-cell sidebar (minus its padding): keep the head and the tail.
+    const text = truncatePath(branch ? out + ":" + branch : out, 38)
     const list = text.split("/")
     return {
       parent: list.slice(0, -1).join("/"),
@@ -64,8 +66,8 @@ function View(props: { api: TuiPluginApi; sessionID: string }) {
           </box>
         </box>
       </Show>
-      <text>
-        <span style={{ fg: theme().textMuted }}>{path().parent}/</span>
+      <text wrapMode="none">
+        <span style={{ fg: theme().textMuted }}>{path().parent ? path().parent + "/" : ""}</span>
         <span style={{ fg: theme().text }}>{path().name}</span>
       </text>
       <text fg={theme().textMuted}>

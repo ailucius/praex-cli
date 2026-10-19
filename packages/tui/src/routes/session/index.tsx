@@ -24,7 +24,7 @@ import { useEvent } from "../../context/event"
 import { SplitBorder } from "../../ui/border"
 import { useTuiPaths, useTuiTerminalEnvironment } from "../../context/runtime"
 import { Spinner } from "../../component/spinner"
-import { createSyntaxStyleMemo, generateSubtleSyntax, selectedForeground, useTheme } from "../../context/theme"
+import { createSyntaxStyleMemo, generateSubtleSyntax, useTheme } from "../../context/theme"
 import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, TextAttributes, RGBA } from "@opentui/core"
 import { Prompt, type PromptRef } from "../../component/prompt"
 import type {
@@ -39,6 +39,7 @@ import type {
 } from "@opencode-ai/sdk/v2"
 import { useLocal } from "../../context/local"
 import { Locale } from "../../util/locale"
+import { formatTook } from "../../util/status-line"
 import { webSearchProviderLabel } from "../../util/tool-display"
 import { useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
 import { useSDK } from "../../context/sdk"
@@ -1389,7 +1390,6 @@ function UserMessage(props: {
   const [hover, setHover] = createSignal(false)
   const queued = createMemo(() => props.pending && props.message.id > props.pending)
   const color = createMemo(() => local.agent.color(props.message.agent))
-  const queuedFg = createMemo(() => selectedForeground(theme, color()))
   const metadataVisible = createMemo(() => queued() || ctx.showTimestamps())
 
   return (
@@ -1405,9 +1405,12 @@ function UserMessage(props: {
             }}
             onMouseUp={props.onMouseUp}
             flexShrink={0}
+            backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
+            paddingLeft={1}
+            paddingRight={1}
           >
-            <text fg={hover() ? theme.text : theme.textMuted}>
-              <span style={{ fg: color() }}>{"> "}</span>
+            <text fg={theme.text}>
+              <span style={{ fg: color() }}>{"› "}</span>
               {text()}
             </text>
             <Show when={files().length}>
@@ -1442,7 +1445,7 @@ function UserMessage(props: {
               }
             >
               <text fg={theme.textMuted}>
-                <span style={{ bg: color(), fg: queuedFg(), bold: true }}> QUEUED </span>
+                <span style={{ fg: color() }}>◦</span> queued · sends when the current turn ends
               </text>
             </Show>
           </box>
@@ -1455,7 +1458,8 @@ function UserMessage(props: {
 // A compaction renders as one quiet line, the way Claude Code shows it. The summary the
 // model wrote is for the model; the user can click the line to read it, never inline.
 export function compactionLabel(message: Pick<AssistantMessage, "error" | "finish" | "time">) {
-  if (message.error?.name === "MessageAbortedError") return { state: "aborted" as const, text: "Compaction interrupted" }
+  if (message.error?.name === "MessageAbortedError")
+    return { state: "aborted" as const, text: "Compaction interrupted" }
   if (message.error) return { state: "failed" as const, text: "Could not compact the conversation" }
   if (message.finish || message.time.completed) return { state: "done" as const, text: "Conversation compacted" }
   return { state: "running" as const, text: "Compacting conversation" }
@@ -1468,9 +1472,7 @@ function CompactionNotice(props: { message: AssistantMessage; parts: Part[] }) {
   const syntax = createSyntaxStyleMemo(() => generateSubtleSyntax(theme))
   const label = createMemo(() => compactionLabel(props.message))
   const summary = createMemo(() =>
-    props.parts
-      .flatMap((part) => (part.type === "text" && part.text.trim() ? [part.text.trim()] : []))
-      .join("\n\n"),
+    props.parts.flatMap((part) => (part.type === "text" && part.text.trim() ? [part.text.trim()] : [])).join("\n\n"),
   )
   const toggleable = createMemo(() => label().state === "done" && !!summary())
 
@@ -1531,9 +1533,55 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
   const duration = createMemo(() => {
     if (!final()) return 0
     if (!props.message.time.completed) return 0
+    // Measured from the turn's first step, so a prompt that waited in the queue is not
+    // charged for the wait.
+    const first = messages().find((x) => x.role === "assistant" && x.parentID === props.message.parentID)
     const user = messages().find((x) => x.role === "user" && x.id === props.message.parentID)
-    if (!user || !user.time) return 0
-    return props.message.time.completed - user.time.created
+    const start = first?.time.created ?? user?.time?.created
+    if (!start) return 0
+    return props.message.time.completed - start
+  })
+
+  const sessionStatus = createMemo(() => sync.data.session_status?.[props.message.sessionID]?.type ?? "idle")
+  // Background subagents this session started that are still working after the turn ended.
+  const backgroundAgents = createMemo(
+    () =>
+      sync.data.session.filter(
+        (item) =>
+          item.parentID === props.message.sessionID && (sync.data.session_status?.[item.id]?.type ?? "idle") !== "idle",
+      ).length,
+  )
+  // "✓ Done in 14s · Velox II". While the turn runs, the working line above the input says it,
+  // so nothing renders here until the turn ends, is interrupted, or stops on an error.
+  const summary = createMemo(() => {
+    const aborted = props.message.error?.name === "MessageAbortedError"
+    const failed = !!props.message.error && !aborted
+    const stopped = props.last && !final() && sessionStatus() === "idle"
+    if (!final() && !aborted && !failed && !stopped) return
+    const name = model().split(" · ")[0]
+    const agent =
+      props.message.mode && props.message.mode !== "build" ? `${Locale.titlecase(props.message.mode)} · ` : ""
+    const first = messages().find((x) => x.role === "assistant" && x.parentID === props.message.parentID)
+    const took = (() => {
+      const end = props.message.time.completed ?? (aborted || failed ? Date.now() : undefined)
+      const start = first?.time.created ?? props.message.time.created
+      if (!end || !start) return
+      return formatTook(end - start)
+    })()
+    if (aborted)
+      return {
+        glyph: "◼",
+        color: theme.textMuted,
+        text: `${agent}Interrupted${took ? ` after ${took}` : ""} · ${name}`,
+      }
+    if (failed)
+      return { glyph: "✕", color: theme.error, text: `${agent}Stopped${took ? ` after ${took}` : ""} · ${name}` }
+    if (stopped && !final()) return { glyph: "◼", color: theme.textMuted, text: `${agent}Stopped · ${name}` }
+    return {
+      glyph: "✓",
+      color: local.agent.color(props.message.agent),
+      text: `${agent}Done${duration() ? ` in ${formatTook(duration())}` : ""} · ${name}`,
+    }
   })
 
   const childShortcut = useCommandShortcut("session.child.first")
@@ -1614,32 +1662,22 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
           <text fg={theme.textMuted}>{props.message.error?.data.message}</text>
         </box>
       </Show>
-      <Switch>
-        <Match when={props.last || final() || props.message.error?.name === "MessageAbortedError"}>
+      <Show when={summary()}>
+        {(line) => (
           <box id={`assistant-summary-${props.message.id}`} paddingLeft={3}>
-            <text marginTop={1}>
-              <span
-                style={{
-                  fg:
-                    props.message.error?.name === "MessageAbortedError"
-                      ? theme.textMuted
-                      : local.agent.color(props.message.agent),
-                }}
-              >
-                ▣{" "}
-              </span>
-              <span style={{ fg: theme.textMuted }}>{Locale.titlecase(props.message.mode)}</span>
-              <span style={{ fg: theme.textMuted }}> · {model()}</span>
-              <Show when={duration()}>
-                <span style={{ fg: theme.textMuted }}> · {Locale.duration(duration())}</span>
-              </Show>
-              <Show when={props.message.error?.name === "MessageAbortedError"}>
-                <span style={{ fg: theme.textMuted }}> · interrupted</span>
+            <text marginTop={1} wrapMode="none">
+              <span style={{ fg: line().color }}>{line().glyph} </span>
+              <span style={{ fg: theme.textMuted }}>{line().text}</span>
+              <Show when={props.last && backgroundAgents() > 0}>
+                <span style={{ fg: theme.textMuted }}>
+                  {" "}
+                  · {backgroundAgents()} background {backgroundAgents() === 1 ? "agent" : "agents"} still running
+                </span>
               </Show>
             </text>
           </box>
-        </Match>
-      </Switch>
+        )}
+      </Show>
     </>
   )
 }

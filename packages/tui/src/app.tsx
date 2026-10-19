@@ -58,6 +58,7 @@ import { DialogAlert } from "./ui/dialog-alert"
 import { DialogConfirm } from "./ui/dialog-confirm"
 import { ToastProvider, useToast } from "./ui/toast"
 import { isDefaultTitle } from "./util/session"
+import { setInstalledUpdate } from "./context/status-items"
 import { KVProvider, useKV } from "./context/kv"
 import * as Model from "./util/model"
 import { ArgsProvider, useArgs, type Args } from "./context/args"
@@ -1093,12 +1094,9 @@ function App(props: {
     })
   })
 
+  // Shown once, right-aligned above the input, until the next launch picks the new build up.
   event.on("installation.updated", (evt) => {
-    toast.show({
-      variant: "info",
-      message: `Praex updated to v${evt.properties.version} · restart to apply`,
-      duration: 8000,
-    })
+    setInstalledUpdate(evt.properties.version)
   })
 
   event.on("installation.update-available", async (evt) => {
