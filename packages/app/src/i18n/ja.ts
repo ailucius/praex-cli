@@ -585,8 +585,8 @@ export const dict = {
     "フォローアッププロンプトを即座に実行するか、キューで待機させるかを選択します",
   "settings.general.row.followup.option.queue": "キューに追加",
   "settings.general.row.followup.option.steer": "即座に実行 (Steer)",
-  "settings.general.row.reasoningSummaries.title": "推論の要約を表示",
-  "settings.general.row.reasoningSummaries.description": "タイムラインにモデルの推論の要約を表示します",
+  "settings.general.row.reasoningSummaries.title": "思考をデフォルトで展開",
+  "settings.general.row.reasoningSummaries.description": "モデルの思考を折りたたまずに開いて表示します",
   "settings.general.row.shellToolPartsExpanded.title": "shell ツールパーツを展開",
   "settings.general.row.shellToolPartsExpanded.description":
     "タイムラインで shell ツールパーツをデフォルトで展開して表示します",

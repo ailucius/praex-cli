@@ -70,6 +70,7 @@ export const dict = {
 
   "ui.messagePart.questions.dismissed": "Perguntas descartadas",
   "ui.messagePart.compaction": "Sessão compactada",
+  "ui.messagePart.reasoning.thoughtFor": "Pensou por {{duration}}",
   "ui.messagePart.context.read.one": "{{count}} leitura",
   "ui.messagePart.context.read.other": "{{count}} leituras",
   "ui.messagePart.context.search.one": "{{count}} pesquisa",

@@ -73,6 +73,7 @@ export const dict = {
 
   "ui.messagePart.questions.dismissed": "问题已忽略",
   "ui.messagePart.compaction": "会话已压缩",
+  "ui.messagePart.reasoning.thoughtFor": "已思考 {{duration}}",
   "ui.messagePart.context.read.one": "{{count}} 次读取",
   "ui.messagePart.context.read.other": "{{count}} 次读取",
   "ui.messagePart.context.search.one": "{{count}} 次搜索",

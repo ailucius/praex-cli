@@ -69,6 +69,7 @@ export const dict = {
 
   "ui.messagePart.questions.dismissed": "質問をスキップしました",
   "ui.messagePart.compaction": "セッションを圧縮しました",
+  "ui.messagePart.reasoning.thoughtFor": "{{duration}} 思考",
   "ui.messagePart.context.read.one": "{{count}} 件の読み取り",
   "ui.messagePart.context.read.other": "{{count}} 件の読み取り",
   "ui.messagePart.context.search.one": "{{count}} 件の検索",

@@ -73,6 +73,7 @@ export const dict: Record<Keys, string> = {
 
   "ui.messagePart.questions.dismissed": "Spørsmål avvist",
   "ui.messagePart.compaction": "Økt komprimert",
+  "ui.messagePart.reasoning.thoughtFor": "Tenkte i {{duration}}",
   "ui.messagePart.context.read.one": "{{count}} lest",
   "ui.messagePart.context.read.other": "{{count}} lest",
   "ui.messagePart.context.search.one": "{{count}} søk",
