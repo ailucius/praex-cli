@@ -23,7 +23,6 @@ import { decode64 } from "@/utils/base64"
 import { Persist, persisted } from "@/utils/persist"
 import { isChatDirectory } from "@/utils/chat-workspace"
 import { isPlaceholderTitle, sessionTitle } from "@/utils/session-title"
-import { isCoworkThread } from "@/utils/cowork-threads"
 import { showToast } from "@/utils/toast"
 import { sortedRootSessions } from "./helpers"
 
@@ -555,7 +554,6 @@ function SessionRow(props: { session: Session; indent?: boolean; pinned?: boolea
       ? language.t("sidebar.chat.untitled")
       : sessionTitle(props.session.title) || language.t("sidebar.chat.untitled"),
   )
-  const task = createMemo(() => !props.indent && isCoworkThread(props.session.id))
   const slug = createMemo(() => base64Encode(props.session.directory))
   const href = createMemo(() => `/${slug()}/session/${props.session.id}`)
   const active = createMemo(() => params.id === props.session.id)
@@ -656,14 +654,6 @@ function SessionRow(props: { session: Session; indent?: boolean; pinned?: boolea
           onDblClick={() => setEditing(true)}
         >
           <span class="flex-1 truncate">{title()}</span>
-          <Show when={task()}>
-            <span
-              class="shrink-0 rounded px-1 text-[11px] leading-4 text-text-weak shadow-xs-border-base group-hover/chat:hidden group-focus-within/chat:hidden"
-              title={language.t("sidebar.chat.taskHint")}
-            >
-              {language.t("sidebar.chat.task")}
-            </span>
-          </Show>
           <span class="flex w-3 justify-center group-hover/chat:hidden group-focus-within/chat:hidden">{status()}</span>
         </A>
         <DropdownMenu>

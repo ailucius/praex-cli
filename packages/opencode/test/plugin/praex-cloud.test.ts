@@ -57,6 +57,22 @@ describe("praex-cloud hosted lineup", () => {
     expect(p.models["z"].name).toBe("Z")
   })
 
+  test("thinking tiers are flagged reasoning with the effort variants switched off", () => {
+    const l = parseLineup({
+      data: [
+        { id: "velox-ii-baked", name: "Velox II", plan: "free", reasoning: false },
+        { id: "faber-ii", name: "Faber II · Pro", plan: "pro", reasoning: true },
+      ],
+    })!
+    expect(l["velox-ii-baked"].reasoning).toBeUndefined()
+    expect(l["faber-ii"].reasoning).toBe(true)
+    const p = hostedProvider(undefined, l) as any
+    expect(p.models["velox-ii-baked"].reasoning).toBeUndefined()
+    expect(p.models["faber-ii"].reasoning).toBe(true)
+    expect(Object.values(p.models["faber-ii"].variants).every((v: any) => v.disabled === true)).toBe(true)
+    expect(Object.keys(p.models["faber-ii"].variants)).toEqual(expect.arrayContaining(["low", "medium", "high"]))
+  })
+
   test("live gateway list wins and is written to the cache", async () => {
     const srv = Bun.serve({
       port: 0,

@@ -66,8 +66,8 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     const id = createMemo(() => params.id || undefined)
     const chatDir = useChatDirectory()
-    // Threads in the private chat workspace use Chat or Cowork (Chat first, the default);
-    // projects get the normal visible agents (both are hidden there).
+    // Threads in the private chat workspace use the one Chat agent; projects get the normal
+    // visible agents (Chat is hidden there).
     const list = createMemo(() => {
       if (isChatDirectory(sdk().directory, chatDir()))
         return WORKSPACE_AGENTS.flatMap((name) => sync().data.agent.filter((item) => item.name === name))

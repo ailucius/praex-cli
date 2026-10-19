@@ -34,6 +34,13 @@ export const SidebarContent = (props: {
   newChatLabel: Accessor<string>
   newChatKeybind: Accessor<string | undefined>
   onNewChat: () => void
+  /** In Chat the rail is chat-only: new chat, search and a way into Code, never project icons. */
+  chatMode: Accessor<boolean>
+  searchLabel: Accessor<string>
+  searchKeybind: Accessor<string | undefined>
+  onSearch: () => void
+  codeLabel: Accessor<string>
+  onOpenCode: () => void
 }): JSX.Element => {
   const expanded = createMemo(() => !!props.mobile || props.opened())
   const placement = () => (props.mobile ? "bottom" : "right")
@@ -58,7 +65,7 @@ export const SidebarContent = (props: {
         class="w-16 shrink-0 bg-background-base flex flex-col items-center overflow-hidden"
         onMouseMove={props.aimMove}
       >
-        <div class="shrink-0 w-full pt-3 flex flex-col items-center">
+        <div class="shrink-0 w-full pt-3 flex flex-col items-center gap-1">
           <TooltipKeybind placement={placement()} title={props.newChatLabel()} keybind={props.newChatKeybind() ?? ""}>
             <IconButton
               icon="new-session"
@@ -69,8 +76,30 @@ export const SidebarContent = (props: {
               aria-label={props.newChatLabel()}
             />
           </TooltipKeybind>
+          <Show when={props.chatMode()}>
+            <TooltipKeybind placement={placement()} title={props.searchLabel()} keybind={props.searchKeybind() ?? ""}>
+              <IconButton
+                icon="magnifying-glass"
+                variant="ghost"
+                size="large"
+                data-action="rail-chat-search"
+                onClick={props.onSearch}
+                aria-label={props.searchLabel()}
+              />
+            </TooltipKeybind>
+            <Tooltip placement={placement()} value={props.codeLabel()}>
+              <IconButton
+                icon="code-lines"
+                variant="ghost"
+                size="large"
+                data-action="rail-open-code"
+                onClick={props.onOpenCode}
+                aria-label={props.codeLabel()}
+              />
+            </Tooltip>
+          </Show>
         </div>
-        <div class="flex-1 min-h-0 w-full">
+        <Show when={props.chatMode()} fallback={<div class="flex-1 min-h-0 w-full">
           <DragDropProvider
             onDragStart={props.handleDragStart}
             onDragEnd={props.handleDragEnd}
@@ -105,7 +134,9 @@ export const SidebarContent = (props: {
             </div>
             <DragOverlay>{props.renderProjectOverlay()}</DragOverlay>
           </DragDropProvider>
-        </div>
+        </div>}>
+          <div class="flex-1 min-h-0 w-full" />
+        </Show>
         <div class="shrink-0 w-full pt-3 pb-6 flex flex-col items-center gap-2">
           <TooltipKeybind placement={placement()} title={props.settingsLabel()} keybind={props.settingsKeybind() ?? ""}>
             <IconButton

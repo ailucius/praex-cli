@@ -2,9 +2,8 @@ import { Button } from "@opencode-ai/ui/button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { For, type JSX, Show } from "solid-js"
+import { type JSX, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
-import { CHAT_AGENT, COWORK_AGENT } from "@/utils/chat-workspace"
 import { setWebSearch, webSearch } from "@/utils/web-search"
 
 /** The composer's + menu: add files, take a screenshot (desktop), connectors. */
@@ -72,48 +71,5 @@ export function ComposerPlusMenu(props: {
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu>
-  )
-}
-
-const MODES = [
-  { agent: CHAT_AGENT, label: "composer.mode.chat", hint: "composer.mode.chat.hint" },
-  { agent: COWORK_AGENT, label: "composer.mode.cowork", hint: "composer.mode.cowork.hint" },
-] as const
-
-/** Chat | Cowork: how much the agent may do for the next message in this thread. */
-export function ComposerModeToggle(props: { current: string; onSelect: (agent: string) => void; disabled?: boolean }) {
-  const language = useLanguage()
-  return (
-    <div
-      role="radiogroup"
-      aria-label={language.t("composer.mode.label")}
-      data-component="composer-mode-toggle"
-      class="flex h-7 items-center rounded-md bg-surface-base p-0.5 shadow-xs-border-base"
-    >
-      <For each={MODES}>
-        {(mode) => {
-          const selected = () => (props.current || CHAT_AGENT) === mode.agent
-          return (
-            <Tooltip placement="top" value={language.t(mode.hint)}>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={selected()}
-                data-action={`composer-mode-${mode.agent}`}
-                disabled={props.disabled}
-                class="h-6 rounded-[5px] px-2.5 text-[13px] outline-none transition-colors focus-visible:shadow-xs-border-focus"
-                classList={{
-                  "bg-background-base text-text-strong shadow-xs-border-base": selected(),
-                  "text-text-weak hover:text-text-base": !selected(),
-                }}
-                onClick={() => props.onSelect(mode.agent)}
-              >
-                {language.t(mode.label)}
-              </button>
-            </Tooltip>
-          )
-        }}
-      </For>
-    </div>
   )
 }

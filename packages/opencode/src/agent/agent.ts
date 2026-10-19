@@ -57,10 +57,10 @@ export const Info = Schema.Struct({
 }).annotate({ identifier: "Agent" })
 export type Info = DeepMutable<Schema.Schema.Type<typeof Info>>
 
-/** The tool-less agent used by plain chats (see the `chat` entry below). */
+/** The agent plain chats run with: answers, plus files/shell/web in the thread's own folder. */
 export const CHAT_AGENT = "chat"
 
-/** "Hand it a job": works through a task with files and the web inside the private workspace. */
+/** Pre-merge name for the same thing as Chat; still accepted for older threads and clients. */
 export const COWORK_AGENT = "cowork"
 
 export function isChat(agent: Pick<Info, "name">) {
@@ -236,14 +236,15 @@ export const layer = Layer.effect(
             mode: "subagent",
             native: true,
           },
-          // Chat (the desktop chat home): a short prompt and a small toolset (web search,
-          // fetch a page, read files in its own workspace), so a 32K model has room for the
-          // conversation. Hidden: clients pick it explicitly; it never shows up in a project's
-          // agent list or as a default. The user's permission config is merged BEFORE these
-          // rules so it cannot widen them.
+          // Chat (the desktop chat home), one mode since 10-19: it answers plainly and, when the
+          // request needs it, uses the full workspace toolset (files, shell, edits, web, todos,
+          // skills) inside the thread's own folder; other folders are denied. No subagents.
+          // Hidden: clients pick it explicitly; it never shows up in a project's agent list or as
+          // a default. The user's permission config is merged BEFORE these rules so it cannot
+          // widen them.
           [CHAT_AGENT]: {
             name: CHAT_AGENT,
-            description: "Chat. Web search, web pages and reading files; no shell, no edits.",
+            description: "Chat. Answers, and works with files, shell and the web in the chat's own folder.",
             mode: "primary",
             native: true,
             hidden: true,
@@ -253,17 +254,24 @@ export const layer = Layer.effect(
               user,
               Permission.fromConfig({
                 "*": "deny",
-                websearch: "allow",
+                read: { "*": "allow", "*.env": "ask", "*.env.*": "ask", "*.env.example": "allow" },
+                edit: "allow",
+                glob: "allow",
+                grep: "allow",
+                list: "allow",
                 webfetch: "allow",
-                read: { "*": "allow", "*.env": "deny", "*.env.*": "deny" },
+                websearch: "allow",
+                todowrite: "allow",
+                question: "allow",
+                skill: "allow",
+                bash: "allow",
                 external_directory: "deny",
               }),
             ),
             options: {},
           },
-          // Cowork: the same thread with the full agent (files, shell, edits, web, todos, skills)
-          // working inside the private workspace; other folders are denied. No subagents.
-          // Hidden like chat; clients pick it explicitly, per message.
+          // Cowork: kept for threads and clients from before the 10-19 merge (Chat now has the
+          // same tools). Same rules as Chat.
           [COWORK_AGENT]: {
             name: COWORK_AGENT,
             description: "Cowork. Works through a task with files, shell and the web in its own workspace.",
