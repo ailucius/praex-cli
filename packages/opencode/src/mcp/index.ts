@@ -22,7 +22,7 @@ import { NamedError } from "@opencode-ai/core/util/error"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { withTimeout } from "@/util/timeout"
 import { FSUtil } from "@opencode-ai/core/fs-util"
-import { McpOAuthProvider, OAUTH_CALLBACK_PATH } from "./oauth-provider"
+import { McpOAuthAuthServerChangedError, McpOAuthProvider, OAUTH_CALLBACK_PATH } from "./oauth-provider"
 import { McpOAuthCallback } from "./oauth-callback"
 import { McpAuth } from "./auth"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -744,7 +744,9 @@ export const layer = Layer.effect(
       return mcpConfig
     })
 
-    const startAuth = Effect.fn("MCP.startAuth")(function* (mcpName: string) {
+    const startAuth: (mcpName: string, retried?: boolean) => Effect.Effect<AuthResult, NotFoundError> = Effect.fn(
+      "MCP.startAuth",
+    )(function* (mcpName: string, retried = false) {
       const mcpConfig = yield* requireMcpConfig(mcpName)
       if (mcpConfig.type !== "remote") throw new Error(`MCP server ${mcpName} is not a remote server`)
       if (mcpConfig.oauth === false) throw new Error(`MCP server ${mcpName} has OAuth explicitly disabled`)
@@ -803,6 +805,16 @@ export const layer = Layer.effect(
           if (error instanceof UnauthorizedError && capturedUrl) {
             pendingOAuthTransports.set(mcpName, transport)
             return Effect.succeed({ authorizationUrl: capturedUrl.toString(), oauthState } satisfies AuthResult)
+          }
+          // The server now names another authorization server; the old credentials were
+          // dropped unsent. The user asked to sign in, so say why and start a fresh sign-in.
+          if (error instanceof McpOAuthAuthServerChangedError && !retried) {
+            return events
+              .publish(TuiEvent.ToastShow, { message: error.message, variant: "warning", duration: 8000 })
+              .pipe(
+                Effect.ignore,
+                Effect.flatMap(() => startAuth(mcpName, true)),
+              )
           }
           return Effect.die(error)
         }),

@@ -22,12 +22,23 @@ export const ClientInfo = Schema.Struct({
 })
 export type ClientInfo = Schema.Schema.Type<typeof ClientInfo>
 
+// The authorization server the stored tokens and client registration were issued by.
+// Credentials are only ever sent back to this exact server (GHSA-6qxp-vccf-f47h): an MCP
+// server that later points the client at a different authorization server must not
+// receive the refresh token or client secret.
+export const AuthServer = Schema.Struct({
+  issuer: Schema.mutableKey(Schema.String),
+  url: Schema.mutableKey(Schema.String),
+})
+export type AuthServer = Schema.Schema.Type<typeof AuthServer>
+
 export const Entry = Schema.Struct({
   tokens: Schema.mutableKey(Schema.optional(Tokens)),
   clientInfo: Schema.mutableKey(Schema.optional(ClientInfo)),
   codeVerifier: Schema.mutableKey(Schema.optional(Schema.String)),
   oauthState: Schema.mutableKey(Schema.optional(Schema.String)),
   serverUrl: Schema.mutableKey(Schema.optional(Schema.String)),
+  authServer: Schema.mutableKey(Schema.optional(AuthServer)),
 })
 export type Entry = Schema.Schema.Type<typeof Entry>
 
@@ -45,6 +56,9 @@ export interface Interface {
   readonly remove: (mcpName: string) => Effect.Effect<void>
   readonly updateTokens: (mcpName: string, tokens: Tokens, serverUrl?: string) => Effect.Effect<void>
   readonly updateClientInfo: (mcpName: string, clientInfo: ClientInfo, serverUrl?: string) => Effect.Effect<void>
+  readonly updateAuthServer: (mcpName: string, authServer: AuthServer, serverUrl?: string) => Effect.Effect<void>
+  /** Drop tokens, client registration and the authorization-server binding; keeps an in-flight sign-in's state. */
+  readonly dropCredentials: (mcpName: string) => Effect.Effect<void>
   readonly updateCodeVerifier: (mcpName: string, codeVerifier: string) => Effect.Effect<void>
   readonly clearCodeVerifier: (mcpName: string) => Effect.Effect<void>
   readonly updateOAuthState: (mcpName: string, oauthState: string) => Effect.Effect<void>
@@ -132,10 +146,22 @@ export const layer = Layer.effect(
 
     const updateTokens = updateField("tokens", "updateTokens")
     const updateClientInfo = updateField("clientInfo", "updateClientInfo")
+    const updateAuthServer = updateField("authServer", "updateAuthServer")
     const updateCodeVerifier = updateField("codeVerifier", "updateCodeVerifier")
     const updateOAuthState = updateField("oauthState", "updateOAuthState")
     const clearCodeVerifier = clearField("codeVerifier", "clearCodeVerifier")
     const clearOAuthState = clearField("oauthState", "clearOAuthState")
+
+    const dropCredentials = Effect.fn("McpAuth.dropCredentials")(function* (mcpName: string) {
+      yield* mutate((data) => {
+        const entry = data[mcpName]
+        if (!entry) return undefined
+        delete entry.tokens
+        delete entry.clientInfo
+        delete entry.authServer
+        return { ...data, [mcpName]: entry }
+      })
+    })
 
     const getOAuthState = Effect.fn("McpAuth.getOAuthState")(function* (mcpName: string) {
       const entry = yield* get(mcpName)
@@ -157,6 +183,8 @@ export const layer = Layer.effect(
       remove,
       updateTokens,
       updateClientInfo,
+      updateAuthServer,
+      dropCredentials,
       updateCodeVerifier,
       clearCodeVerifier,
       updateOAuthState,
