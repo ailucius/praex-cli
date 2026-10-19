@@ -5,6 +5,7 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { For, type JSX, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { CHAT_AGENT, COWORK_AGENT } from "@/utils/chat-workspace"
+import { setWebSearch, webSearch } from "@/utils/web-search"
 
 /** The composer's + menu: add files, take a screenshot (desktop), connectors. */
 export function ComposerPlusMenu(props: {
@@ -52,6 +53,18 @@ export function ComposerPlusMenu(props: {
             )}
           </Show>
           <DropdownMenu.Separator />
+          <DropdownMenu.CheckboxItem
+            checked={webSearch()}
+            onChange={setWebSearch}
+            closeOnSelect={false}
+            data-action="composer-web-search"
+          >
+            <Icon name="magnifying-glass" size="small" class="text-icon-weak" />
+            <DropdownMenu.ItemLabel class="flex-1">{language.t("composer.plus.webSearch")}</DropdownMenu.ItemLabel>
+            <DropdownMenu.ItemIndicator class="pl-4">
+              <Icon name="check-small" size="small" class="text-icon-strong" />
+            </DropdownMenu.ItemIndicator>
+          </DropdownMenu.CheckboxItem>
           <DropdownMenu.Item onSelect={props.onConnectors} data-action="composer-connectors">
             <Icon name="mcp" size="small" class="text-icon-weak" />
             <DropdownMenu.ItemLabel>{language.t("composer.plus.connectors")}</DropdownMenu.ItemLabel>

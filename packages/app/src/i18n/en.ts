@@ -585,6 +585,7 @@ export const dict = {
   "composer.plus.screenshot": "Take a screenshot",
   "composer.plus.screenshot.failed": "Couldn't take a screenshot",
   "composer.plus.connectors": "Connectors",
+  "composer.plus.webSearch": "Web search",
   "composer.mode.label": "Mode for the next message",
   "composer.mode.chat": "Chat",
   "composer.mode.chat.hint": "Answers, web search and reading files",

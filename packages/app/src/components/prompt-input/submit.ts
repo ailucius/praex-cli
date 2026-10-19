@@ -1,4 +1,5 @@
 import type { Message, Session } from "@opencode-ai/sdk/v2/client"
+import { composerToolOverrides } from "@/utils/web-search"
 import { showToast } from "@/utils/toast"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Binary } from "@opencode-ai/core/util/binary"
@@ -162,6 +163,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       messageID,
       parts: requestParts,
       variant: input.draft.variant,
+      tools: composerToolOverrides(),
     })
     return true
   } catch (err) {
