@@ -35,7 +35,7 @@ import {
   SummarizePayload,
   UpdatePayload,
 } from "../groups/session"
-import { PermissionNotFoundError } from "../errors"
+import { PermissionNotFoundError, UnknownError } from "../errors"
 import * as SessionError from "./session-errors"
 
 const tryParseJson = (text: string) =>
@@ -249,22 +249,19 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return true
     })
 
-    // share/unshare errors aren't all client-induced — storage and network
-    // failures from SessionShare are real possibilities. Map to a typed 500
-    // (matches the legacy route behavior which routed any failure through
-    // ErrorMiddleware → NamedError.Unknown 500) instead of blanket-mapping
-    // every failure to a 400 BadRequest.
+    // Share failures carry a sentence for the user (not signed in, too large, offline…), so
+    // the message travels with the 500 instead of a bare InternalServerError.
+    const shareFailure = (e: { message?: string }) =>
+      new UnknownError({ message: e?.message || "Couldn't update the share link. Try again in a minute." })
     const share = Effect.fn("SessionHttpApi.share")(function* (ctx: { params: { sessionID: SessionID } }) {
       yield* requireSession(ctx.params.sessionID)
-      yield* shareSvc.share(ctx.params.sessionID).pipe(Effect.mapError(() => new HttpApiError.InternalServerError({})))
+      yield* shareSvc.share(ctx.params.sessionID).pipe(Effect.mapError(shareFailure))
       return yield* requireSession(ctx.params.sessionID)
     })
 
     const unshare = Effect.fn("SessionHttpApi.unshare")(function* (ctx: { params: { sessionID: SessionID } }) {
       yield* requireSession(ctx.params.sessionID)
-      yield* shareSvc
-        .unshare(ctx.params.sessionID)
-        .pipe(Effect.mapError(() => new HttpApiError.InternalServerError({})))
+      yield* shareSvc.unshare(ctx.params.sessionID).pipe(Effect.mapError(shareFailure))
       return yield* requireSession(ctx.params.sessionID)
     })
 

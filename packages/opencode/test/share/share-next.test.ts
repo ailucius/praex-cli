@@ -1,326 +1,260 @@
 import { beforeEach, describe, expect } from "bun:test"
-import { Effect, Exit, Layer, Option } from "effect"
+import { Effect, Exit, Layer } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { httpClient } from "@opencode-ai/core/effect/layer-node-platform"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
+import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { ProviderV2 } from "@opencode-ai/core/provider"
+import { ModelV2 } from "@opencode-ai/core/model"
 
-import { AccessToken, AccountID, OrgID, RefreshToken } from "../../src/account/schema"
-import { AccountRepo } from "../../src/account/repo"
-import { EventV2Bridge } from "../../src/event-v2-bridge"
+import { Auth } from "@/auth"
 import { Session } from "@/session/session"
-import type { SessionID } from "../../src/session/schema"
+import { MessageID, PartID, type SessionID } from "../../src/session/schema"
 import { ShareNext } from "@/share/share-next"
 import { SessionShareTable } from "@opencode-ai/core/share/sql"
 import { Database } from "@opencode-ai/core/database/database"
 import { eq } from "drizzle-orm"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
-import { pollWithTimeout, testEffect } from "../lib/effect"
+import { testEffect } from "../lib/effect"
 
 const env = LayerNode.buildLayer(CrossSpawnSpawner.node)
 const it = testEffect(env)
 
+const GATEWAY = "https://praex-gateway-384599766402.us-central1.run.app/v1"
+
 const json = (req: Parameters<typeof HttpClientResponse.fromWeb>[0], body: unknown, status = 200) =>
   HttpClientResponse.fromWeb(
     req,
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { "content-type": "application/json" },
-    }),
+    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }),
   )
 
-const none = HttpClient.make(() => Effect.die("unexpected http call"))
-
-function requestLayer(client: HttpClient.HttpClient) {
-  return LayerNode.buildLayer(LayerNode.group([ShareNext.node, AccountRepo.node]), {
-    replacements: [LayerNode.replace(httpClient, Layer.succeed(HttpClient.HttpClient, client))],
-  })
-}
-
-function integrationLayer(client: HttpClient.HttpClient) {
+function layer(client: HttpClient.HttpClient) {
   return LayerNode.buildLayer(
-    LayerNode.group([
-      ShareNext.node,
-      EventV2Bridge.node,
-      Session.node,
-      SessionProjector.node,
-      AccountRepo.node,
-      Database.node,
-    ]),
-    {
-      replacements: [LayerNode.replace(httpClient, Layer.succeed(HttpClient.HttpClient, client))],
-    },
+    LayerNode.group([ShareNext.node, Session.node, SessionProjector.node, Auth.node, Database.node]),
+    { replacements: [LayerNode.replace(httpClient, Layer.succeed(HttpClient.HttpClient, client))] },
   )
 }
 
-const share = (id: SessionID) =>
+const row = (id: SessionID) =>
   Effect.gen(function* () {
     const { db } = yield* Database.Service
-    return yield* db
-      .select()
-      .from(SessionShareTable)
-      .where(eq(SessionShareTable.session_id, id))
-      .get()
-      .pipe(Effect.orDie)
+    return yield* db.select().from(SessionShareTable).where(eq(SessionShareTable.session_id, id)).get().pipe(Effect.orDie)
   })
 
-const seed = (url: string, org?: string) =>
-  AccountRepo.Service.use((repo) =>
-    repo.persistAccount({
-      id: AccountID.make("account-1"),
-      email: "user@example.com",
-      url,
-      accessToken: AccessToken.make("st_test_token"),
-      refreshToken: RefreshToken.make("rt_test_token"),
-      expiry: Date.now() + 10 * 60_000,
-      orgID: org ? Option.some(OrgID.make(org)) : Option.none(),
-    }),
-  )
+const signIn = Auth.Service.use((auth) =>
+  auth.set(
+    "praex-cloud",
+    new Auth.Oauth({ type: "oauth", refresh: "refresh-token", access: "id-token-1", expires: Date.now() + 30 * 60_000 }),
+  ),
+)
+
+const body = (req: HttpClientRequest.HttpClientRequest) =>
+  req.body._tag === "Uint8Array" ? JSON.parse(new TextDecoder().decode(req.body.body)) : undefined
+
+// One user turn and one assistant turn that read a file (with output) and ran a command.
+const conversation = Effect.fn("Test.conversation")(function* (title = "Fix the login bug") {
+  const session = yield* Session.Service
+  const info = yield* session.create({ title })
+  const user = MessageID.ascending()
+  yield* session.updateMessage({
+    id: user,
+    sessionID: info.id,
+    role: "user",
+    time: { created: Date.now() },
+    agent: "build",
+    model: { providerID: "praex-cloud", modelID: "velox-ii-baked" },
+    tools: {},
+  } as unknown as SessionV1.Info)
+  yield* session.updatePart({ id: PartID.ascending(), sessionID: info.id, messageID: user, type: "text", text: "why does login fail?" })
+  yield* session.updatePart({
+    id: PartID.ascending(),
+    sessionID: info.id,
+    messageID: user,
+    type: "text",
+    synthetic: true,
+    text: "Called the Read tool with the following input: SECRET FILE BODY",
+  })
+  const reply = MessageID.ascending()
+  yield* session.updateMessage({
+    id: reply,
+    sessionID: info.id,
+    role: "assistant",
+    time: { created: Date.now() },
+    parentID: user,
+    modelID: ModelV2.ID.make("velox-ii-baked"),
+    providerID: ProviderV2.ID.make("praex-cloud"),
+    mode: "",
+    agent: "build",
+    path: { cwd: info.directory, root: info.directory },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  } as unknown as SessionV1.Info)
+  yield* session.updatePart({
+    id: PartID.ascending(),
+    sessionID: info.id,
+    messageID: reply,
+    type: "tool",
+    callID: "c1",
+    tool: "read",
+    state: {
+      status: "completed",
+      input: { filePath: `${info.directory}/src/auth.ts` },
+      output: "export const TOKEN_FILE_CONTENTS = 1",
+      title: "src/auth.ts",
+      metadata: {},
+      time: { start: 1, end: 2 },
+    },
+  } as unknown as SessionV1.Part)
+  yield* session.updatePart({ id: PartID.ascending(), sessionID: info.id, messageID: reply, type: "text", text: "The token expired." })
+  return info
+})
 
 beforeEach(async () => {
   await resetDatabase()
 })
 
-describe("ShareNext", () => {
-  it.live("request uses legacy share API without active org account", () =>
-    provideTmpdirInstance(
-      () =>
-        ShareNext.Service.use((svc) =>
-          Effect.gen(function* () {
-            const req = yield* svc.request()
-
-            expect(req.api.create).toBe("/api/share")
-            expect(req.api.sync("shr_123")).toBe("/api/share/shr_123/sync")
-            expect(req.api.remove("shr_123")).toBe("/api/share/shr_123")
-            expect(req.api.data("shr_123")).toBe("/api/share/shr_123/data")
-            expect(req.baseUrl).toBe("https://legacy-share.example.com")
-            expect(req.headers).toEqual({})
-          }),
-        ).pipe(Effect.provide(requestLayer(none))),
-      { config: { enterprise: { url: "https://legacy-share.example.com" } } },
-    ),
-  )
-
-  it.live("request uses default URL when no enterprise config", () =>
-    provideTmpdirInstance(() =>
-      ShareNext.Service.use((svc) =>
-        Effect.gen(function* () {
-          const req = yield* svc.request()
-
-          expect(req.baseUrl).toBe("https://opncd.ai")
-          expect(req.api.create).toBe("/api/share")
-          expect(req.headers).toEqual({})
-        }),
-      ).pipe(Effect.provide(requestLayer(none))),
-    ),
-  )
-
-  it.live("request uses org share API with auth headers when account is active", () =>
-    provideTmpdirInstance(() =>
-      Effect.gen(function* () {
-        yield* seed("https://control.example.com", "org-1")
-
-        const req = yield* ShareNext.use.request()
-
-        expect(req.api.create).toBe("/api/shares")
-        expect(req.api.sync("shr_123")).toBe("/api/shares/shr_123/sync")
-        expect(req.api.remove("shr_123")).toBe("/api/shares/shr_123")
-        expect(req.api.data("shr_123")).toBe("/api/shares/shr_123/data")
-        expect(req.baseUrl).toBe("https://control.example.com")
-        expect(req.headers).toEqual({
-          authorization: "Bearer st_test_token",
-          "x-org-id": "org-1",
-        })
-      }).pipe(Effect.provide(requestLayer(none))),
-    ),
-  )
-
-  it.live("create posts share, persists it, and returns the result", () =>
-    provideTmpdirInstance(
-      () => {
-        const seen: HttpClientRequest.HttpClientRequest[] = []
-        const client = HttpClient.make((req) => {
-          seen.push(req)
-          if (req.url.endsWith("/api/share")) {
-            return Effect.succeed(
-              json(req, {
-                id: "shr_abc",
-                url: "https://legacy-share.example.com/share/abc",
-                secret: "sec_123",
-              }),
-            )
-          }
-          return Effect.succeed(json(req, { ok: true }))
-        })
-        return Effect.gen(function* () {
-          const session = yield* (yield* Session.Service).create({ title: "test" })
-
-          const result = yield* (yield* ShareNext.Service).create(session.id)
-
-          expect(result.id).toBe("shr_abc")
-          expect(result.url).toBe("https://legacy-share.example.com/share/abc")
-          expect(result.secret).toBe("sec_123")
-
-          const row = yield* share(session.id)
-          expect(row?.id).toBe("shr_abc")
-          expect(row?.url).toBe("https://legacy-share.example.com/share/abc")
-          expect(row?.secret).toBe("sec_123")
-
-          expect(seen).toHaveLength(1)
-          expect(seen[0].method).toBe("POST")
-          expect(seen[0].url).toBe("https://legacy-share.example.com/api/share")
-        }).pipe(Effect.provide(integrationLayer(client)))
-      },
-      { config: { enterprise: { url: "https://legacy-share.example.com" } } },
-    ),
-  )
-
-  it.live("remove deletes the persisted share and calls the delete endpoint", () =>
-    provideTmpdirInstance(
-      () => {
-        const seen: HttpClientRequest.HttpClientRequest[] = []
-        const client = HttpClient.make((req) => {
-          seen.push(req)
-          if (req.method === "POST") {
-            return Effect.succeed(
-              json(req, {
-                id: "shr_abc",
-                url: "https://legacy-share.example.com/share/abc",
-                secret: "sec_123",
-              }),
-            )
-          }
-          return Effect.succeed(HttpClientResponse.fromWeb(req, new Response(null, { status: 200 })))
-        })
-        return Effect.gen(function* () {
-          const session = yield* (yield* Session.Service).create({ title: "test" })
-          const service = yield* ShareNext.Service
-
-          yield* service.create(session.id)
-          yield* service.remove(session.id)
-
-          expect(yield* share(session.id)).toBeUndefined()
-          expect(seen.map((req) => [req.method, req.url])).toEqual([
-            ["POST", "https://legacy-share.example.com/api/share"],
-            ["DELETE", "https://legacy-share.example.com/api/share/shr_abc"],
-          ])
-        }).pipe(Effect.provide(integrationLayer(client)))
-      },
-      { config: { enterprise: { url: "https://legacy-share.example.com" } } },
-    ),
-  )
-
-  it.live("create fails on a non-ok response and does not persist a share", () =>
+describe("ShareNext (Praex Share)", () => {
+  it.live("refuses with one plain sentence when not signed in, and sends nothing", () =>
     provideTmpdirInstance(() => {
-      const client = HttpClient.make((req) => Effect.succeed(json(req, { error: "bad" }, 500)))
+      const seen: string[] = []
+      const client = HttpClient.make((req) => (seen.push(req.url), Effect.succeed(json(req, {}))))
       return Effect.gen(function* () {
-        const session = yield* (yield* Session.Service).create({ title: "test" })
-
-        const exit = yield* ShareNext.Service.use((svc) => Effect.exit(svc.create(session.id)))
-
+        const info = yield* conversation()
+        const exit = yield* ShareNext.Service.use((svc) => Effect.exit(svc.create(info.id)))
         expect(Exit.isFailure(exit)).toBe(true)
-        expect(yield* share(session.id)).toBeUndefined()
-      }).pipe(Effect.provide(integrationLayer(client)))
+        expect(JSON.stringify(exit)).toContain("Run `praex login` to share sessions.")
+        expect(seen).toEqual([])
+        expect(yield* row(info.id)).toBeUndefined()
+      }).pipe(Effect.provide(layer(client)))
     }),
   )
 
-  it.live("ShareNext coalesces rapid diff events into one delayed sync with latest data", () =>
-    provideTmpdirInstance(
-      () => {
-        const seen: Array<{ url: string; body: string }> = []
-        const client = HttpClient.make((req) => {
-          if (req.url.endsWith("/sync") && req.body._tag === "Uint8Array") {
-            seen.push({ url: req.url, body: new TextDecoder().decode(req.body.body) })
-          }
-          return Effect.succeed(json(req, { ok: true }))
-        })
+  it.live("posts a compact snapshot to the Praex gateway and stores the link", () =>
+    provideTmpdirInstance(() => {
+      const seen: HttpClientRequest.HttpClientRequest[] = []
+      const client = HttpClient.make((req) => {
+        seen.push(req)
+        return Effect.succeed(json(req, { id: "AbCdEfGhIjKlMnOpQrStUv", url: "https://praex.ai/s/AbCdEfGhIjKlMnOpQrStUv" }, 201))
+      })
+      return Effect.gen(function* () {
+        yield* signIn
+        const info = yield* conversation()
+        const result = yield* (yield* ShareNext.Service).create(info.id)
+        expect(result).toEqual({ id: "AbCdEfGhIjKlMnOpQrStUv", url: "https://praex.ai/s/AbCdEfGhIjKlMnOpQrStUv" })
 
-        return Effect.gen(function* () {
-          const events = yield* EventV2Bridge.Service
-          const share = yield* ShareNext.Service
-          const session = yield* Session.Service
+        expect(seen).toHaveLength(1)
+        expect(seen[0].method).toBe("POST")
+        expect(seen[0].url).toBe(`${GATEWAY}/share`)
+        expect(seen[0].headers["authorization"]).toBe("Bearer id-token-1")
+        const sent = body(seen[0])
+        expect(sent.title).toBe("Fix the login bug")
+        expect(sent.id).toBeUndefined()
+        expect(sent.messages).toEqual([
+          { role: "user", text: "why does login fail?" },
+          { role: "assistant", text: "The token expired.", tools: ["Read src/auth.ts"] },
+        ])
+        // never tool output, never synthetic file bodies
+        expect(JSON.stringify(sent)).not.toContain("TOKEN_FILE_CONTENTS")
+        expect(JSON.stringify(sent)).not.toContain("SECRET FILE BODY")
 
-          const info = yield* session.create({ title: "first" })
-          yield* share.init()
-          yield* Effect.sleep(50)
-          const { db } = yield* Database.Service
-          yield* db
-            .insert(SessionShareTable)
-            .values({
-              session_id: info.id,
-              id: "shr_abc",
-              url: "https://legacy-share.example.com/share/abc",
-              secret: "sec_123",
-            })
-            .run()
-            .pipe(Effect.orDie)
+        const stored = yield* row(info.id)
+        expect(stored?.id).toBe("AbCdEfGhIjKlMnOpQrStUv")
+        expect(stored?.url).toBe("https://praex.ai/s/AbCdEfGhIjKlMnOpQrStUv")
+      }).pipe(Effect.provide(layer(client)))
+    }),
+  )
 
-          yield* events.publish(Session.Event.Diff, {
-            sessionID: info.id,
-            diff: [
-              {
-                file: "a.ts",
-                patch:
-                  "Index: a.ts\n===================================================================\n--- a.ts\t\n+++ a.ts\t\n@@ -1,1 +1,1 @@\n-one\n\\ No newline at end of file\n+two\n\\ No newline at end of file\n",
-                additions: 1,
-                deletions: 1,
-                status: "modified",
-              },
-            ],
-          })
-          yield* events.publish(Session.Event.Diff, {
-            sessionID: info.id,
-            diff: [
-              {
-                file: "b.ts",
-                patch:
-                  "Index: b.ts\n===================================================================\n--- b.ts\t\n+++ b.ts\t\n@@ -1,1 +1,1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n",
-                additions: 2,
-                deletions: 0,
-                status: "modified",
-              },
-            ],
-          })
-          yield* pollWithTimeout(
-            Effect.sync(() => (seen.length === 1 ? true : undefined)),
-            "timed out waiting for share sync",
-            "5 seconds",
-          )
+  it.live("sharing again sends the stored id so the same link is updated", () =>
+    provideTmpdirInstance(() => {
+      const sent: any[] = []
+      const client = HttpClient.make((req) => {
+        sent.push(body(req))
+        return Effect.succeed(json(req, { id: "AbCdEfGhIjKlMnOpQrStUv", url: "https://praex.ai/s/AbCdEfGhIjKlMnOpQrStUv" }))
+      })
+      return Effect.gen(function* () {
+        yield* signIn
+        const info = yield* conversation()
+        const svc = yield* ShareNext.Service
+        yield* svc.create(info.id)
+        yield* svc.create(info.id)
+        expect(sent.map((b) => b.id)).toEqual([undefined, "AbCdEfGhIjKlMnOpQrStUv"])
+      }).pipe(Effect.provide(layer(client)))
+    }),
+  )
 
-          expect(seen).toHaveLength(1)
-          expect(seen[0].url).toBe("https://legacy-share.example.com/api/share/shr_abc/sync")
+  it.live("a gateway refusal surfaces its message and stores nothing", () =>
+    provideTmpdirInstance(() => {
+      const client = HttpClient.make((req) =>
+        Effect.succeed(json(req, { error: { message: "This session is too large to share.", type: "praex_gateway" } }, 413)),
+      )
+      return Effect.gen(function* () {
+        yield* signIn
+        const info = yield* conversation()
+        const exit = yield* ShareNext.Service.use((svc) => Effect.exit(svc.create(info.id)))
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(JSON.stringify(exit)).toContain("This session is too large to share.")
+        expect(yield* row(info.id)).toBeUndefined()
+      }).pipe(Effect.provide(layer(client)))
+    }),
+  )
 
-          const body = JSON.parse(seen[0].body) as {
-            secret: string
-            data: Array<{
-              type: string
-              data: Array<{
-                file: string
-                patch: string
-                additions: number
-                deletions: number
-                status?: string
-              }>
-            }>
-          }
-          expect(body.secret).toBe("sec_123")
-          expect(body.data).toHaveLength(1)
-          expect(body.data[0].type).toBe("session_diff")
-          expect(body.data[0].data).toEqual([
-            {
-              file: "b.ts",
-              patch:
-                "Index: b.ts\n===================================================================\n--- b.ts\t\n+++ b.ts\t\n@@ -1,1 +1,1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n",
-              additions: 2,
-              deletions: 0,
-              status: "modified",
-            },
-          ])
-        }).pipe(Effect.provide(integrationLayer(client)))
-      },
-      { config: { enterprise: { url: "https://legacy-share.example.com" } } },
-    ),
+  it.live("an empty session is not uploaded", () =>
+    provideTmpdirInstance(() => {
+      const seen: string[] = []
+      const client = HttpClient.make((req) => (seen.push(req.url), Effect.succeed(json(req, {}))))
+      return Effect.gen(function* () {
+        yield* signIn
+        const info = yield* (yield* Session.Service).create({ title: "empty" })
+        const exit = yield* ShareNext.Service.use((svc) => Effect.exit(svc.create(info.id)))
+        expect(JSON.stringify(exit)).toContain("Nothing to share yet.")
+        expect(seen).toEqual([])
+      }).pipe(Effect.provide(layer(client)))
+    }),
+  )
+
+  it.live("unshare deletes the link on the gateway and forgets it locally (404 counts as gone)", () =>
+    provideTmpdirInstance(() => {
+      const seen: Array<[string, string]> = []
+      let deleteStatus = 200
+      const client = HttpClient.make((req) => {
+        seen.push([req.method, req.url])
+        if (req.method === "DELETE") return Effect.succeed(json(req, deleteStatus === 200 ? { ok: true } : { error: { message: "gone" } }, deleteStatus))
+        return Effect.succeed(json(req, { id: "AbCdEfGhIjKlMnOpQrStUv", url: "https://praex.ai/s/AbCdEfGhIjKlMnOpQrStUv" }, 201))
+      })
+      return Effect.gen(function* () {
+        yield* signIn
+        const info = yield* conversation()
+        const svc = yield* ShareNext.Service
+        yield* svc.create(info.id)
+        yield* svc.remove(info.id)
+        expect(yield* row(info.id)).toBeUndefined()
+        expect(seen).toEqual([
+          ["POST", `${GATEWAY}/share`],
+          ["DELETE", `${GATEWAY}/share/AbCdEfGhIjKlMnOpQrStUv`],
+        ])
+
+        deleteStatus = 404
+        yield* svc.create(info.id)
+        yield* svc.remove(info.id)
+        expect(yield* row(info.id)).toBeUndefined()
+        // every request went to the Praex gateway, none to upstream share hosts
+        expect(seen.every(([, url]) => url.startsWith(GATEWAY))).toBe(true)
+      }).pipe(Effect.provide(layer(client)))
+    }),
+  )
+
+  it.live("unshare without a link is a no-op with no request", () =>
+    provideTmpdirInstance(() => {
+      const seen: string[] = []
+      const client = HttpClient.make((req) => (seen.push(req.url), Effect.succeed(json(req, {}))))
+      return Effect.gen(function* () {
+        const info = yield* (yield* Session.Service).create({ title: "never shared" })
+        yield* (yield* ShareNext.Service).remove(info.id)
+        expect(seen).toEqual([])
+      }).pipe(Effect.provide(layer(client)))
+    }),
   )
 })

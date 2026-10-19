@@ -27,7 +27,7 @@ type TokenResponse = {
   expires_in?: string | number
 }
 
-async function exchangeRefreshToken(refreshToken: string): Promise<TokenResponse | undefined> {
+export async function exchangeRefreshToken(refreshToken: string): Promise<TokenResponse | undefined> {
   const res = await fetch(`https://securetoken.googleapis.com/v1/token?key=${FIREBASE_API_KEY}`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -37,7 +37,7 @@ async function exchangeRefreshToken(refreshToken: string): Promise<TokenResponse
   return (await res.json()) as TokenResponse
 }
 
-function expiresAt(tokens: TokenResponse) {
+export function expiresAt(tokens: TokenResponse) {
   return Date.now() + Number(tokens.expires_in ?? 3600) * 1000
 }
 
