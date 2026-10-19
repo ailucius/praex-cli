@@ -13,7 +13,9 @@ export function setupAutoUpdater(stop: () => Promise<void>) {
   autoUpdater.logger = logger
   autoUpdater.channel = "latest"
   autoUpdater.allowPrerelease = false
-  autoUpdater.allowDowngrade = true
+  // Never offer an older build: a rollback ships as a new, higher version. (Setting channel
+  // above turns allowDowngrade on inside electron-updater, so it is set back here.)
+  autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
   logger.log("auto updater configured", {
