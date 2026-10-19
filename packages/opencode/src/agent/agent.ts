@@ -232,25 +232,37 @@ export const layer = Layer.effect(
             mode: "subagent",
             native: true,
           },
-          // Plain chat (the desktop chat home): no tools at all and a short prompt, so a
-          // 32K model has room for the conversation. Hidden: clients pick it explicitly
-          // for chats; it never shows up in a project's agent list or as a default.
-          // The user's permission config is merged BEFORE the deny so it cannot re-enable tools.
+          // Chat (the desktop chat home): a short prompt and a small toolset (web search,
+          // fetch a page, read files in its own workspace), so a 32K model has room for the
+          // conversation. Hidden: clients pick it explicitly; it never shows up in a project's
+          // agent list or as a default. The user's permission config is merged BEFORE these
+          // rules so it cannot widen them.
           [CHAT_AGENT]: {
             name: CHAT_AGENT,
-            description: "Plain chat. No tools.",
+            description: "Chat. Web search, web pages and reading files; no shell, no edits.",
             mode: "primary",
             native: true,
             hidden: true,
             prompt: PROMPT_CHAT,
-            permission: Permission.merge(defaults, user, Permission.fromConfig({ "*": "deny" })),
+            permission: Permission.merge(
+              defaults,
+              user,
+              Permission.fromConfig({
+                "*": "deny",
+                websearch: "allow",
+                webfetch: "allow",
+                read: { "*": "allow", "*.env": "deny", "*.env.*": "deny" },
+                external_directory: "deny",
+              }),
+            ),
             options: {},
           },
-          // Cowork: a smaller tool set than build (files, web, todos; shell asks first) and
-          // nothing outside its own workspace. Hidden like chat; clients pick it explicitly.
+          // Cowork: the same thread with the full agent (files, shell, edits, web, todos, skills)
+          // working inside the private workspace; other folders are denied. No subagents.
+          // Hidden like chat; clients pick it explicitly, per message.
           [COWORK_AGENT]: {
             name: COWORK_AGENT,
-            description: "Cowork. Works through a task with files and the web in its own workspace.",
+            description: "Cowork. Works through a task with files, shell and the web in its own workspace.",
             mode: "primary",
             native: true,
             hidden: true,
@@ -269,7 +281,8 @@ export const layer = Layer.effect(
                 websearch: "allow",
                 todowrite: "allow",
                 question: "allow",
-                bash: "ask",
+                skill: "allow",
+                bash: "allow",
                 external_directory: "deny",
               }),
             ),

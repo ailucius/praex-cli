@@ -1376,14 +1376,13 @@ export const layer = Layer.effect(
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
-            // Plain chats carry no project context: no working directory, no AGENTS.md/CLAUDE.md,
-            // no memory index (it asks for a tool the chat agent does not have), no skills.
-            // Cowork keeps the environment block (it works in that folder) but no project context.
-            const chat = Agent.isChat(agent)
+            // Chat and Cowork threads carry no project context: no AGENTS.md/CLAUDE.md, no memory
+            // index (it asks for a tool they do not have), no skills block.
+            // Both keep the short environment block (their tools work in that folder).
             const workspace = Agent.isWorkspaceAgent(agent)
             const [skills, env, instructions, memory, modelMsgs] = yield* Effect.all([
               workspace ? Effect.succeed(undefined) : sys.skills(agent),
-              chat ? Effect.succeed([`Today's date: ${new Date().toDateString()}`]) : sys.environment(model),
+              sys.environment(model),
               workspace ? Effect.succeed([] as string[]) : instruction.system().pipe(Effect.orDie),
               workspace ? Effect.succeed(undefined) : Memory.system().pipe(Effect.orElseSucceed(() => undefined)),
               MessageV2.toModelMessagesEffect(msgs, model),
