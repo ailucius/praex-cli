@@ -169,26 +169,27 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     const sessionID = params.id
     if (!sessionID) return
 
+    // Praex Share is a snapshot: sharing again refreshes the same link with the newest messages.
     const existing = info()?.share?.url
-    if (existing) {
-      await copyShare(existing, true)
-      return
-    }
-
+    let failure: string | undefined
     const url = await sdk()
       .client.session.share({ sessionID })
       .then((res) => res.data?.share?.url)
-      .catch(() => undefined)
+      .catch((err: unknown) => {
+        const message = err && typeof err === "object" ? (err as { message?: unknown }).message : undefined
+        failure = typeof message === "string" && message ? message : undefined
+        return undefined
+      })
     if (!url) {
       showToast({
         title: language.t("toast.session.share.failed.title"),
-        description: language.t("toast.session.share.failed.description"),
+        description: failure ?? language.t("toast.session.share.failed.description"),
         variant: "error",
       })
       return
     }
 
-    await copyShare(url, false)
+    await copyShare(url, !!existing)
   }
 
   const unshare = async () => {

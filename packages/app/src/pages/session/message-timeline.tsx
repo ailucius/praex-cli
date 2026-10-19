@@ -727,20 +727,23 @@ export function MessageTimeline(props: {
       if (data?.message) return data.message
     }
     if (err instanceof Error) return err.message
+    // the server's own sentence, e.g. { _tag: "UnknownError", message: "Run `praex login` to share sessions." }
+    if (err && typeof err === "object" && typeof (err as { message?: unknown }).message === "string")
+      return (err as { message: string }).message
     return language.t("common.requestFailed")
   }
 
   const shareMutation = useMutation(() => ({
     mutationFn: (id: string) => serverSDK().client.session.share({ sessionID: id, directory: sdk().directory }),
     onError: (err) => {
-      console.error("Failed to share session", err)
+      showToast({ title: language.t("toast.session.share.failed.title"), description: errorMessage(err), variant: "error" })
     },
   }))
 
   const unshareMutation = useMutation(() => ({
     mutationFn: (id: string) => serverSDK().client.session.unshare({ sessionID: id, directory: sdk().directory }),
     onError: (err) => {
-      console.error("Failed to unshare session", err)
+      showToast({ title: language.t("toast.session.unshare.failed.title"), description: errorMessage(err), variant: "error" })
     },
   }))
 
@@ -1553,17 +1556,28 @@ export function MessageTimeline(props: {
                                       tabIndex={-1}
                                       class="w-full"
                                     />
-                                    <div class="grid grid-cols-2 gap-2">
+                                    <div class="grid grid-cols-3 gap-2">
                                       <Button
                                         size="large"
                                         variant="secondary"
                                         class="w-full shadow-none border border-border-weak-base"
                                         onClick={unshareSession}
-                                        disabled={unshareMutation.isPending}
+                                        disabled={unshareMutation.isPending || shareMutation.isPending}
                                       >
                                         {unshareMutation.isPending
                                           ? language.t("session.share.action.unpublishing")
                                           : language.t("session.share.action.unpublish")}
+                                      </Button>
+                                      <Button
+                                        size="large"
+                                        variant="secondary"
+                                        class="w-full shadow-none border border-border-weak-base"
+                                        onClick={shareSession}
+                                        disabled={shareMutation.isPending || unshareMutation.isPending}
+                                      >
+                                        {shareMutation.isPending
+                                          ? language.t("session.share.action.updating")
+                                          : language.t("session.share.action.update")}
                                       </Button>
                                       <Button
                                         size="large"

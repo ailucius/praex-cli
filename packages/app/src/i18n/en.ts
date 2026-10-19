@@ -87,9 +87,9 @@ export const dict = {
   "command.session.fork": "Fork from message",
   "command.session.fork.description": "Create a new session from a previous message",
   "command.session.share": "Share session",
-  "command.session.share.description": "Share this session and copy the URL to clipboard",
+  "command.session.share.description": "Publish a read-only copy on praex.ai and copy the link",
   "command.session.unshare": "Unshare session",
-  "command.session.unshare.description": "Stop sharing this session",
+  "command.session.unshare.description": "Delete this session's share page",
 
   "palette.search.placeholder": "Search files, commands, and sessions",
   "palette.empty": "No results found",
@@ -503,14 +503,14 @@ export const dict = {
 
   "toast.session.share.copyFailed.title": "Failed to copy URL to clipboard",
   "toast.session.share.success.title": "Session shared",
-  "toast.session.share.success.description": "Share URL copied to clipboard!",
+  "toast.session.share.success.description": "Link copied to clipboard.",
   "toast.session.share.failed.title": "Failed to share session",
-  "toast.session.share.failed.description": "An error occurred while sharing the session",
+  "toast.session.share.failed.description": "The session couldn't be shared. Try again in a minute.",
 
   "toast.session.unshare.success.title": "Session unshared",
-  "toast.session.unshare.success.description": "Session unshared successfully!",
+  "toast.session.unshare.success.description": "The share page is deleted.",
   "toast.session.unshare.failed.title": "Failed to unshare session",
-  "toast.session.unshare.failed.description": "An error occurred while unsharing the session",
+  "toast.session.unshare.failed.description": "The share page couldn't be deleted. Try again in a minute.",
 
   "toast.session.listFailed.title": "Failed to load sessions for {{project}}",
   "toast.project.reloadFailed.title": "Failed to reload {{project}}",
@@ -700,15 +700,17 @@ export const dict = {
 
   "session.share.popover.title": "Publish on web",
   "session.share.popover.description.shared":
-    "This session is public on the web. It is accessible to anyone with the link.",
+    "A read-only copy of this session is public at this link. Update it to include newer messages.",
   "session.share.popover.description.unshared":
-    "Share session publicly on the web. It will be accessible to anyone with the link.",
+    "Publish a read-only copy of this conversation on praex.ai. Anyone with the link can read it. Tool output and file contents are left out.",
   "session.share.action.share": "Share",
   "session.share.action.publish": "Publish",
   "session.share.action.publishing": "Publishing...",
   "session.share.action.unpublish": "Unpublish",
   "session.share.action.unpublishing": "Unpublishing...",
   "session.share.action.view": "View",
+  "session.share.action.update": "Update",
+  "session.share.action.updating": "Updating...",
   "session.share.copy.copied": "Copied",
   "session.share.copy.copyLink": "Copy link",
 
