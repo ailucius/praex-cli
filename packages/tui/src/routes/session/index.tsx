@@ -1530,9 +1530,13 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
   const duration = createMemo(() => {
     if (!final()) return 0
     if (!props.message.time.completed) return 0
+    // Measured from the turn's first step, so a prompt that waited in the queue is not
+    // charged for the wait.
+    const first = messages().find((x) => x.role === "assistant" && x.parentID === props.message.parentID)
     const user = messages().find((x) => x.role === "user" && x.id === props.message.parentID)
-    if (!user || !user.time) return 0
-    return props.message.time.completed - user.time.created
+    const start = first?.time.created ?? user?.time?.created
+    if (!start) return 0
+    return props.message.time.completed - start
   })
 
   const sessionStatus = createMemo(() => sync.data.session_status?.[props.message.sessionID]?.type ?? "idle")
@@ -1554,11 +1558,12 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
     const name = model().split(" · ")[0]
     const agent =
       props.message.mode && props.message.mode !== "build" ? `${Locale.titlecase(props.message.mode)} · ` : ""
-    const user = messages().find((x) => x.role === "user" && x.id === props.message.parentID)
+    const first = messages().find((x) => x.role === "assistant" && x.parentID === props.message.parentID)
     const took = (() => {
       const end = props.message.time.completed ?? (aborted || failed ? Date.now() : undefined)
-      if (!end || !user?.time) return
-      return formatTook(end - user.time.created)
+      const start = first?.time.created ?? props.message.time.created
+      if (!end || !start) return
+      return formatTook(end - start)
     })()
     if (aborted)
       return {

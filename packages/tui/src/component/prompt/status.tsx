@@ -94,9 +94,15 @@ export function WorkingLine(props: { sessionID: string; interrupt: number; inter
     return pickVerb(turn()?.id ?? props.sessionID)
   })
 
+  // A queued prompt's clock starts when its turn starts, not when it was typed.
   const elapsed = createMemo(() => {
-    const start = turn()?.time.created
-    if (!start) return
+    const t = turn()
+    if (!t) return
+    const first = messages().find((m) => m.role === "assistant" && m.parentID === t.id)
+    const previous = messages().findLast(
+      (m): m is AssistantMessage => m.role === "assistant" && !!m.time.completed && m.parentID !== t.id,
+    )
+    const start = first?.time.created ?? Math.max(t.time.created, previous?.time.completed ?? 0)
     return formatElapsed(now() - start)
   })
 

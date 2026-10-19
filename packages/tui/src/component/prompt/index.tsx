@@ -366,8 +366,11 @@ export function Prompt(props: PromptProps) {
 
   const sessionTitle = createMemo(() => {
     if (!props.sessionID) return
-    const title = sync.session.get(props.sessionID)?.title
-    if (!title || isDefaultTitle(title)) return
+    const raw = sync.session.get(props.sessionID)?.title
+    if (!raw || isDefaultTitle(raw)) return
+    // Generated titles sometimes arrive wrapped in markdown emphasis or quotes.
+    const title = raw.replace(/^[\s*_`"'#]+|[\s*_`"']+$/g, "")
+    if (!title) return
     return ` ${Locale.truncate(title, Math.max(16, Math.floor(dimensions().width / 3)))} `
   })
 
@@ -1407,6 +1410,7 @@ export function Prompt(props: PromptProps) {
             gap={2}
             paddingLeft={1}
             paddingRight={1}
+            marginTop={working() ? 1 : 0}
             marginBottom={1}
           >
             <Show when={working()} fallback={<box />}>
