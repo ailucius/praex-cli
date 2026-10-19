@@ -60,10 +60,55 @@ type Conn = {
 const CHUNK = 64 * 1024
 const WELCOME_MS = 15_000
 const MAX_GRANTS = 32
-// Paths a remote may not reach. Terminals need a WebSocket the tunnel does not carry, and a
-// raw shell from a phone is a bigger door than this feature needs; the agent's own tools
-// (with their permission prompts) still run.
-const BLOCKED = /^\/(pty)(\/|$|\?)/
+const ORIGIN = "http://opencode.internal"
+// Paths a remote may not reach: terminals (the legacy /pty routes and the /api/pty surface,
+// whose create call takes a command line) and the one-off shell command on a session. A raw
+// shell from a phone is a bigger door than this feature needs; the agent's own tools (with
+// their permission prompts) still run.
+const BLOCKED = [/^\/(api\/)?pty(\/|$)/i, /^\/(api\/)?session\/[^/]+\/shell(\/|$)/i]
+
+export type PathCheck = { ok: true; url: string } | { ok: false; status: 400 | 403; message: string }
+
+/**
+ * The one gate for every path a remote asks for. The path is normalised the way the request
+ * URL will be (dot segments, %2e, backslashes), then tested as normalised and as percent-decoded
+ * (a router may decode before matching), with repeated slashes folded. The URL handed back is
+ * the one that was checked, so the check and the dispatch can not disagree.
+ */
+export function checkRemotePath(path: unknown): PathCheck {
+  const bad = { ok: false, status: 400, message: "Bad path." } as const
+  if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) return bad
+  let url: URL
+  try {
+    url = new URL(path, ORIGIN)
+  } catch {
+    return bad
+  }
+  if (url.origin !== ORIGIN) return bad
+  let pathname = url.pathname
+  for (let round = 0; round < 4; round++) {
+    const flat = pathname.replace(/\/{2,}/g, "/")
+    if (BLOCKED.some((re) => re.test(flat)))
+      return { ok: false, status: 403, message: "The terminal and shell are not available over Remote Control." }
+    let decoded: string
+    try {
+      decoded = decodeURIComponent(pathname)
+    } catch {
+      // malformed escapes in the request itself are refused; a literal "%" that only shows up
+      // after one decode (a file named "100%") can not decode further, so the check is done
+      if (round === 0) return bad
+      return { ok: true, url: url.href }
+    }
+    if (decoded === pathname) return { ok: true, url: url.href }
+    try {
+      pathname = new URL(ORIGIN + decoded).pathname
+    } catch {
+      return bad
+    }
+  }
+  // still decoding after several rounds: nothing legitimate is encoded that deep
+  return bad
+}
 
 export const randomKey = (bytes = 16) => randomBytes(bytes).toString("base64url")
 
@@ -347,9 +392,8 @@ export class RemoteTunnel {
   private async serve(conn: Conn, f: Frame) {
     const id = String(f.id)
     if (!(await this.authorized(f.auth))) return this.reply(conn, id, 401, "Not authorized for this computer.")
-    const path = typeof f.path === "string" ? f.path : ""
-    if (!path.startsWith("/") || path.startsWith("//")) return this.reply(conn, id, 400, "Bad path.")
-    if (BLOCKED.test(path)) return this.reply(conn, id, 403, "The terminal is not available over Remote Control.")
+    const target = checkRemotePath(f.path)
+    if (!target.ok) return this.reply(conn, id, target.status, target.message)
 
     const ctrl = new AbortController()
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
@@ -365,7 +409,7 @@ export class RemoteTunnel {
       for (const [k, v] of Object.entries(f.headers ?? {})) if (typeof v === "string") headers.set(k, v)
       const body = typeof f.body === "string" && method !== "GET" && method !== "HEAD" ? Buffer.from(f.body, "base64") : undefined
       const res = await this.opts.dispatch(
-        new Request(`http://opencode.internal${path}`, { method, headers, body, signal: ctrl.signal }),
+        new Request(target.url, { method, headers, body, signal: ctrl.signal }),
       )
       const outHeaders: Record<string, string> = {}
       res.headers.forEach((v, k) => (outHeaders[k] = v))

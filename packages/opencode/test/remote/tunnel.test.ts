@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { RemoteTunnel, SignedOutError, type RemoteStatus } from "../../src/remote/tunnel"
+import { RemoteTunnel, SignedOutError, checkRemotePath, type RemoteStatus } from "../../src/remote/tunnel"
 import { fakePhoneVerifier, uidOf } from "../../src/remote/verify"
 import { relayConfig } from "../../src/remote"
 
@@ -143,6 +143,38 @@ describe("RemoteTunnel", () => {
     expect((await collect(relay, "p1")).status).toBe(403)
     ws.send(JSON.stringify({ t: "req", id: "p2", method: "GET", path: "//evil.example/x", headers: {}, auth: { idToken: "test:alice" } }))
     expect((await collect(relay, "p2")).status).toBe(400)
+  })
+
+  test("dot segments, encodings and the session shell can not reach the host", async () => {
+    const { relay, tunnel, seen } = make()
+    await tunnel.start()
+    const ws = relay.sockets[0]
+    const refused = [
+      "/./pty",
+      "/session/../pty",
+      "/session/%2e%2e/pty",
+      "/%70ty",
+      "/%2570ty",
+      "/api/pty",
+      "/session/x/shell",
+      "/session/ses_1/shell/",
+      "/session/x/./shell?directory=%2Ftmp",
+      "/session/x/%73hell",
+      "/session/x%2F..%2Fy/shell",
+    ]
+    for (const [i, path] of refused.entries()) {
+      ws.send(JSON.stringify({ t: "req", id: `b${i}`, method: "POST", path, headers: {}, auth: { idToken: "test:alice" } }))
+      expect({ path, status: (await collect(relay, `b${i}`)).status }).toEqual({ path, status: 403 })
+    }
+    ws.send(JSON.stringify({ t: "req", id: "bs", method: "GET", path: "/\\evil.example/x", headers: {}, auth: { idToken: "test:alice" } }))
+    expect((await collect(relay, "bs")).status).toBe(400)
+    expect(seen).toHaveLength(0)
+
+    ws.send(JSON.stringify({ t: "req", id: "ok", method: "GET", path: "/session/x/../y/message?directory=%2Ftmp", headers: {}, auth: { idToken: "test:alice" } }))
+    const ok = await collect(relay, "ok")
+    expect(ok.status).toBe(200)
+    // the request served is the normalised one that was checked
+    expect(JSON.parse(ok.body).path).toBe("/session/y/message?directory=%2Ftmp")
   })
 
   test("streams a long response and stops it on cancel", async () => {
@@ -318,6 +350,62 @@ describe("RemoteTunnel handshake deadline", () => {
     await Bun.sleep(400)
     expect(silent.opened()).toBe(1)
     expect(statuses.at(-1)).toEqual({ state: "off" })
+  })
+})
+
+describe("checkRemotePath", () => {
+  const status = (path: unknown) => {
+    const r = checkRemotePath(path)
+    return r.ok ? 200 : r.status
+  }
+
+  test("terminal and shell routes are refused however they are spelled", () => {
+    for (const path of [
+      "/pty",
+      "/pty/",
+      "/pty?x=1",
+      "/pty/abc/connect",
+      "/PTY",
+      "/./pty",
+      "/session/../pty",
+      "/a/b/../../pty",
+      "/session/%2e%2e/pty",
+      "/session/.%2E/pty",
+      "/%70ty",
+      "/%70%74%79",
+      "/%2570ty",
+      "/%2fpty",
+      "/x/..//pty",
+      "/api/pty",
+      "/api/pty/abc",
+      "/api/../pty",
+      "/session/x/shell",
+      "/session/x/shell/",
+      "/session/x//shell",
+      "/session/x/shell?directory=%2Ftmp",
+      "/session/x/%73hell",
+      "/session/x/sh%65ll",
+      "/session/x/shell%3Fq",
+      "/session/x%2F..%2Fy/shell",
+      "/api/session/x/shell",
+    ])
+      expect({ path, status: status(path) }).toEqual({ path, status: 403 })
+  })
+
+  test("odd paths are refused as bad", () => {
+    for (const path of ["", "session", "//evil.example/x", "/\\evil.example/x", "/%E0%A4%A", undefined, 42])
+      expect({ path, status: status(path) }).toEqual({ path, status: 400 })
+  })
+
+  test("normal routes pass, normalised", () => {
+    expect(checkRemotePath("/session")).toEqual({ ok: true, url: "http://opencode.internal/session" })
+    expect(checkRemotePath("/session/ses_1/message?directory=%2Ftmp")).toEqual({
+      ok: true,
+      url: "http://opencode.internal/session/ses_1/message?directory=%2Ftmp",
+    })
+    expect(checkRemotePath("/session/a/../b/prompt_async")).toEqual({ ok: true, url: "http://opencode.internal/session/b/prompt_async" })
+    for (const path of ["/event", "/global/event", "/session/x/shells", "/session/x/message", "/ptyx", "/file/content?path=pty", "/find/file?query=shell", "/file/100%2525"])
+      expect({ path, status: status(path) }).toEqual({ path, status: 200 })
   })
 })
 
