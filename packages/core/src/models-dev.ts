@@ -124,6 +124,19 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/ModelsDev") {}
 
+export const MODELS_URL = "https://praex.ai/models"
+
+// OpenCode's own paid gateways (Zen, Go). Praex never lists them or routes users to their billing.
+export const HIDDEN_PROVIDERS: ReadonlySet<string> = new Set(["opencode", "opencode-go"])
+const filtered = new WeakMap<object, Record<string, Provider>>()
+export function withoutHidden(all: Record<string, Provider>): Record<string, Provider> {
+  const hit = filtered.get(all)
+  if (hit) return hit
+  const out = Object.fromEntries(Object.entries(all).filter(([id]) => !HIDDEN_PROVIDERS.has(id)))
+  filtered.set(all, out)
+  return out
+}
+
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -139,10 +152,13 @@ export const layer = Layer.effect(
       ),
     )
 
-    const source = Flag.OPENCODE_MODELS_URL || "https://models.dev"
+    // Praex serves the public model catalogue from its own site (praex.ai/models/api.json, a cached
+    // mirror of models.dev), so the CLI never calls third-party hosts at startup. Same file format,
+    // so an existing models.json cache stays valid; the bundled snapshot covers any outage.
+    const source = Flag.OPENCODE_MODELS_URL || MODELS_URL
     const filepath = path.join(
       Global.Path.cache,
-      source === "https://models.dev" ? "models.json" : `models-${Hash.fast(source)}.json`,
+      source === MODELS_URL ? "models.json" : `models-${Hash.fast(source)}.json`,
     )
     const ttl = Duration.minutes(5)
     const lockKey = `models-dev:${filepath}`
@@ -214,7 +230,7 @@ export const layer = Layer.effect(
 
     const [cachedGet, invalidate] = yield* Effect.cachedInvalidateWithTTL(populate, Duration.infinity)
 
-    const get = (): Effect.Effect<Record<string, Provider>> => cachedGet
+    const get = (): Effect.Effect<Record<string, Provider>> => cachedGet.pipe(Effect.map(withoutHidden))
 
     const refresh = Effect.fn("ModelsDev.refresh")(function* (force = false) {
       if (!force && (yield* fresh())) return
@@ -229,7 +245,7 @@ export const layer = Layer.effect(
           yield* events.publish(Event.Refreshed, {})
         }),
       ).pipe(
-        Effect.tapCause((cause) => Effect.logError("Failed to fetch models.dev", { cause: cause })),
+        Effect.tapCause((cause) => Effect.logError("Failed to refresh the model catalogue", { cause: cause })),
         Effect.ignore,
       )
     })
