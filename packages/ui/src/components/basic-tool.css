@@ -22,6 +22,17 @@
     gap: 8px;
   }
 
+  [data-slot="basic-tool-tool-icon"] {
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--icon-weak);
+    transition: color 0.15s ease;
+  }
+
   [data-slot="basic-tool-tool-indicator"] {
     width: 16px;
     height: 16px;
@@ -59,7 +70,7 @@
     flex: 0 1 auto;
     min-width: 0;
     max-width: 100%;
-    font-size: 14px;
+    font-size: 13.5px;
   }
 
   [data-slot="basic-tool-tool-info-structured"] {
@@ -76,7 +87,7 @@
   [data-slot="basic-tool-tool-info-main"] {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: 6px;
     min-width: 0;
     overflow: hidden;
   }
@@ -84,12 +95,13 @@
   [data-slot="basic-tool-tool-title"] {
     flex-shrink: 0;
     font-family: var(--font-family-sans);
-    font-size: 14px;
+    font-size: 13.5px;
     font-style: normal;
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-large);
     letter-spacing: var(--letter-spacing-normal);
-    color: var(--text-strong);
+    color: var(--text-weak);
+    transition: color 0.15s ease;
 
     &.capitalize {
       text-transform: capitalize;
@@ -109,7 +121,7 @@
     white-space: nowrap;
     font-family: var(--font-family-sans);
     font-variant-numeric: tabular-nums;
-    font-size: 14px;
+    font-size: 13.5px;
     font-style: normal;
     font-weight: var(--font-weight-regular);
     line-height: var(--line-height-large);
@@ -155,12 +167,12 @@
     white-space: nowrap;
     font-family: var(--font-family-sans);
     font-variant-numeric: tabular-nums;
-    font-size: 14px;
+    font-size: 13px;
     font-style: normal;
     font-weight: var(--font-weight-regular);
     line-height: var(--line-height-large);
     letter-spacing: var(--letter-spacing-normal);
-    color: var(--text-base);
+    color: var(--text-weaker);
   }
 
   [data-slot="basic-tool-tool-action"] {
