@@ -1,8 +1,8 @@
 import { type ComponentProps } from "solid-js"
 
-// Praex brand mark: a dark rounded tile carrying the wave (the "~" of praex.ai).
-// The tile follows the theme's strong icon colour and the wave the page background,
-// so the mark stays legible on both light and dark grounds.
+// Praex brand mark: a white wave (the "~" of praex.ai) on a black rounded tile.
+// The mark is never recoloured: it stays white on black in both themes. On dark grounds
+// a hairline edge keeps the black tile from dissolving into the page.
 
 const wave = (x: number, y: number, size: number) => {
   // One level sine period inside a square of `size` at (x, y): the same geometry as
@@ -25,11 +25,21 @@ export const Mark = (props: { class?: string }) => {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <rect data-slot="logo-logo-mark-tile" x="0" y="2" width="16" height="16" rx="3.5" fill="var(--icon-strong-base)" />
+      <rect
+        data-slot="logo-logo-mark-tile"
+        x="0.25"
+        y="2.25"
+        width="15.5"
+        height="15.5"
+        rx="3.4"
+        fill="#000000"
+        stroke="rgba(255, 255, 255, 0.24)"
+        stroke-width="0.6"
+      />
       <path
         data-slot="logo-logo-mark-wave"
         d={wave(0, 2, 16)}
-        stroke="var(--background-base)"
+        stroke="#ffffff"
         stroke-width="2.1"
         stroke-linecap="round"
         stroke-linejoin="round"
@@ -48,10 +58,10 @@ export const Splash = (props: Pick<ComponentProps<"svg">, "ref" | "class">) => {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <rect x="0" y="10" width="80" height="80" rx="17" fill="var(--icon-strong-base)" />
+      <rect x="1" y="11" width="78" height="78" rx="16.5" fill="#000000" stroke="rgba(255, 255, 255, 0.24)" stroke-width="2" />
       <path
         d={wave(0, 10, 80)}
-        stroke="var(--background-base)"
+        stroke="#ffffff"
         stroke-width="9.6"
         stroke-linecap="round"
         stroke-linejoin="round"
