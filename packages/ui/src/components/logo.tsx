@@ -78,10 +78,11 @@ export const Logo = (props: { class?: string }) => {
       fill="none"
       classList={{ [props.class ?? ""]: !!props.class }}
     >
-      <rect x="0" y="0" width="42" height="42" rx="9" fill="var(--icon-strong-base)" />
+      {/* the mark keeps its colours in both themes: white wave on a black tile, hairline edge */}
+      <rect x="0.5" y="0.5" width="41" height="41" rx="8.5" fill="#000000" stroke="rgba(255, 255, 255, 0.24)" stroke-width="1" />
       <path
         d={wave(0, 0, 42)}
-        stroke="var(--background-base)"
+        stroke="#fafafa"
         stroke-width="5"
         stroke-linecap="round"
         stroke-linejoin="round"

@@ -1211,7 +1211,7 @@ function LegacyHome() {
           <div class="size-full overflow-y-auto">
             <div class="mx-auto flex min-h-full w-full max-w-[560px] flex-col items-center justify-center gap-7 px-4 py-12 text-center">
               <Logo class="w-[min(28rem,80%)]" />
-              <div class="text-16-regular text-text-weak max-w-[420px]">{language.t("home.welcome.tagline")}</div>
+              <div class="text-16-regular text-text-weak max-w-[420px] [text-wrap:balance]">{language.t("home.welcome.tagline")}</div>
               <div class="flex w-full flex-col gap-1 rounded-[10px] bg-v2-background-bg-deep p-2 text-left">
                 <div class="px-2 pt-1 pb-1.5 text-12-regular text-text-weak">{language.t("home.welcome.tiers")}</div>
                 <For each={tiers()}>
