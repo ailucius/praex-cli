@@ -45,7 +45,7 @@ Prefer your own provider? BYOK works with OpenAI, Anthropic, Gemini, Groq, DeepS
 ## Highlights
 
 - **TUI** built for real work: folded tool output, sessions, themes
-- **/afk** · leave the agent working, check on it from your phone
+- **/rc** · Remote Control: keep a session running here and continue it from your phone or the web
 - **Web search** on hosted tiers, permission-gated per query
 - **Memory** · persistent per-user memory across sessions
 - **Permission modes** · manual approval by default, loosen when you trust it

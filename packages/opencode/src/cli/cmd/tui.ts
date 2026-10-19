@@ -2,8 +2,6 @@ import { cmd } from "@/cli/cmd/cmd"
 import { Rpc } from "@/util/rpc"
 import { type rpc } from "../tui/worker"
 import path from "path"
-import os from "node:os"
-import { randomBytes } from "node:crypto"
 import { fileURLToPath } from "url"
 import { UI } from "@/cli/ui"
 import { errorMessage } from "@opencode-ai/tui/util/error"
@@ -12,6 +10,7 @@ import { withNetworkOptions, resolveNetworkOptionsNoConfig } from "@/cli/network
 import { Filesystem } from "@/util/filesystem"
 import type { GlobalEvent } from "@opencode-ai/sdk/v2"
 import type { EventSource } from "@opencode-ai/tui/context/sdk"
+import type { RemoteStatus } from "@/remote"
 import { writeHeapSnapshot } from "v8"
 import { validateSession } from "../tui/validate-session"
 import { win32InstallCtrlCGuard } from "@opencode-ai/tui/terminal-win32"
@@ -212,41 +211,17 @@ export const TuiThreadCommand = cmd({
             events: createEventSource(client),
           }
 
-      // /afk: expose the running instance on the network so the Praex PWA on a
-      // phone can attach to this session. Always password-protected: reuse
-      // OPENCODE_SERVER_PASSWORD if set, otherwise mint a per-run secret.
-      const afkAddresses = () => {
-        const rank = (ip: string) => {
-          if (/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip)) return 0 // LAN
-          if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip)) return 1 // tailnet CGNAT
-          return 2
-        }
-        return Object.values(os.networkInterfaces())
-          .flatMap((infos) => infos ?? [])
-          .filter((info) => info.family === "IPv4" && !info.internal)
-          .map((info) => info.address)
-          .sort((a, b) => rank(a) - rank(b))
-      }
-      const onExpose = async () => {
-        const username = process.env["OPENCODE_SERVER_USERNAME"] || "opencode"
-        if (external) {
-          return {
-            urls: [transport.url],
-            username,
-            password: process.env["OPENCODE_SERVER_PASSWORD"] || undefined,
-          }
-        }
-        const password = process.env["OPENCODE_SERVER_PASSWORD"] || randomBytes(9).toString("base64url")
-        process.env["OPENCODE_SERVER_PASSWORD"] = password
-        const started = await client.call("server", { port: 0, hostname: "0.0.0.0", password })
-        const port = new URL(started.url).port
-        const addresses = afkAddresses()
-        const urls = addresses.length ? addresses.map((ip) => `http://${ip}:${port}/`) : [started.url]
-        return { urls, username, password }
-      }
-      const onExposeStop = async () => {
-        if (external) return
-        await client.call("serverStop", undefined)
+      // /rc (Remote Control): the worker holds an outbound connection to the Praex relay and
+      // serves the phone's requests in-process. Nothing listens on the network. Off by default.
+      const remote = {
+        start: async () => await client.call("remoteStart", { directory: cwd }),
+        stop: async () => {
+          await client.call("remoteStop", undefined)
+        },
+        setSession: (info: { title?: string; sessionID?: string; directory?: string }) => {
+          client.call("remoteSession", info).catch(() => {})
+        },
+        subscribe: (handler: (status: RemoteStatus) => void) => client.on<RemoteStatus>("remote.status", handler),
       }
 
       try {
@@ -280,8 +255,7 @@ export const TuiThreadCommand = cmd({
               const server = await client.call("snapshot", undefined)
               return [tui, server]
             },
-            onExpose,
-            onExposeStop,
+            remote,
             config,
             pluginHost: createLegacyTuiPluginHost(),
             directory: cwd,
