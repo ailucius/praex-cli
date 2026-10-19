@@ -8,6 +8,7 @@ import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
 import type { FatalRendererError, ServerReadyData, TitlebarTheme } from "../preload/types"
 import { runDesktopMenuAction } from "./desktop-menu-actions"
 import { assertAttachmentBudget, createPickedFileAuthorizations } from "./attachment-picker"
+import { planOpenPath, safeExternalUrl } from "./external"
 import { getStore } from "./store"
 import { getPinchZoomEnabled, setPinchZoomEnabled, setTitlebar, updateTitlebar } from "./windows"
 import type { UpdaterController } from "./updater-controller"
@@ -164,15 +165,24 @@ export function registerIpcHandlers(deps: Deps) {
   )
 
   ipcMain.on("open-link", (_event: IpcMainEvent, url: string) => {
-    void shell.openExternal(url)
+    // web and mail links only: file:, smb:, custom schemes and the like never reach the OS
+    const safe = safeExternalUrl(url)
+    if (safe) void shell.openExternal(safe)
   })
 
   ipcMain.handle("open-path", async (_event: IpcMainInvokeEvent, path: string, app?: string) => {
-    if (!app) return shell.openPath(path)
+    const plan = await planOpenPath(path, app, process.platform, deps.resolveAppPath)
+    if (plan.kind === "refused") throw new Error(`Can't open this folder: ${plan.reason}.`)
+    // the only caller opens the project folder; a file path could launch a program
+    const info = await stat(path).catch(() => undefined)
+    if (!info?.isDirectory()) throw new Error("Can't open this folder: it is not a folder.")
+    if (plan.kind === "default") {
+      const error = await shell.openPath(path)
+      if (error) throw new Error(error)
+      return
+    }
     await new Promise<void>((resolve, reject) => {
-      const [cmd, args] =
-        process.platform === "darwin" ? (["open", ["-a", app, path]] as const) : ([app, [path]] as const)
-      execFile(cmd, args, (err) => (err ? reject(err) : resolve()))
+      execFile(plan.cmd, plan.args, (err) => (err ? reject(err) : resolve()))
     })
   })
 

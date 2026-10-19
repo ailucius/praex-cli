@@ -101,6 +101,8 @@ const getBase = (appId: string): Configuration => ({
       sign: signWindows,
     },
     target: ["nsis"],
+    // Left off on purpose until there is a Windows code-signing certificate: with it on, unsigned
+    // updates would be refused. Turn it on (and pin publisherName) once releases are signed.
     verifyUpdateCodeSignature: false,
   },
   nsis: {

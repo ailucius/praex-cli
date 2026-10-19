@@ -171,10 +171,7 @@ const createPlatform = (): Platform => {
       window.api.openLink(url)
     },
     async openPath(path: string, app?: string) {
-      if (os === "windows") {
-        const resolvedApp = app ? await window.api.resolveAppPath(app).catch(() => null) : null
-        return window.api.openPath(path, resolvedApp ?? undefined)
-      }
+      // the main process checks the app against its allowlist and resolves it on Windows
       return window.api.openPath(path, app)
     },
 
