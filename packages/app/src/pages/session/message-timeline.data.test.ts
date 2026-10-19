@@ -4,7 +4,7 @@ import type { AssistantMessage, Part, UserMessage } from "@opencode-ai/sdk/v2"
 // The real message-part module pulls in client-only Solid components; the grouping it
 // provides is not what these tests are about.
 mock.module("@opencode-ai/ui/message-part", () => ({
-  renderable: (part: Part) => part.type === "text",
+  renderable: (part: Part) => (part.type === "text" || part.type === "reasoning") && !!part.text?.trim(),
   groupParts: (refs: { messageID: string; part: Part }[]) =>
     refs.map((ref) => ({ type: "part", key: ref.part.id, ref })),
 }))
@@ -28,7 +28,7 @@ function assistant(id: string, summary: boolean) {
 const template = "## Goal\n(none)\n\n## Constraints & Preferences\n(none)\n\n## Next Steps\n(none)"
 
 function rows(parts: Record<string, Part[]>, assistants: AssistantMessage[]) {
-  return Timeline.constructMessageRows(user, (id) => parts[id] ?? [], assistants, 1, false, "idle", false)
+  return Timeline.constructMessageRows(user, (id) => parts[id] ?? [], assistants, 1, "idle", false)
 }
 
 describe("Timeline.constructMessageRows compaction", () => {
@@ -46,10 +46,29 @@ describe("Timeline.constructMessageRows compaction", () => {
   })
 
   test("still renders ordinary assistant replies", () => {
-    const result = rows(
-      { msg_reply: [{ id: "prt_r", type: "text", text: "hello" } as unknown as Part] },
-      [assistant("msg_reply", false)],
-    )
+    const result = rows({ msg_reply: [{ id: "prt_r", type: "text", text: "hello" } as unknown as Part] }, [
+      assistant("msg_reply", false),
+    ])
     expect(result.map((row) => row._tag)).toContain("AssistantPart")
+  })
+})
+
+describe("Timeline.constructMessageRows thinking", () => {
+  const streaming = { ...assistant("msg_live", false), time: { created: 2 } } as unknown as AssistantMessage
+  const busy = (parts: Record<string, Part[]>) =>
+    Timeline.constructMessageRows(user, (id) => parts[id] ?? [], [streaming], 1, "busy", true).map((row) => row._tag)
+
+  test("shows one Thinking status before anything streams", () => {
+    expect(busy({}).filter((tag) => tag === "Thinking")).toHaveLength(1)
+  })
+
+  test("hands over to the reasoning row once thinking streams, never both", () => {
+    const tags = busy({
+      msg_live: [
+        { id: "prt_think", type: "reasoning", text: "Weighing options", time: { start: 2 } } as unknown as Part,
+      ],
+    })
+    expect(tags).toContain("AssistantPart")
+    expect(tags).not.toContain("Thinking")
   })
 })

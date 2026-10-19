@@ -24,7 +24,7 @@ export type TimelineRowMap = {
     group: PartGroup
     previousAssistantPart: boolean
   }
-  Thinking: { userMessageID: string; reasoningHeading?: string }
+  Thinking: { userMessageID: string }
   Retry: { userMessageID: string }
   DiffSummary: { userMessageID: string; diffs: SummaryDiff[] }
   Error: { userMessageID: string; text: string }
@@ -52,7 +52,6 @@ export namespace TimelineRow {
   }> {}
   export class Thinking extends Data.TaggedClass("Thinking")<{
     userMessageID: string
-    reasoningHeading?: string
   }> {}
   export class DiffSummary extends Data.TaggedClass("DiffSummary")<{
     userMessageID: string
@@ -112,7 +111,6 @@ export namespace Timeline {
     getMessageParts: (messageID: string) => Part[],
     assistantMessages: AssistantMessage[],
     index: number,
-    showReasoning: boolean,
     status: SessionStatus["type"],
     isActive: boolean,
   ) {
@@ -130,7 +128,7 @@ export namespace Timeline {
     // wrote (Goal / Progress / Next Steps template) is context for the model, not chat.
     const assistantPartRefs = assistantMessages.flatMap((message, messageIndex) =>
       (compaction && message.summary === true ? [] : getMessageParts(message.id))
-        .filter((part) => renderable(part, showReasoning))
+        .filter((part) => renderable(part))
         .map((part) => ({ messageID: message.id, messageIndex, part })),
     )
     const assistantItems =
@@ -198,18 +196,10 @@ export namespace Timeline {
       assistantGroupIndex += 1
     })
 
-    if (isActive && status === "busy" && !error && (showReasoning ? assistantPartRefs.length === 0 : true)) {
-      const heading = assistantMessages
-        .flatMap((message) => getMessageParts(message.id))
-        .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
-        .find((value): value is string => !!value)
-
-      rows.push(
-        new TimelineRow.Thinking({
-          userMessageID: userMessage.id,
-          reasoningHeading: heading,
-        }),
-      )
+    // One "Thinking…" at a time: this row only covers the wait before the first part lands.
+    // Once the model streams its thinking, the reasoning row carries the label itself.
+    if (isActive && status === "busy" && !error && assistantPartRefs.length === 0) {
+      rows.push(new TimelineRow.Thinking({ userMessageID: userMessage.id }))
     }
 
     if (isActive && status === "retry") rows.push(new TimelineRow.Retry({ userMessageID: userMessage.id }))
@@ -248,41 +238,6 @@ export namespace Timeline {
 
   function isSummaryDiff(value: SnapshotFileDiff): value is SummaryDiff {
     return typeof value.file === "string"
-  }
-
-  function reasoningHeading(text: string) {
-    const markdown = text.replace(/\r\n?/g, "\n")
-    const html = markdown.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i)
-    if (html?.[1]) {
-      const value = cleanHeading(html[1].replace(/<[^>]+>/g, " "))
-      if (value) return value
-    }
-
-    const atx = markdown.match(/^\s{0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+[ \t]*)?$/m)
-    if (atx?.[1]) {
-      const value = cleanHeading(atx[1])
-      if (value) return value
-    }
-
-    const setext = markdown.match(/^([^\n]+)\n(?:=+|-+)\s*$/m)
-    if (setext?.[1]) {
-      const value = cleanHeading(setext[1])
-      if (value) return value
-    }
-
-    const strong = markdown.match(/^\s*(?:\*\*|__)(.+?)(?:\*\*|__)\s*$/m)
-    if (strong?.[1]) {
-      const value = cleanHeading(strong[1])
-      if (value) return value
-    }
-  }
-
-  function cleanHeading(value: string) {
-    return value
-      .replace(/`([^`]+)`/g, "$1")
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-      .replace(/[*_~]+/g, "")
-      .trim()
   }
 
   function unwrapErrorMessage(message: string) {

@@ -659,8 +659,8 @@ export const dict = {
     "Выберите, отправлять ли уточняющие вопросы сразу или помещать их в очередь",
   "settings.general.row.followup.option.queue": "Очередь",
   "settings.general.row.followup.option.steer": "Направлять",
-  "settings.general.row.reasoningSummaries.title": "Показывать сводки рассуждений",
-  "settings.general.row.reasoningSummaries.description": "Отображать сводки рассуждений модели в ленте",
+  "settings.general.row.reasoningSummaries.title": "Раскрывать размышления по умолчанию",
+  "settings.general.row.reasoningSummaries.description": "Показывать размышления модели раскрытыми, а не свёрнутыми",
 
   "settings.general.row.shellToolPartsExpanded.title": "Разворачивать элементы инструмента shell",
   "settings.general.row.shellToolPartsExpanded.description":
