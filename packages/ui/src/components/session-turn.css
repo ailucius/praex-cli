@@ -47,7 +47,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 12px;
+    margin-top: 16px;
     width: 100%;
     min-width: 0;
     color: var(--text-weak);
@@ -70,13 +70,47 @@
     font-weight: var(--font-weight-regular);
   }
 
+  /* Errors and retries read as a calm inline notice, not an alarm bar */
   .error-card {
-    color: var(--text-on-critical-base);
+    --card-pad-y: 10px;
+    --card-pad-l: 14px;
+    --card-pad-r: 14px;
+    margin-top: 8px;
+    color: var(--text-base);
+    background: color-mix(in srgb, var(--icon-critical-base) 7%, transparent);
+    border: 1px solid color-mix(in srgb, var(--icon-critical-base) 20%, transparent);
+    border-radius: 10px;
+    font-size: 13.5px;
+    line-height: 1.55;
     max-height: 240px;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: break-word;
     overflow-y: auto;
+
+    &::before {
+      display: none;
+    }
+
+    &:not(:has([data-component="spinner"])) {
+      --card-pad-l: 34px;
+
+      &::before {
+        display: block;
+        left: 15px;
+        top: 17px;
+        bottom: auto;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background-color: var(--icon-critical-base);
+      }
+    }
+
+    [data-slot="session-turn-retry-info"] {
+      color: var(--text-weak);
+      font-size: var(--font-size-small);
+    }
   }
 
   [data-slot="session-turn-assistant-content"] {
@@ -227,5 +261,5 @@
 }
 
 [data-slot="session-turn-list"] {
-  gap: 24px;
+  gap: 36px;
 }
