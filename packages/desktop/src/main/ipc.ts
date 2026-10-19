@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { stat } from "node:fs/promises"
 import { basename } from "node:path"
-import { app, BrowserWindow, Notification, clipboard, dialog, ipcMain, shell } from "electron"
+import { app, BrowserWindow, Notification, clipboard, desktopCapturer, dialog, ipcMain, screen, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
 
@@ -174,6 +174,35 @@ export function registerIpcHandlers(deps: Deps) {
         process.platform === "darwin" ? (["open", ["-a", app, path]] as const) : ([app, [path]] as const)
       execFile(cmd, args, (err) => (err ? reject(err) : resolve()))
     })
+  })
+
+  // "Take a screenshot" in the composer's + menu: hide our window, grab the display it was on,
+  // bring the window back. Returns null when the platform gives us nothing (e.g. denied).
+  ipcMain.handle("capture-screen", async (event: IpcMainInvokeEvent) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const bounds = win?.getBounds()
+    const display = bounds ? screen.getDisplayMatching(bounds) : screen.getPrimaryDisplay()
+    const visible = win?.isVisible() ?? false
+    try {
+      if (visible) win?.hide()
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      const sources = await desktopCapturer.getSources({
+        types: ["screen"],
+        thumbnailSize: {
+          width: Math.round(display.size.width * display.scaleFactor),
+          height: Math.round(display.size.height * display.scaleFactor),
+        },
+      })
+      const source = sources.find((item) => item.display_id === String(display.id)) ?? sources[0]
+      if (!source || source.thumbnail.isEmpty()) return null
+      const size = source.thumbnail.getSize()
+      return { buffer: source.thumbnail.toPNG().buffer, width: size.width, height: size.height }
+    } finally {
+      if (visible) {
+        win?.show()
+        win?.focus()
+      }
+    }
   })
 
   ipcMain.handle("read-clipboard-image", () => {

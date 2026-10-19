@@ -1,9 +1,12 @@
 import type { Message, Session } from "@opencode-ai/sdk/v2/client"
+import { composerToolOverrides } from "@/utils/web-search"
 import { showToast } from "@/utils/toast"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router"
-import { batch, type Accessor } from "solid-js"
+import { batch, createSignal, type Accessor } from "solid-js"
+import { COWORK_AGENT } from "@/utils/chat-workspace"
+import { markCoworkThread } from "@/utils/cowork-threads"
 import type { FileSelection } from "@/context/file"
 import { useServer } from "@/context/server"
 import { useTabs } from "@/context/tabs"
@@ -28,6 +31,7 @@ type PendingPrompt = {
 }
 
 const pending = new Map<string, PendingPrompt>()
+const READY_WAIT_MS = 20_000
 
 export type FollowupDraft = {
   sessionID: string
@@ -162,7 +166,9 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       messageID,
       parts: requestParts,
       variant: input.draft.variant,
+      tools: composerToolOverrides(),
     })
+    if (input.draft.agent === COWORK_AGENT) markCoworkThread(input.draft.sessionID)
     return true
   } catch (err) {
     batch(() => {
@@ -295,6 +301,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     })
   }
 
+  const [holding, setHolding] = createSignal(false)
+
   const handleSubmit = async (event: Event) => {
     event.preventDefault()
 
@@ -308,6 +316,17 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
+    // Cold start: agents and models may still be loading for this folder. Hold the send
+    // (the send button shows a spinner) instead of failing; give up only after a long wait.
+    if (!local.model.current() || !local.agent.current()) {
+      if (holding()) return
+      setHolding(true)
+      const started = Date.now()
+      while ((!local.model.current() || !local.agent.current()) && Date.now() - started < READY_WAIT_MS) {
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      setHolding(false)
+    }
     const currentModel = local.model.current()
     const currentAgent = local.agent.current()
     const variant = local.model.variant.current()
@@ -600,5 +619,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   return {
     abort,
     handleSubmit,
+    holding,
   }
 }

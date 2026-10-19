@@ -14,6 +14,8 @@ import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
+import PROMPT_CHAT from "./prompt/chat.txt"
+import PROMPT_COWORK from "./prompt/cowork.txt"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@opencode-ai/core/global"
@@ -54,6 +56,25 @@ export const Info = Schema.Struct({
   steps: Schema.optional(Schema.Finite),
 }).annotate({ identifier: "Agent" })
 export type Info = DeepMutable<Schema.Schema.Type<typeof Info>>
+
+/** The tool-less agent used by plain chats (see the `chat` entry below). */
+export const CHAT_AGENT = "chat"
+
+/** "Hand it a job": works through a task with files and the web inside the private workspace. */
+export const COWORK_AGENT = "cowork"
+
+export function isChat(agent: Pick<Info, "name">) {
+  return agent.name === CHAT_AGENT
+}
+
+export function isCowork(agent: Pick<Info, "name">) {
+  return agent.name === COWORK_AGENT
+}
+
+/** Agents that run in the private chat workspace and carry no project context. */
+export function isWorkspaceAgent(agent: Pick<Info, "name">) {
+  return agent.name === CHAT_AGENT || agent.name === COWORK_AGENT
+}
 
 const GeneratedAgent = Schema.Struct({
   identifier: Schema.String,
@@ -214,6 +235,62 @@ export const layer = Layer.effect(
             options: {},
             mode: "subagent",
             native: true,
+          },
+          // Chat (the desktop chat home): a short prompt and a small toolset (web search,
+          // fetch a page, read files in its own workspace), so a 32K model has room for the
+          // conversation. Hidden: clients pick it explicitly; it never shows up in a project's
+          // agent list or as a default. The user's permission config is merged BEFORE these
+          // rules so it cannot widen them.
+          [CHAT_AGENT]: {
+            name: CHAT_AGENT,
+            description: "Chat. Web search, web pages and reading files; no shell, no edits.",
+            mode: "primary",
+            native: true,
+            hidden: true,
+            prompt: PROMPT_CHAT,
+            permission: Permission.merge(
+              defaults,
+              user,
+              Permission.fromConfig({
+                "*": "deny",
+                websearch: "allow",
+                webfetch: "allow",
+                read: { "*": "allow", "*.env": "deny", "*.env.*": "deny" },
+                external_directory: "deny",
+              }),
+            ),
+            options: {},
+          },
+          // Cowork: the same thread with the full agent (files, shell, edits, web, todos, skills)
+          // working inside the private workspace; other folders are denied. No subagents.
+          // Hidden like chat; clients pick it explicitly, per message.
+          [COWORK_AGENT]: {
+            name: COWORK_AGENT,
+            description: "Cowork. Works through a task with files, shell and the web in its own workspace.",
+            mode: "primary",
+            native: true,
+            hidden: true,
+            prompt: PROMPT_COWORK,
+            permission: Permission.merge(
+              defaults,
+              user,
+              Permission.fromConfig({
+                "*": "deny",
+                read: { "*": "allow", "*.env": "ask", "*.env.*": "ask", "*.env.example": "allow" },
+                edit: "allow",
+                glob: "allow",
+                grep: "allow",
+                list: "allow",
+                webfetch: "allow",
+                websearch: "allow",
+                todowrite: "allow",
+                question: "allow",
+                skill: "allow",
+                bash: "allow",
+                external_directory: "deny",
+              }),
+            ),
+            options: {},
           },
           compaction: {
             name: "compaction",

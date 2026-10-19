@@ -22,6 +22,9 @@ const paths = {
   bin: path.join(cache, "bin"),
   log: path.join(data, "log"),
   repos: path.join(data, "repos"),
+  // Private workspace for plain chats (no folder). Under state, which the desktop app
+  // points at its own data dir, so it is never a visible folder in the user's home.
+  chat: path.join(state, "chat"),
   cache,
   config,
   state,
@@ -40,6 +43,7 @@ await Promise.all([
   fs.mkdir(Path.log, { recursive: true }),
   fs.mkdir(Path.bin, { recursive: true }),
   fs.mkdir(Path.repos, { recursive: true }),
+  fs.mkdir(Path.chat, { recursive: true }),
 ])
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Global") {}

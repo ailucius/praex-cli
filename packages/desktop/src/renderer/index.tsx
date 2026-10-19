@@ -259,6 +259,14 @@ const createPlatform = (): Platform => {
       return window.api.checkAppExists(appName)
     },
 
+    async captureScreen() {
+      const image = await window.api.captureScreen().catch(() => null)
+      if (!image) return null
+      const blob = new Blob([image.buffer], { type: "image/png" })
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")
+      return new File([blob], `screenshot-${stamp}.png`, { type: "image/png" })
+    },
+
     async readClipboardImage() {
       const image = await window.api.readClipboardImage().catch(() => null)
       if (!image) return null

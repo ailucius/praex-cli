@@ -27,7 +27,12 @@ export function NewSessionView(props: NewSessionViewProps) {
     if (options().includes(selection)) return selection
     return MAIN_WORKTREE
   })
-  const projectRoot = createMemo(() => sync().project?.worktree ?? sdk().directory)
+  // a folder outside git belongs to the catch-all project whose worktree is "/": show the folder
+  const projectRoot = createMemo(() => {
+    const worktree = sync().project?.worktree
+    return worktree && worktree !== "/" ? worktree : sdk().directory
+  })
+  const isGit = createMemo(() => sync().project?.vcs === "git")
   const isWorktree = createMemo(() => {
     const project = sync().project
     if (!project) return false
@@ -59,11 +64,11 @@ export function NewSessionView(props: NewSessionViewProps) {
           <div class="w-full flex flex-col gap-4 items-center">
             <div class="flex items-start justify-center gap-3 min-h-5">
               <div class="text-12-medium text-text-weak select-text leading-5 min-w-0 max-w-160 break-words text-center">
-                {getDirectory(projectRoot())}
+                {tildify(getDirectory(projectRoot()), sync().data.path.home)}
                 <span class="text-text-strong">{getFilename(projectRoot())}</span>
               </div>
             </div>
-            <div class="flex items-start justify-center gap-1.5 min-h-5">
+            <div class="flex items-start justify-center gap-1.5 min-h-5" classList={{ hidden: !isGit() }}>
               <Icon name="branch" size="small" class="mt-0.5 shrink-0" />
               <div class="text-12-medium text-text-weak select-text leading-5 min-w-0 max-w-160 break-words text-center">
                 {label(current())}
@@ -88,4 +93,9 @@ export function NewSessionView(props: NewSessionViewProps) {
       </div>
     </div>
   )
+}
+
+function tildify(path: string, home: string | undefined) {
+  if (!home || !path.startsWith(home)) return path
+  return "~" + path.slice(home.length)
 }

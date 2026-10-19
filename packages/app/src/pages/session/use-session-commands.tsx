@@ -18,6 +18,7 @@ import { createSessionTabs } from "@/pages/session/helpers"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { UserMessage } from "@opencode-ai/sdk/v2"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { isChatDirectory, useChatDirectory } from "@/utils/chat-workspace"
 
 export type SessionCommandContext = {
   navigateMessageByOffset: (offset: number) => void
@@ -42,6 +43,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const permission = usePermission()
   const prompt = usePrompt()
   const sdk = useSDK()
+  const chatDir = useChatDirectory()
   const settings = useSettings()
   const sync = useSync()
   const terminal = useTerminal()
@@ -425,7 +427,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         id: "file.open",
         title: language.t("command.file.open"),
         description: language.t("palette.search.placeholder"),
-        keybind: "mod+k,mod+p",
+        // in the chat workspace Ctrl/Cmd+K searches chats (layout's chat.search)
+        keybind: isChatDirectory(sdk().directory, chatDir()) ? "mod+p" : "mod+k,mod+p",
         slash: "open",
         onSelect: openFile,
       }),

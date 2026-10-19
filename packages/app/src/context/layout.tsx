@@ -22,7 +22,8 @@ export { createSessionKeyReader, ensureSessionKey, pruneSessionKeys }
 export type { ProjectAvatarVariant }
 
 const AVATAR_COLOR_KEYS = ["pink", "mint", "orange", "purple", "cyan", "lime"] as const
-const DEFAULT_SIDEBAR_WIDTH = 344
+// one column (the rail only shows when collapsed), so narrower than the old rail + panel
+const DEFAULT_SIDEBAR_WIDTH = 280
 const DEFAULT_FILE_TREE_WIDTH = 200
 const DEFAULT_SESSION_WIDTH = 600
 const DEFAULT_TERMINAL_HEIGHT = 280
@@ -251,7 +252,8 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       { ...target, migrate },
       createStore({
         sidebar: {
-          opened: false,
+          // first run opens with the sidebar docked (chats and projects in view)
+          opened: true,
           width: DEFAULT_SIDEBAR_WIDTH,
           workspaces: {} as Record<string, boolean>,
           workspacesDefault: false,

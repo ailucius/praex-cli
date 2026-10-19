@@ -62,6 +62,7 @@ import { eq } from "drizzle-orm"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
+import { InstanceRef } from "@/effect/instance-ref"
 import { LLMEvent } from "@opencode-ai/llm"
 
 // @ts-ignore
@@ -1376,11 +1377,19 @@ export const layer = Layer.effect(
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
+            // Chat and Cowork threads carry no project context: no AGENTS.md/CLAUDE.md, no memory
+            // index (it asks for a tool they do not have), no skills block.
+            // Both keep the short environment block (their tools work in that folder).
+            const workspace = Agent.isWorkspaceAgent(agent)
             const [skills, env, instructions, memory, modelMsgs] = yield* Effect.all([
-              sys.skills(agent),
-              sys.environment(model),
-              instruction.system().pipe(Effect.orDie),
-              Memory.system().pipe(Effect.orElseSucceed(() => undefined)),
+              workspace ? Effect.succeed(undefined) : sys.skills(agent),
+              Effect.gen(function* () {
+                const scoped = yield* SessionTools.coworkInstance(agent, sessionID)
+                const env = sys.environment(model)
+                return yield* scoped ? env.pipe(Effect.provideService(InstanceRef, scoped)) : env
+              }),
+              workspace ? Effect.succeed([] as string[]) : instruction.system().pipe(Effect.orDie),
+              workspace ? Effect.succeed(undefined) : Memory.system().pipe(Effect.orElseSucceed(() => undefined)),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
             const system = [...env, ...instructions, ...(memory ? [memory] : []), ...(skills ? [skills] : [])]

@@ -13,7 +13,8 @@ import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
 import { getProjectAvatarVariant, useLayout, type LocalProject } from "@/context/layout"
-import { useNavigate } from "@solidjs/router"
+import { Navigate, useNavigate } from "@solidjs/router"
+import { useChatDirectory } from "@/utils/chat-workspace"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Icon } from "@opencode-ai/ui/icon"
 import { usePlatform } from "@/context/platform"
@@ -1174,29 +1175,15 @@ function writeWelcomeDismissed() {
 
 function LegacyHome() {
   const sync = useServerSync()
-  const platform = usePlatform()
-  const pickDirectory = useDirectoryPicker()
   const dialog = useDialog()
-  const navigate = useNavigate()
-  const global = useGlobal()
-  const server = useServer()
   const language = useLanguage()
-  const homedir = createMemo(() => sync().data.path.home)
-  const recent = createMemo(() => {
-    return sync()
-      .data.project.slice()
-      // the server's own start directory ("/" or the home folder) is not a project the user opened
-      .filter((p) => p.worktree !== "/" && p.worktree !== homedir())
-      .sort((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
-      .slice(0, 5)
-  })
 
-  // First run: no Praex account and no other provider connected -> welcome instead of the bare home.
+  // First run: no Praex account and no other provider connected -> welcome before the chat.
   const praex = createMemo(() => sync().data.provider.all.get("praex-cloud"))
   const praexSignedIn = createMemo(() => (praex()?.options as Record<string, unknown> | undefined)?.signedIn === true)
   const otherConnected = createMemo(() => sync().data.provider.connected.some((id) => id !== "praex-cloud"))
   const [welcomeDismissed, setWelcomeDismissed] = createSignal(readWelcomeDismissed())
-  const showWelcome = createMemo(() => sync().ready && !!praex() && !praexSignedIn() && !otherConnected() && !welcomeDismissed())
+  const showWelcome = createMemo(() => !!praex() && !praexSignedIn() && !otherConnected() && !welcomeDismissed())
   const tiers = createMemo(() => {
     const models = Object.values(praex()?.models ?? {})
     const rank = (name: string) => {
@@ -1216,140 +1203,51 @@ function LegacyHome() {
   }
   const signIn = () => openPraexSignIn(dialog)
 
-  const serverDotClass = createMemo(() => {
-    const healthy = global.servers.health[server.key]?.healthy
-    if (healthy === true) return "bg-icon-success-base"
-    if (healthy === false) return "bg-icon-critical-base"
-    return "bg-border-weak-base"
-  })
-
-  function openProject(server: ServerConnection.Any, directory: string) {
-    const serverCtx = global.createServerCtx(server)
-    serverCtx.projects.open(directory)
-    serverCtx.projects.touch(directory)
-    navigate(`/${base64Encode(directory)}`)
-  }
-
-  function chooseProject() {
-    const s = server.current
-    if (!s) return
-
-    const resolve = (result: string | string[] | null) => {
-      if (Array.isArray(result)) {
-        for (const directory of result) {
-          openProject(s, directory)
-        }
-      } else if (result) {
-        openProject(s, result)
-      }
-    }
-
-    pickDirectory({
-      server: s,
-      title: language.t("command.project.open"),
-      multiple: true,
-      onSelect: resolve,
-    })
-  }
-
   return (
-    <Show
-      when={!showWelcome()}
-      fallback={
-        <div class="mx-auto mt-40 flex w-full max-w-[560px] flex-col items-center gap-7 px-4 text-center">
-          <Logo class="md:w-md" />
-          <div class="text-16-regular text-text-weak max-w-[420px]">{language.t("home.welcome.tagline")}</div>
-          <div class="flex w-full flex-col gap-1 rounded-[10px] bg-v2-background-bg-deep p-2 text-left">
-            <div class="px-2 pt-1 pb-1.5 text-12-regular text-text-weak">{language.t("home.welcome.tiers")}</div>
-            <For each={tiers()}>
-              {(tier) => (
-                <div class="flex items-center justify-between rounded-[6px] px-2 py-1.5">
-                  <span class="text-14-medium text-text-strong">{tier.name}</span>
-                  <span class="text-12-regular text-text-weak">{tier.plan}</span>
-                </div>
-              )}
-            </For>
-          </div>
-          <div class="flex w-full flex-col items-center gap-2">
-            <Button size="large" variant="primary" class="w-full justify-center" onClick={signIn}>
-              {language.t("home.welcome.signIn")}
-            </Button>
-            <Button size="large" variant="ghost" class="w-full justify-center text-text-weak" onClick={dismissWelcome}>
-              {language.t("home.welcome.skip")}
-            </Button>
-          </div>
-        </div>
-      }
-    >
-    <div class="mx-auto mt-55 w-full md:w-auto px-4">
-      <Logo class="md:w-xl opacity-90" />
-      {/* The button is inline-flex, so mx-auto alone left it hugging the left edge under the logo. */}
-      <div class="mt-4 flex justify-center">
-        <Button
-          size="large"
-          variant="ghost"
-          class="text-14-regular text-text-weak"
-          onClick={() => dialog.show(() => <DialogSelectServer />)}
-        >
-          <div
-            classList={{
-              "size-2 rounded-full": true,
-              [serverDotClass()]: true,
-            }}
-          />
-          {server.name}
-        </Button>
-      </div>
-      <Switch>
-        <Match when={recent().length > 0}>
-          <div class="mt-20 w-full flex flex-col gap-4">
-            <div class="flex gap-2 items-center justify-between pl-3">
-              <div class="text-14-medium text-text-strong">{language.t("home.recentProjects")}</div>
-              <Button icon="folder-add-left" size="normal" class="pl-2 pr-3" onClick={chooseProject}>
-                {language.t("command.project.open")}
-              </Button>
-            </div>
-            <ul class="flex flex-col gap-2">
-              <For each={recent()}>
-                {(project) => (
-                  <Button
-                    size="large"
-                    variant="ghost"
-                    class="text-14-mono text-left justify-between px-3"
-                    onClick={() => openProject(server.current!, project.worktree)}
-                  >
-                    {project.worktree.replace(homedir(), "~")}
-                    <div class="text-14-regular text-text-weak">
-                      {DateTime.fromMillis(project.time.updated ?? project.time.created).toRelative()}
+    <Show when={sync().ready} fallback={<div class="size-full" />}>
+      <Show
+        when={!showWelcome()}
+        fallback={
+          <div class="size-full overflow-y-auto">
+            <div class="mx-auto flex min-h-full w-full max-w-[560px] flex-col items-center justify-center gap-7 px-4 py-12 text-center">
+              <Logo class="w-[min(28rem,80%)]" />
+              <div class="text-16-regular text-text-weak max-w-[420px]">{language.t("home.welcome.tagline")}</div>
+              <div class="flex w-full flex-col gap-1 rounded-[10px] bg-v2-background-bg-deep p-2 text-left">
+                <div class="px-2 pt-1 pb-1.5 text-12-regular text-text-weak">{language.t("home.welcome.tiers")}</div>
+                <For each={tiers()}>
+                  {(tier) => (
+                    <div class="flex items-center justify-between rounded-[6px] px-2 py-1.5">
+                      <span class="text-14-medium text-text-strong">{tier.name}</span>
+                      <span class="text-12-regular text-text-weak">{tier.plan}</span>
                     </div>
-                  </Button>
-                )}
-              </For>
-            </ul>
-          </div>
-        </Match>
-        <Match when={!sync().ready}>
-          <div class="mt-30 mx-auto flex flex-col items-center gap-3">
-            <div class="text-12-regular text-text-weak">{language.t("common.loading")}</div>
-            <Button class="px-3" onClick={chooseProject}>
-              {language.t("command.project.open")}
-            </Button>
-          </div>
-        </Match>
-        <Match when={true}>
-          <div class="mt-30 mx-auto flex flex-col items-center gap-3">
-            <Icon name="folder-add-left" size="large" />
-            <div class="flex flex-col gap-1 items-center justify-center">
-              <div class="text-14-medium text-text-strong">{language.t("home.empty.title")}</div>
-              <div class="text-12-regular text-text-weak">{language.t("home.empty.description")}</div>
+                  )}
+                </For>
+              </div>
+              <div class="flex w-full flex-col items-center gap-2">
+                <Button size="large" variant="primary" class="w-full justify-center" onClick={signIn}>
+                  {language.t("home.welcome.signIn")}
+                </Button>
+                <Button size="large" variant="ghost" class="w-full justify-center text-text-weak" onClick={dismissWelcome}>
+                  {language.t("home.welcome.skip")}
+                </Button>
+              </div>
             </div>
-            <Button class="px-3 mt-1" onClick={chooseProject}>
-              {language.t("command.project.open")}
-            </Button>
           </div>
-        </Match>
-      </Switch>
-    </div>
+        }
+      >
+        <ChatHomeRedirect />
+      </Show>
+    </Show>
+  )
+}
+
+// The home is the chat: once the server's paths are known, open a new chat in the private
+// chat workspace (no folder needed). Projects live in the sidebar.
+function ChatHomeRedirect() {
+  const chatDir = useChatDirectory()
+  return (
+    <Show when={chatDir()} keyed fallback={<div class="size-full" />}>
+      {(dir) => <Navigate href={`/${base64Encode(dir)}/session`} />}
     </Show>
   )
 }

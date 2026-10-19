@@ -103,6 +103,9 @@ type PlatformBase = {
   /** Read image from clipboard (desktop only) */
   readClipboardImage?(): Promise<File | null>
 
+  /** Capture the screen the window is on as a PNG, hiding the window meanwhile (desktop only) */
+  captureScreen?(): Promise<File | null>
+
   /** Export collected diagnostic logs (desktop only) */
   exportDebugLogs?(): Promise<string>
 

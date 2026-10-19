@@ -68,7 +68,9 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { notifySessionTabsRemoved } from "@/components/titlebar-session-events"
 import { messageAgentColor } from "@/utils/agent"
-import { sessionTitle } from "@/utils/session-title"
+import { isPlaceholderTitle, sessionTitle } from "@/utils/session-title"
+import { isChatDirectory, useChatDirectory } from "@/utils/chat-workspace"
+import { formatTurnTime, TURN_GAP_MS } from "@/pages/session/turn-time"
 import { makeTimer } from "@solid-primitives/timer"
 import { MessageComment, SummaryDiff, Timeline, TimelineRow, TimelineRowMap } from "./message-timeline.data"
 
@@ -394,7 +396,11 @@ export function MessageTimeline(props: {
       .map((part) => taskDescription(part, id))
       .findLast((value): value is string => !!value)
   })
+  const chatDir = useChatDirectory()
   const childTitle = createMemo(() => {
+    // threads in the chat workspace read "New chat" until they get a real title
+    if (!parentID() && isPlaceholderTitle(titleValue()) && isChatDirectory(sdk().directory, chatDir()))
+      return language.t("sidebar.chat.untitled")
     if (!parentID()) return titleLabel() ?? ""
     if (childTaskDescription()) return childTaskDescription()
     const value = titleLabel()?.replace(/\s+\(@[^)]+ subagent\)$/, "")
@@ -1156,11 +1162,31 @@ export function MessageTimeline(props: {
           const m = messageByID().get(userMessageRow().userMessageID)
           if (m?.role === "user") return m
         })
+        // A quiet day/time label above a turn that starts more than an hour after the previous one.
+        const separator = createMemo(() => {
+          const m = message()
+          if (!m) return
+          const index = props.userMessages.findIndex((item) => item.id === m.id)
+          const previous = index > 0 ? props.userMessages[index - 1] : undefined
+          if (!previous) return
+          if (m.time.created - previous.time.created < TURN_GAP_MS) return
+          return formatTurnTime(m.time.created, language.intl())
+        })
         return (
           <TimelineRowFrame row={userMessageRow}>
             <Show when={message()}>
               {(message) => (
                 <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
+                  <Show when={separator()}>
+                    {(label) => (
+                      <div
+                        data-slot="session-turn-time"
+                        class="flex justify-center pt-2 pb-4 text-12-regular text-text-weak select-none"
+                      >
+                        {label()}
+                      </div>
+                    )}
+                  </Show>
                   <div data-slot="session-turn-message-content" aria-live="off">
                     <Message
                       message={message()}
@@ -1374,8 +1400,9 @@ export function MessageTimeline(props: {
                       fallback={
                         <h1
                           data-slot="session-title-child"
-                          class="text-14-medium text-text-strong truncate grow-1 min-w-0"
-                          onDblClick={openTitleEditor}
+                          class="text-14-medium text-text-strong truncate grow-1 min-w-0 cursor-text"
+                          title={language.t("common.rename")}
+                          onClick={openTitleEditor}
                         >
                           {childTitle()}
                         </h1>
