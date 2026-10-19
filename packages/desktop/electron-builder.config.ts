@@ -89,11 +89,11 @@ const getBase = (appId: string): Configuration => ({
   dmg: {
     sign: false,
   },
-  // "praex://" is the app's own scheme; "opencode://" stays registered so links minted by
-  // the CLI's older builds keep opening the desktop app.
+  // "praex://" is the app's own scheme. "opencode://" is OpenCode's: claiming it would send
+  // OpenCode's links to Praex on machines that have both (old links still parse if passed in).
   protocols: {
     name: "Praex",
-    schemes: ["praex", "opencode"],
+    schemes: ["praex"],
   },
   win: {
     icon: `resources/icons/icon.ico`,
@@ -144,7 +144,7 @@ function getConfig() {
         ...base,
         appId,
         productName: "Praex Beta",
-        protocols: { name: "Praex Beta", schemes: ["praex", "opencode"] },
+        protocols: { name: "Praex Beta", schemes: ["praex"] },
         publish: { provider: "generic", url: `${UPDATE_URL}/beta`, channel: "latest" },
         rpm: { packageName: "praex-desktop-beta" },
       }
