@@ -21,7 +21,7 @@ import monokai from "./assets/monokai.json" with { type: "json" }
 import nightowl from "./assets/nightowl.json" with { type: "json" }
 import nord from "./assets/nord.json" with { type: "json" }
 import onedark from "./assets/one-dark.json" with { type: "json" }
-import opencode from "./assets/opencode.json" with { type: "json" }
+import peach from "./assets/peach.json" with { type: "json" }
 import orng from "./assets/orng.json" with { type: "json" }
 import osakaJade from "./assets/osaka-jade.json" with { type: "json" }
 import palenight from "./assets/palenight.json" with { type: "json" }
@@ -150,10 +150,10 @@ export const DEFAULT_THEMES: Record<string, ThemeJson> = {
   nord,
   ["one-dark"]: onedark,
   ["osaka-jade"]: osakaJade,
-  opencode,
   orng,
   ["lucent-orng"]: lucentOrng,
   palenight,
+  peach,
   praex,
   rosepine,
   solarized,
@@ -187,6 +187,12 @@ function listThemes() {
 function syncThemes() {
   const themes = listThemes()
   for (const listener of listeners) listener(themes)
+}
+
+// Renamed built-in themes. Old ids in existing configs and saved choices keep working.
+export const THEME_ALIASES: Record<string, string> = { opencode: "peach" }
+export function canonicalTheme(name: string) {
+  return THEME_ALIASES[name] ?? name
 }
 
 export function allThemes() {
