@@ -31,7 +31,7 @@ test("prod updates come from praex.ai static files, never GitHub", async () => {
   const config = await load("prod", "publish")
   expect(config.publish).toEqual({ provider: "generic", url: "https://praex.ai/dl/desktop", channel: "latest" })
   expect(config.artifactName).toBe("praex-desktop-${os}-${arch}.${ext}")
-  expect(config.protocols).toEqual({ name: "Praex", schemes: ["praex", "opencode"] })
+  expect(config.protocols).toEqual({ name: "Praex", schemes: ["praex"] })
   expect(config.deb?.fpm).toBeUndefined()
 })
 
