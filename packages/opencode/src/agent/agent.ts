@@ -14,6 +14,7 @@ import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
+import PROMPT_CHAT from "./prompt/chat.txt"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@opencode-ai/core/global"
@@ -54,6 +55,13 @@ export const Info = Schema.Struct({
   steps: Schema.optional(Schema.Finite),
 }).annotate({ identifier: "Agent" })
 export type Info = DeepMutable<Schema.Schema.Type<typeof Info>>
+
+/** The tool-less agent used by plain chats (see the `chat` entry below). */
+export const CHAT_AGENT = "chat"
+
+export function isChat(agent: Pick<Info, "name">) {
+  return agent.name === CHAT_AGENT
+}
 
 const GeneratedAgent = Schema.Struct({
   identifier: Schema.String,
@@ -214,6 +222,20 @@ export const layer = Layer.effect(
             options: {},
             mode: "subagent",
             native: true,
+          },
+          // Plain chat (the desktop chat home): no tools at all and a short prompt, so a
+          // 32K model has room for the conversation. Hidden: clients pick it explicitly
+          // for chats; it never shows up in a project's agent list or as a default.
+          // The user's permission config is merged BEFORE the deny so it cannot re-enable tools.
+          [CHAT_AGENT]: {
+            name: CHAT_AGENT,
+            description: "Plain chat. No tools.",
+            mode: "primary",
+            native: true,
+            hidden: true,
+            prompt: PROMPT_CHAT,
+            permission: Permission.merge(defaults, user, Permission.fromConfig({ "*": "deny" })),
+            options: {},
           },
           compaction: {
             name: "compaction",

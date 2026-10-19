@@ -1376,11 +1376,14 @@ export const layer = Layer.effect(
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
+            // Plain chats carry no project context: no working directory, no AGENTS.md/CLAUDE.md,
+            // no memory index (it asks for a tool the chat agent does not have), no skills.
+            const chat = Agent.isChat(agent)
             const [skills, env, instructions, memory, modelMsgs] = yield* Effect.all([
-              sys.skills(agent),
-              sys.environment(model),
-              instruction.system().pipe(Effect.orDie),
-              Memory.system().pipe(Effect.orElseSucceed(() => undefined)),
+              chat ? Effect.succeed(undefined) : sys.skills(agent),
+              chat ? Effect.succeed([`Today's date: ${new Date().toDateString()}`]) : sys.environment(model),
+              chat ? Effect.succeed([] as string[]) : instruction.system().pipe(Effect.orDie),
+              chat ? Effect.succeed(undefined) : Memory.system().pipe(Effect.orElseSucceed(() => undefined)),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
             const system = [...env, ...instructions, ...(memory ? [memory] : []), ...(skills ? [skills] : [])]
