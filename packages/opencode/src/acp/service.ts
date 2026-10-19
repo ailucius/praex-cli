@@ -92,7 +92,7 @@ export function make(input: {
     const started = performance.now()
     const authMethod: AuthMethod = {
       description: "Run `praex auth login` in the terminal",
-      name: "Login with opencode",
+      name: "Sign in to Praex",
       id: AuthMethodID,
     }
 

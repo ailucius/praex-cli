@@ -22,7 +22,7 @@ describe("ServerAuth", () => {
     expect(ServerAuth.headers()).toBeUndefined()
   })
 
-  test("defaults to the opencode username", () => {
+  test("clients send the legacy opencode username by default (older servers expect it)", () => {
     Flag.OPENCODE_SERVER_PASSWORD = "secret"
     Flag.OPENCODE_SERVER_USERNAME = undefined
 
@@ -55,5 +55,23 @@ describe("ServerAuth", () => {
     expect(ServerAuth.required(config)).toBe(true)
     expect(ServerAuth.authorized({ username: "alice", password: Redacted.make("secret") }, config)).toBe(true)
     expect(ServerAuth.authorized({ username: "opencode", password: Redacted.make("secret") }, config)).toBe(false)
+  })
+
+  test("the default server user is praex, and the legacy opencode name still signs in", () => {
+    const config = { password: Option.some("secret"), username: ServerAuth.DEFAULT_USERNAME }
+    const ok = (username: string, password = "secret") =>
+      ServerAuth.authorized({ username, password: Redacted.make(password) }, config)
+    expect(ok("praex")).toBe(true)
+    expect(ok("opencode")).toBe(true)
+    expect(ok("praex", "wrong")).toBe(false)
+    expect(ok("someone")).toBe(false)
+  })
+
+  test("an explicitly configured username accepts only that name", () => {
+    const config = { password: Option.some("secret"), username: "alice" }
+    const ok = (username: string) => ServerAuth.authorized({ username, password: Redacted.make("secret") }, config)
+    expect(ok("alice")).toBe(true)
+    expect(ok("opencode")).toBe(false)
+    expect(ok("praex")).toBe(false)
   })
 })

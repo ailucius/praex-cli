@@ -1,16 +1,13 @@
 import { FSUtil } from "@opencode-ai/core/fs-util"
-import { Effect, Stream } from "effect"
-import { HttpBody, HttpClient, HttpClientRequest, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { Effect } from "effect"
+import { HttpClient, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { createHash } from "node:crypto"
-import { ProxyUtil } from "../proxy-util"
 
 let embeddedUIPromise: Promise<Record<string, string> | null> | undefined
 let localUIPromise: Promise<Record<string, string> | null> | undefined
 
-export const UI_UPSTREAM = new URL("https://app.opencode.ai")
-
-// Source checkouts have no embedded bundle; serve the built PWA from
-// packages/app/dist so the UI never falls back to the upstream proxy.
+// Source checkouts have no embedded bundle; serve the built PWA from packages/app/dist.
+// Praex never proxies a hosted web app: with no bundle at all the server says so plainly.
 function localUI() {
   return (localUIPromise ??= (async () => {
     try {
@@ -48,26 +45,6 @@ export function cspForHtml(body: string) {
   return csp(match ? createHash("sha256").update(match[2]).digest("base64") : "")
 }
 
-function requestBody(request: HttpServerRequest.HttpServerRequest) {
-  if (request.method === "GET" || request.method === "HEAD") return HttpBody.empty
-  const len = request.headers["content-length"]
-  return HttpBody.stream(request.stream, request.headers["content-type"], len === undefined ? undefined : Number(len))
-}
-
-function proxyResponseHeaders(headers: Record<string, string>) {
-  const result = new Headers(headers)
-  // FetchHttpClient exposes decoded response bodies, so forwarding upstream
-  // transfer metadata makes browsers decode already-decoded assets again.
-  result.delete("content-encoding")
-  result.delete("content-length")
-  result.delete("transfer-encoding")
-  return result
-}
-
-export function upstreamURL(path: string) {
-  return new URL(path, UI_UPSTREAM).toString()
-}
-
 export function embeddedUI(disableEmbeddedWebUi: boolean) {
   if (disableEmbeddedWebUi) return Promise.resolve(null)
   return (embeddedUIPromise ??=
@@ -75,6 +52,18 @@ export function embeddedUI(disableEmbeddedWebUi: boolean) {
     import("opencode-web-ui.gen.ts")
       .then((module) => module.default as Record<string, string>)
       .catch(() => localUI()))
+}
+
+const NO_UI_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Praex</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0c0b12;color:#ebe9f2;font:15px/1.6 system-ui,-apple-system,sans-serif;text-align:center;padding:0 24px}p{color:#9791a8}</style>
+</head><body><main><h1 style="font-size:20px;font-weight:600">The Praex web app isn't included in this build</h1><p>The server is running. Use the Praex desktop app or the terminal, or install a full build from praex.ai/download.</p></main></body></html>`
+
+// No embedded or local bundle (or the embedded UI is turned off).
+function noBundledUI() {
+  return HttpServerResponse.text(NO_UI_PAGE, {
+    status: 503,
+    headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'" },
+  })
 }
 
 function notFound() {
@@ -113,25 +102,6 @@ export function serveUIEffect(
     const path = new URL(request.url, "http://localhost").pathname
 
     if (embeddedWebUI) return yield* serveEmbeddedUIEffect(path, services.fs, embeddedWebUI)
-
-    const response = yield* services.client.execute(
-      HttpClientRequest.make(request.method)(upstreamURL(path), {
-        headers: ProxyUtil.headers(request.headers, { host: UI_UPSTREAM.host }),
-        body: requestBody(request),
-      }),
-    )
-    const headers = proxyResponseHeaders(response.headers)
-
-    if (response.headers["content-type"]?.includes("text/html")) {
-      const body = yield* response.text
-      headers.set("Content-Security-Policy", cspForHtml(body))
-      return HttpServerResponse.text(body, { status: response.status, headers })
-    }
-
-    headers.set("Content-Security-Policy", csp())
-    return HttpServerResponse.stream(response.stream.pipe(Stream.catchCause(() => Stream.empty)), {
-      status: response.status,
-      headers,
-    })
+    return noBundledUI()
   })
 }

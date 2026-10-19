@@ -20,7 +20,7 @@ export const ModelsCommand = effectCmd({
         type: "boolean",
       })
       .option("refresh", {
-        describe: "refresh the models cache from models.dev",
+        describe: "refresh the model catalogue from praex.ai",
         type: "boolean",
       }),
   handler: Effect.fn("Cli.models")(function* (args) {

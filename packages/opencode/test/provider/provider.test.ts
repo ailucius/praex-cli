@@ -1033,12 +1033,12 @@ it.instance("ModelNotFoundError for provider includes suggestions", () =>
 
 it.instance("ModelNotFoundError suggests catalog models for unloaded providers", () =>
   Effect.gen(function* () {
-    yield* remove("OPENCODE_API_KEY")
+    yield* remove("ANTHROPIC_API_KEY")
     const error = yield* Provider.use
-      .getModel(ProviderV2.ID.opencode, ModelV2.ID.make("claude-haiku-fake-model"))
+      .getModel(ProviderV2.ID.anthropic, ModelV2.ID.make("claude-haiku-fake-model"))
       .pipe(Effect.flip)
     if (!Provider.ModelNotFoundError.isInstance(error)) throw error
-    expect(error.suggestions ?? []).toContain("claude-haiku-4-5")
+    expect((error.suggestions ?? []).some((id) => id.includes("haiku"))).toBe(true)
   }),
 )
 
@@ -1124,7 +1124,7 @@ it.instance(
     expect(providers[ProviderV2.ID.make("nvidia")].options.headers).toEqual({
       "HTTP-Referer": "https://praex.ai/",
       "X-Title": "praex",
-      "X-BILLING-INVOKE-ORIGIN": "OpenCode",
+      "X-BILLING-INVOKE-ORIGIN": "Praex",
     })
   }),
   { config: { provider: { nvidia: { options: { apiKey: "test-api-key" } } } } },
@@ -1137,7 +1137,7 @@ it.instance(
     expect(providers[ProviderV2.ID.make("nvidia")].options.headers).toEqual({
       "HTTP-Referer": "https://praex.ai/",
       "X-Title": "praex",
-      "X-BILLING-INVOKE-ORIGIN": "OpenCode",
+      "X-BILLING-INVOKE-ORIGIN": "Praex",
     })
   }),
   { config: { provider: { nvidia: { options: { apiKey: "test-api-key", baseURL: "http://localhost:8000/v1" } } } } },
@@ -1740,7 +1740,8 @@ it.instance(
   }),
 )
 
-it.effect("opencode loader keeps paid models when config apiKey is present", () =>
+// Praex hides OpenCode's paid gateways (Zen, Go) from the catalogue: a stray key never brings them back.
+it.effect("OpenCode Zen stays hidden even when a config apiKey is present", () =>
   Effect.gen(function* () {
     const noneDir = yield* tmpdirScoped()
     const keyedDir = yield* tmpdirScoped({
@@ -1757,11 +1758,11 @@ it.effect("opencode loader keeps paid models when config apiKey is present", () 
     const keyedCount = paid(yield* listIn(keyedDir))
 
     expect(none).toBe(0)
-    expect(keyedCount).toBeGreaterThan(0)
+    expect(keyedCount).toBe(0)
   }).pipe(provideMultiInstance),
 )
 
-it.effect("opencode loader keeps paid models when auth exists", () =>
+it.effect("OpenCode Zen stays hidden even when auth exists", () =>
   Effect.gen(function* () {
     const noneDir = yield* tmpdirScoped()
     const keyedDir = yield* tmpdirScoped()
@@ -1789,6 +1790,6 @@ it.effect("opencode loader keeps paid models when auth exists", () =>
     const keyedCount = paid(yield* listIn(keyedDir))
 
     expect(none).toBe(0)
-    expect(keyedCount).toBeGreaterThan(0)
+    expect(keyedCount).toBe(0)
   }).pipe(provideMultiInstance),
 )

@@ -90,7 +90,8 @@ const GO_UPSELL_FREE_TIER_DONT_SHOW = "go_upsell_dont_show"
 const GO_UPSELL_ACCOUNT_RATE_LIMIT_LAST_SEEN_AT = "go_upsell_account_rate_limit_last_seen_at"
 const GO_UPSELL_ACCOUNT_RATE_LIMIT_DONT_SHOW = "go_upsell_account_rate_limit_dont_show"
 const GO_UPSELL_WINDOW = 86_400_000 // 24 hrs
-const GO_UPSELL_PROVIDERS = new Set(["opencode", "opencode-go"])
+// Praex never routes users to OpenCode's paid gateways (Zen, Go), so no provider gets that upsell.
+const GO_UPSELL_PROVIDERS = new Set<string>()
 
 type RetryAction = Extract<SessionStatus, { type: "retry" }>["action"]
 
@@ -172,6 +173,13 @@ function use() {
   const ctx = useContext(context)
   if (!ctx) throw new Error("useContext must be used within a Session component")
   return ctx
+}
+
+// The server sends the reason as { message } (not signed in, too large, offline…).
+function shareErrorMessage(error: unknown, fallback: string) {
+  const e = error as { message?: unknown; data?: { message?: unknown } } | undefined
+  const message = typeof e?.message === "string" ? e.message : typeof e?.data?.message === "string" ? e.data.message : ""
+  return message || fallback
 }
 
 export function Session() {
@@ -458,7 +466,7 @@ export function Session() {
 
   const sessionCommandList = createMemo(() => [
     {
-      title: session()?.share?.url ? "Copy share link" : "Share session",
+      title: session()?.share?.url ? "Update share link" : "Share session",
       value: "session.share",
       suggested: route.type === "session",
       category: "Session",
@@ -466,35 +474,34 @@ export function Session() {
       slash: {
         name: "share",
       },
+      // Praex Share: a read-only snapshot on praex.ai. Running it again refreshes the same link.
       run: async () => {
-        const copy = (url: string) =>
-          clipboard
-            .write?.(url)
-            .then(() => toast.show({ message: "Share URL copied to clipboard", variant: "success" }))
-            .catch(() => toast.show({ message: "Failed to copy URL to clipboard", variant: "error" }))
-        const url = session()?.share?.url
-        if (url) {
-          await copy(url)
-          dialog.clear()
-          return
-        }
         if (!kv.get("share_consent", false)) {
-          const ok = await DialogConfirm.show(dialog, "Share Session", "Are you sure you want to share it?")
+          const ok = await DialogConfirm.show(
+            dialog,
+            "Share this session?",
+            "Praex uploads a read-only copy of this conversation. Anyone with the link can read it. Tool output and file contents are left out. /unshare deletes it.",
+          )
           if (ok !== true) return
           kv.set("share_consent", true)
         }
-        await sdk.client.session
-          .share({
-            sessionID: route.sessionID,
-          })
-          .then((res) => copy(res.data!.share!.url))
-          .catch((error) => {
-            toast.show({
-              message: error instanceof Error ? error.message : "Failed to share session",
-              variant: "error",
-            })
-          })
         dialog.clear()
+        const updating = !!session()?.share?.url
+        toast.show({ message: updating ? "Updating the share link…" : "Creating a share link…", variant: "info", duration: 2000 })
+        const res = await sdk.client.session
+          .share({ sessionID: route.sessionID })
+          .catch((error: unknown) => ({ data: undefined, error }))
+        const url = res.data?.share?.url
+        if (!url) {
+          toast.show({ message: shareErrorMessage(res.error, "Couldn't share this session."), variant: "error", duration: 6000 })
+          return
+        }
+        const copied = clipboard.write ? await clipboard.write(url).then(() => true, () => false) : false
+        toast.show({
+          message: `${updating ? "Share link updated" : "Shared"}${copied ? " and copied" : ""}: ${url}`,
+          variant: "success",
+          duration: 8000,
+        })
       },
     },
     {
@@ -587,18 +594,15 @@ export function Session() {
         name: "unshare",
       },
       run: async () => {
-        await sdk.client.session
-          .unshare({
-            sessionID: route.sessionID,
-          })
-          .then(() => toast.show({ message: "Session unshared successfully", variant: "success" }))
-          .catch((error) => {
-            toast.show({
-              message: error instanceof Error ? error.message : "Failed to unshare session",
-              variant: "error",
-            })
-          })
         dialog.clear()
+        const res = await sdk.client.session
+          .unshare({ sessionID: route.sessionID })
+          .catch((error: unknown) => ({ data: undefined, error }))
+        if (res.error) {
+          toast.show({ message: shareErrorMessage(res.error, "Couldn't remove the share link."), variant: "error", duration: 6000 })
+          return
+        }
+        toast.show({ message: "Share link deleted. The page is gone.", variant: "success" })
       },
     },
     {

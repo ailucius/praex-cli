@@ -1539,11 +1539,12 @@ const scenarios: Scenario[] = [
     .mutating()
     .seeded((ctx) => ctx.session({ title: "Share session" }))
     .at((ctx) => ({ path: route("/session/{sessionID}/share", { sessionID: ctx.state.id }), headers: ctx.headers() }))
+    // Praex Share needs a Praex account; the exerciser has none, so the route must say so plainly.
     .json(
-      200,
-      (body, ctx) => {
+      500,
+      (body) => {
         object(body)
-        check(body.id === ctx.state.id, "share should return the session")
+        check(body.message === "Run `praex login` to share sessions.", "share without a Praex account should ask for praex login")
       },
       "status",
     ),

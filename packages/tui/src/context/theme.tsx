@@ -7,6 +7,7 @@ import {
   generateSubtleSyntax,
   generateSyntax,
   generateSystem,
+  canonicalTheme,
   hasTheme,
   isTheme,
   resolveTheme,
@@ -119,14 +120,14 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         draft.mode = mode
         draft.lock = lock
         const active = config.theme ?? kv.get("theme", "system")
-        draft.active = typeof active === "string" ? active : "system"
+        draft.active = typeof active === "string" ? canonicalTheme(active) : "system"
         draft.ready = false
       }),
     )
 
     createEffect(() => {
       const theme = config.theme
-      if (theme) setStore("active", theme)
+      if (theme) setStore("active", canonicalTheme(theme))
     })
 
     function syncCustomThemes() {
@@ -263,7 +264,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         if (theme) return resolveTheme(theme, store.mode)
       }
 
-      return resolveTheme(store.themes.praex ?? store.themes.opencode, store.mode)
+      return resolveTheme(store.themes.praex ?? store.themes.peach, store.mode)
     })
 
     createEffect(() => renderer.setBackgroundColor(values().background))
@@ -290,7 +291,8 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       lock: () => pin(store.mode),
       unlock: free,
       setMode: pin,
-      set(theme: string) {
+      set(name: string) {
+        const theme = canonicalTheme(name)
         if (!hasTheme(theme)) return false
         setStore("active", theme)
         kv.set("theme", theme)
