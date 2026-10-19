@@ -589,8 +589,9 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
               </Show>
               <Show when={!mac()}>
                 <div class="lg:hidden w-[48px] shrink-0 flex items-center justify-center">
+                  {/* the app menu next to it is already a "menu" icon */}
                   <IconButton
-                    icon="menu"
+                    icon="sidebar"
                     variant="ghost"
                     class="titlebar-icon rounded-md"
                     onClick={layout.mobileSidebar.toggle}

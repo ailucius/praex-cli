@@ -62,7 +62,8 @@ export function DialogSearchChats(props: { chatDirectory?: string; projects: Loc
     list?.querySelector(`[data-index="${active()}"]`)?.scrollIntoView({ block: "nearest" })
   }
 
-  onMount(() => requestAnimationFrame(() => input?.focus()))
+  // after the dialog's own focus handling (it focuses its first control, the close button)
+  onMount(() => setTimeout(() => input?.focus(), 30))
 
   return (
     <Dialog title={language.t("search.chats.title")} class="w-[min(560px,92vw)]">
