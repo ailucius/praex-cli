@@ -58,7 +58,7 @@ import { DialogAlert } from "./ui/dialog-alert"
 import { DialogConfirm } from "./ui/dialog-confirm"
 import { ToastProvider, useToast } from "./ui/toast"
 import { isDefaultTitle } from "./util/session"
-import { setInstalledUpdate } from "./context/status-items"
+import { setInstalledUpdate, setStatusItem } from "./context/status-items"
 import { KVProvider, useKV } from "./context/kv"
 import * as Model from "./util/model"
 import { ArgsProvider, useArgs, type Args } from "./context/args"
@@ -449,9 +449,19 @@ function App(props: {
 
     renderer.clearSelection()
   }
-  // Remote Control (/rc): status from the worker's tunnel, shown as one quiet line while on.
+  // Remote Control (/rc): status from the worker's tunnel, shown as one footer item while on.
   const [remote, setRemote] = createSignal<RemoteStatus>({ state: "off" })
   const remoteOn = () => remote().state !== "off" && remote().state !== "error"
+  createEffect(() =>
+    setStatusItem(
+      "remote-control",
+      remoteOn()
+        ? remote().state === "on"
+          ? { label: "● Remote Control on · /rc to turn off", tone: "success", order: 10 }
+          : { label: "● Remote Control reconnecting", tone: "warning", order: 10 }
+        : undefined,
+    ),
+  )
   if (props.remote) {
     const off = props.remote.subscribe((status) => {
       setRemote(status)
@@ -1192,19 +1202,6 @@ function App(props: {
           </Switch>
           {plugin()}
         </box>
-        <Show when={remoteOn()}>
-          <box flexShrink={0} flexDirection="row" gap={1} paddingLeft={2} paddingRight={2}>
-            <text fg={remote().state === "on" ? theme.success : theme.warning}>●</text>
-            <text fg={theme.textMuted}>
-              {remote().state === "on" ? "Remote Control on" : "Remote Control reconnecting"} ·{" "}
-              {(() => {
-                const s = remote()
-                return "link" in s ? s.link : "praex.ai/rc"
-              })()}{" "}
-              · /rc to turn off
-            </text>
-          </box>
-        </Show>
         <box flexShrink={0}>
           <pluginRuntime.Slot name="app_bottom" />
         </box>
