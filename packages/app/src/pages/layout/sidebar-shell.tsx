@@ -31,6 +31,9 @@ export const SidebarContent = (props: {
   helpLabel: Accessor<string>
   onOpenHelp: () => void
   renderPanel: () => JSX.Element
+  newChatLabel: Accessor<string>
+  newChatKeybind: Accessor<string | undefined>
+  onNewChat: () => void
 }): JSX.Element => {
   const expanded = createMemo(() => !!props.mobile || props.opened())
   const placement = () => (props.mobile ? "bottom" : "right")
@@ -48,11 +51,25 @@ export const SidebarContent = (props: {
 
   return (
     <div class="flex h-full w-full min-w-0 overflow-hidden">
+      {/* The rail is the collapsed sidebar only; expanded, the panel has everything. */}
+      <Show when={!expanded()}>
       <div
         data-component="sidebar-rail"
         class="w-16 shrink-0 bg-background-base flex flex-col items-center overflow-hidden"
         onMouseMove={props.aimMove}
       >
+        <div class="shrink-0 w-full pt-3 flex flex-col items-center">
+          <TooltipKeybind placement={placement()} title={props.newChatLabel()} keybind={props.newChatKeybind() ?? ""}>
+            <IconButton
+              icon="new-session"
+              variant="ghost"
+              size="large"
+              data-action="rail-chat-new"
+              onClick={props.onNewChat}
+              aria-label={props.newChatLabel()}
+            />
+          </TooltipKeybind>
+        </div>
         <div class="flex-1 min-h-0 w-full">
           <DragDropProvider
             onDragStart={props.handleDragStart}
@@ -110,6 +127,7 @@ export const SidebarContent = (props: {
           </Tooltip>
         </div>
       </div>
+      </Show>
 
       <div
         ref={(el) => {

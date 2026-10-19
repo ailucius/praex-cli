@@ -21,7 +21,9 @@ export function ChatHomeView(props: { composer: JSX.Element }) {
   const start = (text: string) => {
     prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
     requestAnimationFrame(() => {
-      const editor = document.querySelector<HTMLElement>('[data-component="session-prompt-dock"] [contenteditable="true"]')
+      const editor = document.querySelector<HTMLElement>(
+        '[data-component="session-prompt-dock"] [contenteditable="true"]',
+      )
       editor?.focus()
     })
   }
@@ -37,7 +39,11 @@ export function ChatHomeView(props: { composer: JSX.Element }) {
             </h1>
           </div>
           <div class="w-full">{props.composer}</div>
-          <div class="flex flex-wrap items-center justify-center gap-2" role="group" aria-label={language.t("home.chat.starters")}>
+          <div
+            class="flex flex-wrap items-center justify-center gap-2"
+            role="group"
+            aria-label={language.t("home.chat.starters")}
+          >
             <For each={STARTERS}>
               {(starter) => (
                 <button

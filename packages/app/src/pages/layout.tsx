@@ -91,6 +91,9 @@ import {
 } from "./layout/sidebar-workspace"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./layout/sidebar-project"
 import { SidebarContent } from "./layout/sidebar-shell"
+import { SidebarHome } from "./layout/sidebar-home"
+import { DialogSearchChats } from "@/components/dialog-search-chats"
+import { isChatDirectory, useChatDirectory } from "@/utils/chat-workspace"
 
 export default function Layout(props: ParentProps) {
   const serverSDK = useServerSDK()
@@ -158,7 +161,8 @@ export default function Layout(props: ParentProps) {
   const currentDir = createMemo(() => route().dir)
 
   const [state, setState] = createStore({
-    autoselect: !initialDirectory && !newDesign(),
+    // the app opens on the chat home; projects are one click away in the sidebar
+    autoselect: false,
     busyWorkspaces: {} as Record<string, boolean>,
     hoverProject: undefined as string | undefined,
     scrollSessionKey: undefined as string | undefined,
@@ -337,6 +341,25 @@ export default function Layout(props: ParentProps) {
     clearSidebarHoverState()
     navigate(href)
     layout.mobileSidebar.hide()
+  }
+
+  const chatDir = useChatDirectory()
+  function newChat() {
+    const dir = chatDir()
+    if (!dir) return navigateWithSidebarReset("/")
+    navigateWithSidebarReset(`/${base64Encode(dir)}/session`)
+  }
+  // Code mode: back to the project you were in last, else the first one, else the folder picker.
+  function openCode() {
+    const list = layout.projects.list().filter((project) => project.worktree !== "/" && project.worktree !== chatDir())
+    const last = server.projects.last()
+    const next = list.find((project) => project.worktree === last) ?? list[0]
+    if (!next) return chooseProject()
+    void openProject(next.worktree)
+  }
+  function searchChats() {
+    layout.mobileSidebar.hide()
+    dialog.show(() => <DialogSearchChats chatDirectory={chatDir()} projects={layout.projects.list()} />)
   }
 
   function cycleTheme(direction = 1) {
@@ -992,6 +1015,22 @@ export default function Layout(props: ParentProps) {
 
   command.register("layout", () => {
     const commands: CommandOption[] = [
+      {
+        id: "chat.new",
+        title: language.t("sidebar.chat.new"),
+        category: language.t("command.category.session"),
+        keybind: "mod+n",
+        onSelect: () => newChat(),
+      },
+      {
+        id: "chat.search",
+        title: language.t("search.chats.title"),
+        category: language.t("command.category.session"),
+        keybind: "mod+k",
+        // in a project Ctrl/Cmd+K stays the file and command palette
+        disabled: !!params.dir && !isChatDirectory(currentDir(), chatDir()),
+        onSelect: () => searchChats(),
+      },
       {
         id: "sidebar.toggle",
         title: language.t("command.sidebar.toggle"),
@@ -2348,9 +2387,28 @@ export default function Layout(props: ParentProps) {
       onOpenSettings={openSettings}
       helpLabel={() => language.t("sidebar.help")}
       onOpenHelp={() => platform.openLink("https://github.com/ailucius/praex-cli/issues")}
-      renderPanel={() =>
-        mobile ? <SidebarPanel project={currentProject} mobile /> : <SidebarPanel project={currentProject} merged />
-      }
+      newChatLabel={() => language.t("sidebar.chat.new")}
+      newChatKeybind={() => command.keybind("chat.new")}
+      onNewChat={newChat}
+      renderPanel={() => (
+        <SidebarHome
+          mobile={mobile}
+          chatDirectory={chatDir}
+          projects={projects}
+          newChatKeybind={() => command.keybind("chat.new")}
+          searchKeybind={() => command.keybind("chat.search")}
+          settingsKeybind={() => command.keybind("settings.open")}
+          onNewChat={newChat}
+          onSearch={searchChats}
+          onOpenFolder={chooseProject}
+          onNewProjectSession={(worktree) => navigateWithSidebarReset(`/${base64Encode(worktree)}/session`)}
+          onCloseProject={closeProject}
+          onOpenSettings={openSettings}
+          onOpenHelp={() => platform.openLink("https://github.com/ailucius/praex-cli/issues")}
+          onDownloadApps={() => platform.openLink("https://praex.ai/download")}
+          onOpenCode={openCode}
+        />
+      )}
     />
   )
 
@@ -2385,7 +2443,7 @@ export default function Layout(props: ParentProps) {
                 aria-label={language.t("sidebar.nav.projectsAndSessions")}
                 data-component="sidebar-nav-desktop"
                 classList={{
-                  "hidden xl:block": true,
+                  "hidden lg:block": true,
                   "absolute inset-y-0 left-0": true,
                   "z-10": true,
                 }}
@@ -2408,7 +2466,7 @@ export default function Layout(props: ParentProps) {
 
               <Show when={layout.sidebar.opened()}>
                 <div
-                  class="hidden xl:block absolute inset-y-0 z-30 w-0 overflow-visible"
+                  class="hidden lg:block absolute inset-y-0 z-30 w-0 overflow-visible"
                   style={{ left: `${side()}px` }}
                   onPointerDown={() => setState("sizing", true)}
                 >
@@ -2428,11 +2486,11 @@ export default function Layout(props: ParentProps) {
               </Show>
 
               <div
-                class="hidden xl:block pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base"
+                class="hidden lg:block pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base"
                 style={{ left: "calc(4rem + 12px)" }}
               />
 
-              <div class="xl:hidden">
+              <div class="lg:hidden">
                 <div
                   classList={{
                     "fixed inset-x-0 top-10 bottom-0 z-40 transition-opacity duration-200": true,
@@ -2460,7 +2518,7 @@ export default function Layout(props: ParentProps) {
               <div
                 classList={{
                   "absolute inset-0": true,
-                  "xl:inset-y-0 xl:right-0 xl:left-[var(--main-left)]": true,
+                  "lg:inset-y-0 lg:right-0 lg:left-[var(--main-left)]": true,
                   "z-20": true,
                   "transition-[left] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[left] motion-reduce:transition-none":
                     !state.sizing,
@@ -2471,7 +2529,7 @@ export default function Layout(props: ParentProps) {
               >
                 <main
                   classList={{
-                    "size-full overflow-x-hidden flex flex-col items-start contain-strict border-t border-border-weak-base bg-background-base xl:border-l xl:rounded-tl-[12px]": true,
+                    "size-full overflow-x-hidden flex flex-col items-start contain-strict border-t border-border-weak-base bg-background-base lg:border-l lg:rounded-tl-[12px]": true,
                   }}
                 >
                   <Show when={!autoselecting.loading} fallback={<div class="size-full" />}>
@@ -2482,7 +2540,7 @@ export default function Layout(props: ParentProps) {
 
               <div
                 classList={{
-                  "hidden xl:flex absolute inset-y-0 left-16 z-30": true,
+                  "hidden lg:flex absolute inset-y-0 left-16 z-30": true,
                   "opacity-100 translate-x-0 pointer-events-auto": state.peeked && !layout.sidebar.opened(),
                   "opacity-0 -translate-x-2 pointer-events-none": !state.peeked || layout.sidebar.opened(),
                   "transition-[opacity,transform] motion-reduce:transition-none": true,
@@ -2506,7 +2564,7 @@ export default function Layout(props: ParentProps) {
 
               <div
                 classList={{
-                  "hidden xl:block pointer-events-none absolute inset-y-0 right-0 z-25 overflow-hidden": true,
+                  "hidden lg:block pointer-events-none absolute inset-y-0 right-0 z-25 overflow-hidden": true,
                   "opacity-100 translate-x-0": state.peeked && !layout.sidebar.opened(),
                   "opacity-0 -translate-x-2": !state.peeked || layout.sidebar.opened(),
                   "transition-[opacity,transform] motion-reduce:transition-none": true,
