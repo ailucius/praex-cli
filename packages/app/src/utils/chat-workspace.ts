@@ -2,10 +2,12 @@ import { createMemo } from "solid-js"
 import { useServerSync } from "@/context/server-sync"
 import { pathKey } from "@/utils/path-key"
 
-/** Agents used by threads in the chat workspace. Mirror packages/opencode/src/agent/agent.ts. */
+/**
+ * The one agent threads in the chat workspace use: it answers, and works with files, shell and the
+ * web in the thread's own folder (Chat and Cowork merged on 10-19). Mirror packages/opencode/src/agent/agent.ts.
+ */
 export const CHAT_AGENT = "chat"
-export const COWORK_AGENT = "cowork"
-export const WORKSPACE_AGENTS: readonly string[] = [CHAT_AGENT, COWORK_AGENT]
+export const WORKSPACE_AGENTS: readonly string[] = [CHAT_AGENT]
 
 /**
  * The private workspace plain chats run in: `<state>/chat` on the server (Global.Path.chat).

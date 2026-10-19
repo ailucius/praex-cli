@@ -2390,6 +2390,12 @@ export default function Layout(props: ParentProps) {
       newChatLabel={() => language.t("sidebar.chat.new")}
       newChatKeybind={() => command.keybind("chat.new")}
       onNewChat={newChat}
+      chatMode={() => !params.dir || isChatDirectory(currentDir(), chatDir())}
+      searchLabel={() => language.t("sidebar.search")}
+      searchKeybind={() => command.keybind("chat.search")}
+      onSearch={searchChats}
+      codeLabel={() => language.t("sidebar.mode.code")}
+      onOpenCode={openCode}
       renderPanel={() => (
         <SidebarHome
           mobile={mobile}

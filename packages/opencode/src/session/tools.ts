@@ -24,15 +24,15 @@ import fs from "fs/promises"
 import path from "path"
 
 /**
- * A Cowork thread in the chat workspace works in its own folder, <state>/chat/<sessionID>, so
- * tasks cannot touch each other's files: its tools (and its environment block) see that folder
- * as both the working directory and the root. Chat threads keep the shared workspace.
+ * A thread in the chat workspace (Chat, or Cowork from before the merge) works in its own folder,
+ * <state>/chat/<sessionID>, so threads cannot touch each other's files: its tools (and its
+ * environment block) see that folder as both the working directory and the root.
  */
 export const coworkInstance = Effect.fn("SessionTools.coworkInstance")(function* (
   agent: Pick<Agent.Info, "name">,
   sessionID: string,
 ) {
-  if (!Agent.isCowork(agent)) return undefined
+  if (!Agent.isWorkspaceAgent(agent)) return undefined
   const ctx = yield* InstanceRef
   if (!ctx || path.resolve(ctx.directory) !== path.resolve(Global.Path.chat)) return undefined
   const folder = path.join(Global.Path.chat, sessionID)

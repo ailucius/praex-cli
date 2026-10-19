@@ -68,7 +68,7 @@ import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
-import { ComposerModeToggle, ComposerPlusMenu } from "./prompt-input/composer-extras"
+import { ComposerPlusMenu } from "./prompt-input/composer-extras"
 import { showToast } from "@/utils/toast"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { pathKey } from "@/utils/path-key"
@@ -1977,16 +1977,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       onScreenshot={platform.captureScreen ? () => void takeScreenshot() : undefined}
                       onConnectors={openConnectors}
                     />
-                    <Show when={props.controls.chat && props.controls.agents.options.length > 1}>
-                      <ComposerModeToggle
-                        current={props.controls.agents.current}
-                        disabled={store.mode !== "normal"}
-                        onSelect={(agent) => {
-                          props.controls.agents.select(agent)
-                          restoreFocus()
-                        }}
-                      />
-                    </Show>
                     {/* one agent (a plain chat) means nothing to pick */}
                     <Show when={!agentsLoading() && !props.controls.chat && props.controls.agents.options.length > 1}>
                       <div

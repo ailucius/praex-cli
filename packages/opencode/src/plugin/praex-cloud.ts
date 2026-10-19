@@ -191,7 +191,7 @@ function waitForCallback(state: string): Promise<TokenResponse> {
 // the display name — nothing else. Retiring or adding a model is now a gateway deploy only.
 const GATEWAY_BASE_URL = "https://praex-gateway-384599766402.us-central1.run.app/v1"
 const TIER_LIMITS = { context: 32768, output: 8192 }
-export type HostedModel = { name: string; plan?: string; limit: { context: number; output: number } }
+export type HostedModel = { name: string; plan?: string; reasoning?: boolean; limit: { context: number; output: number } }
 export type HostedLineup = Record<string, HostedModel>
 // Offline / first-run fallback only; the live gateway list always wins. Mirrors the gateway
 // lineup as of 2026-10-19: Velox II (free), Faber II (Pro, on demand), Lucia II (Max).
@@ -214,6 +214,7 @@ export function parseLineup(body: unknown): HostedLineup | undefined {
     out[m.id] = {
       name: typeof m.name === "string" && m.name ? m.name : m.id,
       ...(typeof m.plan === "string" && m.plan ? { plan: m.plan } : {}),
+      ...(m.reasoning === true ? { reasoning: true } : {}),
       limit: {
         context: Number.isFinite(context) && context > 0 ? context : TIER_LIMITS.context,
         output: Number.isFinite(output) && output > 0 ? output : TIER_LIMITS.output,
@@ -289,6 +290,9 @@ export function freeModelID(lineup: HostedLineup) {
 // The gateway may name a tier plainly ("Velox II") and carry its plan separately. The picker labels
 // and orders tiers by a "· <plan>" suffix (tierRank in tui dialog-model), so add one when it is missing.
 const PLAN_LABEL: Record<string, string> = { free: "Free", pro: "Pro", max: "Max" }
+const NO_EFFORT_VARIANTS = Object.fromEntries(
+  ["none", "minimal", "low", "medium", "high", "xhigh", "max"].map((effort) => [effort, { disabled: true }]),
+)
 function displayName(m: HostedModel) {
   const label = m.plan ? PLAN_LABEL[m.plan] : undefined
   return label && !m.name.includes("·") ? `${m.name} · ${label}` : m.name
@@ -306,7 +310,16 @@ export function hostedProvider(user: Record<string, any> | undefined, lineup: Ho
     models: Object.fromEntries(
       Object.entries(lineup)
         .sort(([a], [b]) => Number(b === free) - Number(a === free))
-        .map(([id, m]) => [id, { name: displayName(m), limit: { ...m.limit } }]),
+        .map(([id, m]) => [
+          id,
+          {
+            name: displayName(m),
+            limit: { ...m.limit },
+            // Thinking tiers say so in the pickers; their level stays the gateway's default for now
+            // (the level picker is queued), so the effort variants this would add are switched off.
+            ...(m.reasoning ? { reasoning: true, variants: NO_EFFORT_VARIANTS } : {}),
+          },
+        ]),
     ),
   }
 }
