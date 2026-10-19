@@ -364,6 +364,10 @@ export function Prompt(props: PromptProps) {
 
   const working = createMemo(() => (props.sessionID && status().type !== "idle" ? props.sessionID : undefined))
 
+  // The update notice shares a row with the working line; on narrow terminals it waits
+  // until the turn ends rather than crowding the line out.
+  const showUpdate = createMemo(() => (working() && dimensions().width < 120 ? undefined : installedUpdate()))
+
   const sessionTitle = createMemo(() => {
     if (!props.sessionID) return
     const raw = sync.session.get(props.sessionID)?.title
@@ -1402,7 +1406,7 @@ export function Prompt(props: PromptProps) {
   return (
     <>
       <box ref={(r: BoxRenderable) => (anchor = r)} visible={props.visible !== false} width="100%">
-        <Show when={working() || installedUpdate()}>
+        <Show when={working() || showUpdate()}>
           <box
             width="100%"
             flexDirection="row"
@@ -1422,7 +1426,7 @@ export function Prompt(props: PromptProps) {
                 />
               )}
             </Show>
-            <Show when={installedUpdate()}>
+            <Show when={showUpdate()}>
               {(version) => (
                 <text fg={theme.textMuted} wrapMode="none" flexShrink={0}>
                   <span style={{ fg: theme.success }}>✓</span> Updated to v{version()} · restart to use it

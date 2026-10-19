@@ -1405,8 +1405,11 @@ function UserMessage(props: {
             }}
             onMouseUp={props.onMouseUp}
             flexShrink={0}
+            backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
+            paddingLeft={1}
+            paddingRight={1}
           >
-            <text fg={hover() ? theme.text : theme.textMuted}>
+            <text fg={theme.text}>
               <span style={{ fg: color() }}>{"› "}</span>
               {text()}
             </text>
