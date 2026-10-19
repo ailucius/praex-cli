@@ -11,6 +11,10 @@
   <a href="https://praex.ai/chat">Chat in the browser</a>
 </p>
 
+<p align="center">
+  <img src=".github/assets/praex-tui.png" width="760" alt="Praex in the terminal explaining a Python file" />
+</p>
+
 ---
 
 Praex is a terminal-first AI coding agent. It reads your codebase, edits files, runs commands, searches the web, and remembers you between sessions. Use it with Praex hosted models or bring your own key for any major provider.
