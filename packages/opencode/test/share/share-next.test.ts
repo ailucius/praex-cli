@@ -31,10 +31,16 @@ const json = (req: Parameters<typeof HttpClientResponse.fromWeb>[0], body: unkno
     new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }),
   )
 
+// The model catalogue refresh shares the HTTP client; answer it here so tests only see share traffic.
+const catalogue = (req: HttpClientRequest.HttpClientRequest) => req.url.endsWith("/api.json")
+
 function layer(client: HttpClient.HttpClient) {
+  const filtered = HttpClient.make((req) =>
+    catalogue(req) ? Effect.succeed(json(req, {}, 404)) : client.execute(req),
+  )
   return LayerNode.buildLayer(
     LayerNode.group([ShareNext.node, Session.node, SessionProjector.node, Auth.node, Database.node]),
-    { replacements: [LayerNode.replace(httpClient, Layer.succeed(HttpClient.HttpClient, client))] },
+    { replacements: [LayerNode.replace(httpClient, Layer.succeed(HttpClient.HttpClient, filtered))] },
   )
 }
 

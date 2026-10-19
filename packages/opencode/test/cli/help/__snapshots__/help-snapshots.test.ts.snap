@@ -60,7 +60,7 @@ Options:
   -s, --session     session id to continue                                                  [string]
       --fork        fork the session when continuing (use with --continue or --session)    [boolean]
   -p, --password    basic auth password (defaults to OPENCODE_SERVER_PASSWORD)              [string]
-  -u, --username    basic auth username (defaults to OPENCODE_SERVER_USERNAME or 'opencode')[string]"
+  -u, --username    basic auth username (defaults to OPENCODE_SERVER_USERNAME)              [string]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode run --help 1`] = `
@@ -82,7 +82,8 @@ Options:
   -s, --session                       session id to continue                                [string]
       --fork                          fork the session before continuing (requires --continue or
                                       --session)                                           [boolean]
-      --share                         share the session                                    [boolean]
+      --share                         share a read-only snapshot of the session on praex.ai when the
+                                      run finishes                                         [boolean]
   -m, --model                         model to use in the format of provider/model          [string]
       --agent                         agent to use                                          [string]
       --format                        format: default (formatted) or json (raw JSON events)
@@ -94,8 +95,8 @@ Options:
                                                                                             [string]
   -p, --password                      basic auth password (defaults to OPENCODE_SERVER_PASSWORD)
                                                                                             [string]
-  -u, --username                      basic auth username (defaults to OPENCODE_SERVER_USERNAME or
-                                      'opencode')                                           [string]
+  -u, --username                      basic auth username (defaults to OPENCODE_SERVER_USERNAME)
+                                                                                            [string]
       --dir                           directory to run in, path on remote server if attaching
                                                                                             [string]
       --port                          port for the local server (defaults to random port if no value
@@ -264,7 +265,7 @@ Options:
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
       --verbose     use more verbose model output (includes metadata like costs)           [boolean]
-      --refresh     refresh the models cache from models.dev                               [boolean]"
+      --refresh     refresh the model catalogue from praex.ai                              [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode stats --help 1`] = `
@@ -305,10 +306,10 @@ Options:
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode import --help 1`] = `
 "praex import <file>
 
-import session data from JSON file or URL
+import session data from a JSON file made by praex export
 
 Positionals:
-  file  path to JSON file or share URL                                           [string] [required]
+  file  path to the JSON file                                                    [string] [required]
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -336,7 +337,7 @@ Commands:
   praex session             manage sessions
   praex stats               show token usage and cost statistics
   praex export [sessionID]  export session data as JSON
-  praex import <file>       import session data from JSON file or URL
+  praex import <file>       import session data from a JSON file made by praex export
   praex pr <number>         fetch and checkout a GitHub PR branch, then run praex
   praex plugin <module>     install plugin and update config                         [aliases: plug]
   praex attach <url>        attach to a running praex server
@@ -641,7 +642,7 @@ Commands:
   praex session             manage sessions
   praex stats               show token usage and cost statistics
   praex export [sessionID]  export session data as JSON
-  praex import <file>       import session data from JSON file or URL
+  praex import <file>       import session data from a JSON file made by praex export
   praex pr <number>         fetch and checkout a GitHub PR branch, then run praex
   praex plugin <module>     install plugin and update config                         [aliases: plug]
   praex attach <url>        attach to a running praex server
@@ -696,7 +697,7 @@ Commands:
   praex session             manage sessions
   praex stats               show token usage and cost statistics
   praex export [sessionID]  export session data as JSON
-  praex import <file>       import session data from JSON file or URL
+  praex import <file>       import session data from a JSON file made by praex export
   praex pr <number>         fetch and checkout a GitHub PR branch, then run praex
   praex plugin <module>     install plugin and update config                         [aliases: plug]
   praex attach <url>        attach to a running praex server
