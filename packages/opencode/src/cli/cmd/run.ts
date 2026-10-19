@@ -195,7 +195,7 @@ export const RunCommand = effectCmd({
       .option("username", {
         alias: ["u"],
         type: "string",
-        describe: "basic auth username (defaults to OPENCODE_SERVER_USERNAME or 'opencode')",
+        describe: "basic auth username (default: OPENCODE_SERVER_USERNAME, else the server's default user)",
       })
       .option("dir", {
         type: "string",
