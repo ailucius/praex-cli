@@ -67,6 +67,7 @@ import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
+import { ComposerModeToggle, ComposerPlusMenu } from "./prompt-input/composer-extras"
 import { showToast } from "@/utils/toast"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { pathKey } from "@/utils/path-key"
@@ -435,13 +436,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     promptPlaceholder({
       mode: store.mode,
       commentCount: commentCount(),
-      example:
-        suggest() && !props.controls.chat
-          ? store.mode === "shell"
-            ? "git status"
-            : language.t(EXAMPLES[store.placeholder])
-          : "",
-      suggest: suggest(),
+      example: suggest() ? (store.mode === "shell" ? "git status" : language.t(EXAMPLES[store.placeholder])) : "",
+      // chats get the plain placeholder; the rotating examples are coding prompts
+      suggest: suggest() && !props.controls.chat,
       t: (key, params) => language.t(key as Parameters<typeof language.t>[0], params as never),
     }),
   )
@@ -533,6 +530,20 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   }
 
   const escBlur = () => platform.platform === "desktop" && platform.os === "macos"
+
+  const takeScreenshot = async () => {
+    const file = await platform.captureScreen?.().catch(() => null)
+    if (!file) {
+      showToast({ title: language.t("composer.plus.screenshot.failed") })
+      return
+    }
+    await addAttachments([file])
+    restoreFocus()
+  }
+
+  const openConnectors = () => {
+    void import("@/components/dialog-select-mcp").then((x) => dialog.show(() => <x.DialogSelectMcp />))
+  }
 
   const pick = () => {
     pickAttachmentFiles({
@@ -1832,25 +1843,27 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
                   }}
                 >
-                  <TooltipKeybind
-                    placement="top"
-                    title={language.t("prompt.action.attachFile")}
-                    keybind={command.keybind("file.attach")}
-                  >
-                    <Button
-                      data-action="prompt-attach"
-                      type="button"
-                      variant="ghost"
-                      class="size-8 p-0"
+                  <div class="flex items-center gap-1.5">
+                    <ComposerPlusMenu
                       style={buttons()}
-                      onClick={pick}
                       disabled={store.mode !== "normal"}
                       tabIndex={store.mode === "normal" ? undefined : -1}
-                      aria-label={language.t("prompt.action.attachFile")}
-                    >
-                      <Icon name="plus" class="size-4.5" />
-                    </Button>
-                  </TooltipKeybind>
+                      uploadKeybind={command.keybind("file.attach")}
+                      onUpload={pick}
+                      onScreenshot={platform.captureScreen ? () => void takeScreenshot() : undefined}
+                      onConnectors={openConnectors}
+                    />
+                    <Show when={props.controls.chat && props.controls.agents.options.length > 1}>
+                      <ComposerModeToggle
+                        current={props.controls.agents.current}
+                        disabled={store.mode !== "normal"}
+                        onSelect={(agent) => {
+                          props.controls.agents.select(agent)
+                          restoreFocus()
+                        }}
+                      />
+                    </Show>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1881,7 +1894,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   </div>
                   <div class="flex items-center gap-1.5 min-w-0 flex-1 h-7">
                     {/* one agent (a plain chat) means nothing to pick */}
-                    <Show when={!agentsLoading() && props.controls.agents.options.length > 1}>
+                    <Show when={!agentsLoading() && !props.controls.chat && props.controls.agents.options.length > 1}>
                       <div
                         data-component="prompt-agent-control"
                         style={agentsShouldFadeIn() ? { animation: "fade-in 0.3s" } : undefined}

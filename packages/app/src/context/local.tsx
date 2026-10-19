@@ -11,7 +11,7 @@ import { useSDK } from "./sdk"
 import { useSync } from "./sync"
 import { useServerSDK } from "./server-sdk"
 import { ScopedKey, type ServerScope } from "@/utils/server-scope"
-import { CHAT_AGENT, isChatDirectory, useChatDirectory } from "@/utils/chat-workspace"
+import { isChatDirectory, useChatDirectory, WORKSPACE_AGENTS } from "@/utils/chat-workspace"
 
 export type ModelKey = { providerID: string; modelID: string; variant?: string }
 
@@ -66,11 +66,11 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     const id = createMemo(() => params.id || undefined)
     const chatDir = useChatDirectory()
-    // Plain chats (the private chat workspace) only ever use the tool-less chat agent;
-    // projects get the normal visible agents (chat is hidden there).
+    // Threads in the private chat workspace use Chat or Cowork (Chat first, the default);
+    // projects get the normal visible agents (both are hidden there).
     const list = createMemo(() => {
       if (isChatDirectory(sdk().directory, chatDir()))
-        return sync().data.agent.filter((item) => item.name === CHAT_AGENT)
+        return WORKSPACE_AGENTS.flatMap((name) => sync().data.agent.filter((item) => item.name === name))
       return sync().data.agent.filter((item) => item.mode !== "subagent" && !item.hidden)
     })
     const connected = createMemo(() => new Set(providers.connected().map((item) => item.id)))
