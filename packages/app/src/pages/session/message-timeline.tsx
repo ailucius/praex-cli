@@ -68,7 +68,8 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { notifySessionTabsRemoved } from "@/components/titlebar-session-events"
 import { messageAgentColor } from "@/utils/agent"
-import { sessionTitle } from "@/utils/session-title"
+import { isPlaceholderTitle, sessionTitle } from "@/utils/session-title"
+import { isChatDirectory, useChatDirectory } from "@/utils/chat-workspace"
 import { formatTurnTime, TURN_GAP_MS } from "@/pages/session/turn-time"
 import { makeTimer } from "@solid-primitives/timer"
 import { MessageComment, SummaryDiff, Timeline, TimelineRow, TimelineRowMap } from "./message-timeline.data"
@@ -395,7 +396,11 @@ export function MessageTimeline(props: {
       .map((part) => taskDescription(part, id))
       .findLast((value): value is string => !!value)
   })
+  const chatDir = useChatDirectory()
   const childTitle = createMemo(() => {
+    // threads in the chat workspace read "New chat" until they get a real title
+    if (!parentID() && isPlaceholderTitle(titleValue()) && isChatDirectory(sdk().directory, chatDir()))
+      return language.t("sidebar.chat.untitled")
     if (!parentID()) return titleLabel() ?? ""
     if (childTaskDescription()) return childTaskDescription()
     const value = titleLabel()?.replace(/\s+\(@[^)]+ subagent\)$/, "")

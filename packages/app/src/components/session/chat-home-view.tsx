@@ -1,8 +1,10 @@
-import { For, type JSX } from "solid-js"
+import { For, type JSX, Show } from "solid-js"
 import { Mark } from "@opencode-ai/ui/logo"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
+import { useLocal } from "@/context/local"
+import { COWORK_AGENT } from "@/utils/chat-workspace"
 
 // Starters prefill the composer (never send): the person finishes the sentence.
 const STARTERS = [
@@ -17,6 +19,8 @@ export function ChatHomeView(props: { composer: JSX.Element }) {
   const language = useLanguage()
   const prompt = usePrompt()
   const command = useCommand()
+  const local = useLocal()
+  const cowork = () => local.agent.current()?.name === COWORK_AGENT
 
   const start = (text: string) => {
     prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
@@ -57,14 +61,15 @@ export function ChatHomeView(props: { composer: JSX.Element }) {
             </For>
           </div>
           <p class="text-12-regular text-text-weak text-center max-w-[460px]">
-            {language.t("home.chat.scope")}{" "}
+            {language.t(cowork() ? "home.cowork.scope" : "home.chat.scope")}{" "}
             <button
               type="button"
               class="text-text-base underline underline-offset-2 decoration-border-base hover:text-text-strong outline-none focus-visible:shadow-xs-border-focus rounded-sm"
               onClick={() => command.trigger("project.open")}
             >
-              {language.t("home.chat.openFolder")}
+              {language.t(cowork() ? "home.cowork.openFolder" : "home.chat.openFolder")}
             </button>
+            <Show when={cowork()}>.</Show>
           </p>
         </div>
       </div>
