@@ -502,16 +502,32 @@ function App(props: {
       }
 
       const title = session.title.length > 40 ? session.title.slice(0, 37) + "..." : session.title
-      renderer.setTerminalTitle(`OC | ${title}`)
+      renderer.setTerminalTitle(`${title} · Praex`)
       return
     }
 
     if (route.data.type === "plugin") {
-      renderer.setTerminalTitle(`OC | ${route.data.id}`)
+      renderer.setTerminalTitle(`${route.data.id} · Praex`)
     }
   })
 
   const args = useArgs()
+  // `praex --rc`, or "Remote Control in every session" from the command palette, turns it on
+  // once the TUI is up, without the QR dialog; the footer item says it is on (like Claude's
+  // `claude --remote-control` and its "Enable Remote Control for all sessions").
+  let remoteAutoStarted = false
+  createEffect(() => {
+    if (remoteAutoStarted || !props.remote || !kv.ready) return
+    if (!args.remoteControl && !kv.get("remote_control_auto", false)) return
+    remoteAutoStarted = true
+    props.remote
+      .start()
+      .then((result) => {
+        if (result.ok) setRemote(result.status)
+        else toast.show({ variant: "error", message: result.message, duration: 6000 })
+      })
+      .catch(() => {})
+  })
   onMount(() => {
     batch(() => {
       if (args.agent) local.agent.set(args.agent)
@@ -892,6 +908,24 @@ function App(props: {
           }
           setRemote(result.status)
           dialog.replace(() => <DialogRemote status={remote} onStop={rc.stop} />)
+        },
+      },
+      {
+        name: "app.remote_control_auto",
+        title: kv.get("remote_control_auto", false)
+          ? "Remote Control in every session: turn off"
+          : "Remote Control in every session: turn on",
+        category: "System",
+        enabled: !!props.remote,
+        run: () => {
+          const next = !kv.get("remote_control_auto", false)
+          kv.set("remote_control_auto", next)
+          toast.show({
+            variant: "info",
+            message: next ? "New sessions start with Remote Control on." : "Remote Control starts only when you run /rc.",
+            duration: 3000,
+          })
+          dialog.clear()
         },
       },
       {

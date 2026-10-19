@@ -104,6 +104,11 @@ export const TuiThreadCommand = cmd({
       .option("agent", {
         type: "string",
         describe: "agent to use",
+      })
+      .option("rc", {
+        alias: ["remote-control"],
+        type: "boolean",
+        describe: "start with Remote Control on (continue from the Praex app or praex.ai/rc)",
       }),
   handler: async (args) => {
     const unguard = win32InstallCtrlCGuard()
@@ -268,6 +273,7 @@ export const TuiThreadCommand = cmd({
               model: args.model,
               prompt,
               fork: args.fork,
+              remoteControl: args.rc,
             },
           }),
         )
