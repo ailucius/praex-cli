@@ -33,7 +33,7 @@ export type TunnelOptions = {
   /** Current ID token (refreshed when close to expiry). Throws SignedOutError when signed out. */
   credential: (opts?: { force?: boolean }) => Promise<Credential>
   verifyPhone: PhoneVerifier
-  meta: () => { name: string; directory: string; title?: string; version?: string }
+  meta: () => { name: string; directory: string; title?: string; version?: string; path?: string }
   onStatus: (s: RemoteStatus) => void
   rotateMs?: number
   drainMs?: number
@@ -125,7 +125,8 @@ export class RemoteTunnel {
   /** The session changed (title, folder): tell the relay so the phone list stays current. */
   meta() {
     const m = this.opts.meta()
-    for (const c of this.conns) if (c.welcomed) this.send(c, { t: "meta", title: m.title, directory: m.directory })
+    for (const c of this.conns)
+      if (c.welcomed) this.send(c, { t: "meta", title: m.title, directory: m.directory, path: m.path })
   }
 
   // ---------- connection lifecycle ----------

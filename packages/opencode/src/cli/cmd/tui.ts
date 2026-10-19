@@ -218,8 +218,8 @@ export const TuiThreadCommand = cmd({
         stop: async () => {
           await client.call("remoteStop", undefined)
         },
-        setTitle: (title?: string) => {
-          client.call("remoteTitle", { title }).catch(() => {})
+        setSession: (info: { title?: string; sessionID?: string; directory?: string }) => {
+          client.call("remoteSession", info).catch(() => {})
         },
         subscribe: (handler: (status: RemoteStatus) => void) => client.on<RemoteStatus>("remote.status", handler),
       }

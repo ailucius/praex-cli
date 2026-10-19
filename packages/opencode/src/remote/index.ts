@@ -9,6 +9,7 @@ import { Auth } from "@/auth"
 import { exchangeRefreshToken, expiresAt } from "@/plugin/praex-cloud"
 import { RemoteTunnel, SignedOutError, type Credential, type RemoteStatus } from "./tunnel"
 import { fakePhoneVerifier, firebasePhoneVerifier, uidOf } from "./verify"
+import { base64Encode } from "@opencode-ai/core/util/encode"
 
 export { SignedOutError, type RemoteStatus } from "./tunnel"
 
@@ -76,7 +77,7 @@ export function createRemoteControl(input: {
   log?: (line: string) => void
 }) {
   let tunnel: RemoteTunnel | undefined
-  let title: string | undefined
+  let session: { title?: string; sessionID?: string; directory?: string } = {}
   let status: RemoteStatus = { state: "off" }
   const report = (s: RemoteStatus) => {
     status = s
@@ -102,9 +103,11 @@ export function createRemoteControl(input: {
         verifyPhone,
         meta: () => ({
           name: os.hostname().split(".")[0] || "Computer",
-          directory: path.basename(input.directory) || input.directory,
-          title,
+          directory: path.basename(session.directory ?? input.directory) || input.directory,
+          title: session.title,
           version: input.version,
+          // where the phone opens: the web UI's own route for this session (or a new one)
+          path: `/${base64Encode(session.directory ?? input.directory)}/session${session.sessionID ? `/${session.sessionID}` : ""}`,
         }),
         onStatus: (s) => {
           if (tunnel === next) report(s)
@@ -130,9 +133,11 @@ export function createRemoteControl(input: {
       t?.stop()
       report({ state: "off" })
     },
-    setTitle(next?: string) {
-      if (next === title) return
-      title = next
+    /** The session open in the TUI, so the phone lists its title and opens straight into it. */
+    setSession(next: { title?: string; sessionID?: string; directory?: string }) {
+      if (next.title === session.title && next.sessionID === session.sessionID && next.directory === session.directory)
+        return
+      session = { ...next }
       tunnel?.meta()
     },
   }

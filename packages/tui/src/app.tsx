@@ -143,7 +143,7 @@ export type RemoteStatus =
 export type RemoteControl = {
   start: () => Promise<{ ok: true; status: RemoteStatus } | { ok: false; message: string }>
   stop: () => Promise<void>
-  setTitle: (title?: string) => void
+  setSession: (info: { title?: string; sessionID?: string; directory?: string }) => void
   subscribe: (handler: (status: RemoteStatus) => void) => () => void
 }
 
@@ -458,11 +458,15 @@ function App(props: {
     })
     onCleanup(off)
   }
-  // The phone's session list shows the open session's title.
+  // The phone lists the open session's title and opens straight into it.
   createEffect(() => {
     if (!props.remote || !remoteOn()) return
     const session = route.data.type === "session" ? sync.session.get(route.data.sessionID) : undefined
-    props.remote.setTitle(session && !isDefaultTitle(session.title) ? session.title : undefined)
+    props.remote.setSession({
+      title: session && !isDefaultTitle(session.title) ? session.title : undefined,
+      sessionID: session?.id,
+      directory: session?.directory,
+    })
   })
 
   const [terminalTitleEnabled, setTerminalTitleEnabled] = createSignal(kv.get("terminal_title_enabled", true))

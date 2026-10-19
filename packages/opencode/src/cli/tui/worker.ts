@@ -80,8 +80,8 @@ export const rpc = {
   async remoteStop() {
     remote?.stop()
   },
-  async remoteTitle(input: { title?: string }) {
-    remote?.setTitle(input.title)
+  async remoteSession(input: { title?: string; sessionID?: string; directory?: string }) {
+    remote?.setSession(input)
   },
   async checkUpgrade(input: { directory: string }) {
     await InstanceRuntime.load({ directory: input.directory })

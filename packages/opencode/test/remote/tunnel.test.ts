@@ -15,7 +15,7 @@ function stubRelay() {
     fetch(req, srv) {
       const url = new URL(req.url)
       auths.push(req.headers.get("authorization") ?? "")
-      if (srv.upgrade(req, { data: { key: url.searchParams.get("key") } })) return undefined
+      if (srv.upgrade(req, { data: { key: url.searchParams.get("key") } } as any)) return undefined
       return new Response("no", { status: 400 })
     },
     websocket: {
