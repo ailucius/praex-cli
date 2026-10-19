@@ -13,7 +13,6 @@
     "darkStep10": "#c4b5fd",
     "darkStep11": "#8e86a3",
     "darkStep12": "#f0edf7",
-    "darkSecondary": "#7aa2e8",
     "darkAccent": "#d9b36c",
     "darkRed": "#e0687a",
     "darkOrange": "#e8a15c",
@@ -32,7 +31,6 @@
     "lightStep10": "#5b3fa8",
     "lightStep11": "#756d8a",
     "lightStep12": "#1d1730",
-    "lightSecondary": "#3e6bb3",
     "lightAccent": "#9a7a2d",
     "lightRed": "#c43d52",
     "lightOrange": "#bf7a2e",
@@ -46,8 +44,8 @@
       "light": "lightStep9"
     },
     "secondary": {
-      "dark": "darkSecondary",
-      "light": "lightSecondary"
+      "dark": "darkStep9",
+      "light": "lightStep9"
     },
     "accent": {
       "dark": "darkAccent",

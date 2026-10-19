@@ -24,7 +24,8 @@ const placeholder = {
   shell: ["ls -la", "git status", "pwd"],
 }
 
-// Brand ink stays imperial purple even under the terminal-adaptive "system" theme.
+// Brand ink stays imperial purple even under the terminal-adaptive "system" theme. The mark
+// itself is black and white (the theme's text colour), so only the name carries the ink.
 const BRAND = RGBA.fromHex("#a78bfa")
 // The mark: a sine wave in a rounded square, drawn with box rules so it stays crisp in any
 // terminal font. 7 cells by 3 rows reads close to square at the usual 1:2 cell ratio.
@@ -60,11 +61,11 @@ function HomeHeader() {
         <box flexDirection="column" flexShrink={0}>
           <For each={MARK}>
             {(row, index) => (
-              <text fg={BRAND} wrapMode="none">
+              <text fg={theme.textMuted} wrapMode="none">
                 {index() === 1 ? (
                   <>
                     {"│  "}
-                    <span style={{ fg: BRAND, bold: true }}>∿</span>
+                    <span style={{ fg: theme.text, bold: true }}>∿</span>
                     {"  │"}
                   </>
                 ) : (

@@ -94,7 +94,7 @@ const [store, setStore] = createStore<State>({
   themes: allThemes(),
   mode: "dark",
   lock: undefined,
-  active: "system",
+  active: "praex",
   ready: false,
 })
 
@@ -119,8 +119,10 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         if (!lock && pick(kv.get("theme_mode")) !== undefined) kv.set("theme_mode", undefined)
         draft.mode = mode
         draft.lock = lock
-        const active = config.theme ?? kv.get("theme", "system")
-        draft.active = typeof active === "string" ? canonicalTheme(active) : "system"
+        // Praex's own palette by default (19 Oct: the brand look, not the terminal's colours);
+        // "system" stays one /theme away and a saved choice always wins.
+        const active = config.theme ?? kv.get("theme", "praex")
+        draft.active = typeof active === "string" ? canonicalTheme(active) : "praex"
         draft.ready = false
       }),
     )

@@ -548,9 +548,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                       <Show
                         when={options[0]?.categoryView}
                         fallback={
-                          <text fg={theme.accent} attributes={TextAttributes.BOLD}>
-                            {category}
-                          </text>
+                          <text fg={theme.textMuted}>{category}</text>
                         }
                       >
                         {options[0]?.categoryView}

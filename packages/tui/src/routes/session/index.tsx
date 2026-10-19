@@ -21,10 +21,10 @@ import { useRoute, useRouteData } from "../../context/route"
 import { useProject } from "../../context/project"
 import { useSync } from "../../context/sync"
 import { useEvent } from "../../context/event"
-import { SplitBorder } from "../../ui/border"
+import { HairlineGutter, PromptGutter, SplitBorder } from "../../ui/border"
 import { useTuiPaths, useTuiTerminalEnvironment } from "../../context/runtime"
 import { Spinner } from "../../component/spinner"
-import { createSyntaxStyleMemo, generateSubtleSyntax, useTheme } from "../../context/theme"
+import { createSyntaxStyleMemo, generateSubtleSyntax, tint, useTheme } from "../../context/theme"
 import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, TextAttributes, RGBA } from "@opentui/core"
 import { Prompt, type PromptRef } from "../../component/prompt"
 import type {
@@ -1400,6 +1400,8 @@ function UserMessage(props: {
     <>
       <Show when={text()}>
         <box id={props.message.id} marginTop={props.index === 0 ? 0 : 1}>
+          {/* A slim accent bar in the agent colour on a faint tint that hugs the text, instead of
+              a full-width slab. The text lands on the reply's column, so a turn reads as one block. */}
           <box
             onMouseOver={() => {
               setHover(true)
@@ -1409,14 +1411,16 @@ function UserMessage(props: {
             }}
             onMouseUp={props.onMouseUp}
             flexShrink={0}
-            backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
+            alignSelf="flex-start"
+            marginLeft={1}
+            border={["left"]}
+            customBorderChars={PromptGutter}
+            borderColor={color()}
+            backgroundColor={tint(theme.backgroundPanel, color(), hover() ? 0.16 : 0.08)}
             paddingLeft={1}
             paddingRight={1}
           >
-            <text fg={theme.text}>
-              <span style={{ fg: color() }}>{"› "}</span>
-              {text()}
-            </text>
+            <text fg={theme.text}>{text()}</text>
             <Show when={files().length}>
               <box flexDirection="row" paddingBottom={metadataVisible() ? 1 : 0} paddingTop={1} gap={1} flexWrap="wrap">
                 <For each={files()}>
@@ -1524,7 +1528,6 @@ function CompactionNotice(props: { message: AssistantMessage; parts: Part[] }) {
 
 function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; last: boolean }) {
   const ctx = use()
-  const local = useLocal()
   const { theme } = useTheme()
   const sync = useSync()
   const messages = createMemo(() => sync.data.message[props.message.sessionID] ?? [])
@@ -1581,9 +1584,10 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
     if (failed)
       return { glyph: "✕", color: theme.error, text: `${agent}Stopped${took ? ` after ${took}` : ""} · ${name}` }
     if (stopped && !final()) return { glyph: "◼", color: theme.textMuted, text: `${agent}Stopped · ${name}` }
+    // A finished turn is history, not the live thing: a soft check, the rest in grey.
     return {
       glyph: "✓",
-      color: local.agent.color(props.message.agent),
+      color: tint(theme.textMuted, theme.success, 0.55),
       text: `${agent}Done${duration() ? ` in ${formatTook(duration())}` : ""} · ${name}`,
     }
   })
@@ -1654,14 +1658,12 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
       <Show when={props.message.error && props.message.error.name !== "MessageAbortedError"}>
         <box
           id={`assistant-error-${props.message.id}`}
-          border={["left"]}
-          paddingTop={1}
-          paddingBottom={1}
-          paddingLeft={2}
+          marginLeft={3}
           marginTop={1}
-          backgroundColor={theme.backgroundPanel}
-          customBorderChars={SplitBorder.customBorderChars}
-          borderColor={theme.error}
+          border={["left"]}
+          paddingLeft={1}
+          customBorderChars={HairlineGutter}
+          borderColor={tint(theme.borderSubtle, theme.error, 0.7)}
         >
           <text fg={theme.textMuted}>{props.message.error?.data.message}</text>
         </box>
@@ -1787,7 +1789,7 @@ function ReasoningHeader(props: {
       <Match when={true}>
         <text fg={fg()} wrapMode="none">
           <Show when={props.toggleable}>
-            <span>{props.open ? "- " : "+ "}</span>
+            <span>{props.open ? "▾ " : "▸ "}</span>
           </Show>
           <span>{props.duration ? `Thought for ${props.duration}` : "Thought"}</span>
           <Show when={props.title}>
@@ -2215,18 +2217,13 @@ function BlockTool(props: {
   const renderer = useRenderer()
   const [hover, setHover] = createSignal(false)
   const error = createMemo(() => (props.part?.state.status === "error" ? props.part.state.error : undefined))
+  // Header on the inline-tool column, body hanging off a hairline right under the header's
+  // glyph. No panel slab: the gutter alone groups the output with the call that made it.
   return (
     <box
       id={props.part ? `tool-block-${props.part.messageID}-${props.part.id}` : undefined}
-      border={["left"]}
-      paddingTop={1}
-      paddingBottom={1}
-      paddingLeft={2}
       marginTop={1}
-      gap={1}
-      backgroundColor={hover() ? theme.backgroundMenu : theme.backgroundPanel}
-      customBorderChars={SplitBorder.customBorderChars}
-      borderColor={theme.background}
+      flexShrink={0}
       onMouseOver={() => props.onClick && setHover(true)}
       onMouseOut={() => setHover(false)}
       onMouseUp={() => {
@@ -2234,20 +2231,27 @@ function BlockTool(props: {
         props.onClick?.()
       }}
     >
-      <Show
-        when={props.spinner}
-        fallback={
-          <text paddingLeft={3} fg={theme.textMuted}>
-            {props.title}
-          </text>
-        }
+      <box paddingLeft={3}>
+        <Show
+          when={props.spinner}
+          fallback={<text fg={hover() ? theme.text : theme.textMuted}>{props.title}</text>}
+        >
+          <Spinner color={theme.textMuted}>{props.title.replace(/^# /, "")}</Spinner>
+        </Show>
+      </box>
+      <box
+        marginLeft={3}
+        border={["left"]}
+        customBorderChars={HairlineGutter}
+        borderColor={hover() ? theme.border : theme.borderSubtle}
+        paddingLeft={1}
+        gap={1}
       >
-        <Spinner color={theme.textMuted}>{props.title.replace(/^# /, "")}</Spinner>
-      </Show>
-      {props.children}
-      <Show when={error()}>
-        <text fg={theme.error}>{error()}</text>
-      </Show>
+        {props.children}
+        <Show when={error()}>
+          <text fg={theme.error}>{error()}</text>
+        </Show>
+      </box>
     </box>
   )
 }
@@ -2305,9 +2309,12 @@ function Shell(props: ToolProps) {
           onClick={foldable() ? () => setExpanded((prev) => !prev) : undefined}
         >
           <box>
-            <text fg={theme.text}>$ {stringValue(props.input.command)}</text>
+            <text fg={theme.text}>
+              <span style={{ fg: theme.textMuted }}>$ </span>
+              {stringValue(props.input.command)}
+            </text>
             <Show when={output() && (trivial() || expanded())}>
-              <text fg={theme.text}>{limited()}</text>
+              <text fg={theme.textMuted}>{limited()}</text>
             </Show>
             <Show when={foldable()}>
               <text fg={theme.textMuted}>{summary()}</text>

@@ -316,8 +316,8 @@ export function Prompt(props: PromptProps) {
     const key = shortKey(modeShortcut())
     items.push(
       mode === "auto"
-        ? { id: "mode", label: `⏵⏵ auto mode on${wide && key ? ` (${key} to switch)` : ""}`, color: theme.warning }
-        : { id: "mode", label: `manual approvals${wide && key ? ` (${key} to switch)` : ""}` },
+        ? { id: "mode", label: `⏵⏵ auto mode on${wide && key ? ` (${key})` : ""}`, color: theme.warning }
+        : { id: "mode", label: `manual approvals${wide && key ? ` (${key})` : ""}` },
     )
     const sessionID = props.sessionID
     if (sessionID) {
@@ -1387,17 +1387,18 @@ export function Prompt(props: PromptProps) {
   )
   // Rules stay quiet: a light tint of the agent colour over the neutral border, enough to
   // tell Build from Plan without framing the input in a bright box.
-  const borderHighlight = createMemo(() => tint(theme.border, highlight(), 0.45 * agentMetaAlpha()))
+  const borderHighlight = createMemo(() => tint(theme.borderSubtle, highlight(), 0.3 * agentMetaAlpha()))
 
   const placeholderText = createMemo(() => {
     if (props.showPlaceholder === false) return undefined
     if (store.mode === "shell") {
       if (!shell().length) return undefined
       const example = shell()[store.placeholder % shell().length]
-      return `Run a command... "${example}"`
+      return `Run a shell command, like "${example}"`
     }
-    if (!list().length) return undefined
-    return `Ask anything... "${list()[store.placeholder % list().length]}"`
+    // In a conversation there are no example prompts, so the hint names the two shortcuts.
+    if (!list().length) return props.sessionID ? "Reply, or type / for commands and @ for files" : undefined
+    return `Try "${list()[store.placeholder % list().length]}"`
   })
 
   const maxHeight = createMemo(() => tuiConfig.prompt?.max_height ?? Math.max(6, Math.floor(dimensions().height / 3)))
@@ -1429,7 +1430,7 @@ export function Prompt(props: PromptProps) {
             <Show when={showUpdate()}>
               {(version) => (
                 <text fg={theme.textMuted} wrapMode="none" flexShrink={0}>
-                  <span style={{ fg: theme.success }}>✓</span> Updated to v{version()} · restart to use it
+                  Updated to <span style={{ fg: theme.text }}>v{version()}</span> · restart to use it
                 </text>
               )}
             </Show>
@@ -1441,6 +1442,7 @@ export function Prompt(props: PromptProps) {
           borderColor={borderHighlight()}
           title={sessionTitle()}
           titleAlignment="right"
+          titleColor={theme.textMuted}
           customBorderChars={{
             topLeft: "╭",
             topRight: "╮",
