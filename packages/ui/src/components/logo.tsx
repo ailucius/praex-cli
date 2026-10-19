@@ -5,13 +5,14 @@ import { type ComponentProps } from "solid-js"
 // so the mark stays legible on both light and dark grounds.
 
 const wave = (x: number, y: number, size: number) => {
-  // A single sine period drawn inside a square of `size` at (x, y).
+  // One level sine period inside a square of `size` at (x, y): the same geometry as
+  // praex.ai's favicon and the Android icon (x 0.19 to 0.81, amplitude 0.13).
   const s = size
   const p = (px: number, py: number) => `${x + px * s} ${y + py * s}`
   return [
-    `M ${p(0.19, 0.6)}`,
-    `C ${p(0.29, 0.4)}, ${p(0.4, 0.4)}, ${p(0.5, 0.5)}`,
-    `S ${p(0.71, 0.6)}, ${p(0.81, 0.4)}`,
+    `M ${p(0.19, 0.5)}`,
+    `C ${p(0.3171, 0.3267)}, ${p(0.3729, 0.3267)}, ${p(0.5, 0.5)}`,
+    `S ${p(0.6829, 0.6733)}, ${p(0.81, 0.5)}`,
   ].join(" ")
 }
 
@@ -29,7 +30,7 @@ export const Mark = (props: { class?: string }) => {
         data-slot="logo-logo-mark-wave"
         d={wave(0, 2, 16)}
         stroke="var(--background-base)"
-        stroke-width="2.4"
+        stroke-width="2.1"
         stroke-linecap="round"
         stroke-linejoin="round"
       />
@@ -51,7 +52,7 @@ export const Splash = (props: Pick<ComponentProps<"svg">, "ref" | "class">) => {
       <path
         d={wave(0, 10, 80)}
         stroke="var(--background-base)"
-        stroke-width="12"
+        stroke-width="9.6"
         stroke-linecap="round"
         stroke-linejoin="round"
       />
@@ -71,7 +72,7 @@ export const Logo = (props: { class?: string }) => {
       <path
         d={wave(0, 0, 42)}
         stroke="var(--background-base)"
-        stroke-width="6.3"
+        stroke-width="5"
         stroke-linecap="round"
         stroke-linejoin="round"
       />
