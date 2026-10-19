@@ -9,7 +9,7 @@ import {
   type Renderable,
 } from "@opentui/core"
 import type { CommandContext } from "@opentui/keymap"
-import { createEffect, createMemo, onMount, createSignal, onCleanup, on, Show, Switch, Match } from "solid-js"
+import { createEffect, createMemo, onMount, createSignal, onCleanup, on, For, Show, Switch, Match } from "solid-js"
 import "opentui-spinner/solid"
 import path from "path"
 import { fileURLToPath } from "url"
@@ -41,11 +41,8 @@ import type { AssistantMessage, FilePart, UserMessage } from "@opencode-ai/sdk/v
 import { Locale } from "../../util/locale"
 import { contextUsage } from "../../util/context-usage"
 import { errorMessage } from "../../util/error"
-import { formatDuration } from "../../util/format"
-import { createColors, createFrames } from "../../ui/spinner"
 import { useDialog } from "../../ui/dialog"
 import { DialogProvider as DialogProviderConnect } from "../dialog-provider"
-import { DialogAlert } from "../../ui/dialog-alert"
 import { useToast } from "../../ui/toast"
 import { useKV } from "../../context/kv"
 import { createFadeIn } from "../../util/signal"
@@ -54,6 +51,9 @@ import { DialogWorkspaceUnavailable } from "../dialog-workspace-unavailable"
 import { useArgs } from "../../context/args"
 import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut, useLeaderActive, useOpencodeKeymap } from "../../keymap"
 import { useTuiConfig } from "../../config"
+import { isDefaultTitle } from "../../util/session"
+import { installedUpdate } from "../../context/status-items"
+import { activeTurn, FooterItems, useRegisteredFooterItems, WorkingLine, type FooterItem } from "./status"
 import { usePromptWorkspace } from "./workspace"
 import { usePromptMove } from "./move"
 import { readLocalAttachment } from "./local-attachment"
@@ -104,6 +104,11 @@ const DRAFT_RETENTION_MIN_CHARS = 20
 function randomIndex(count: number) {
   if (count <= 0) return 0
   return Math.floor(Math.random() * count)
+}
+
+// Footer and working-line copy uses the short spelling people type: "esc", not "escape".
+function shortKey(value: string) {
+  return value.replace(/\bescape\b/g, "esc")
 }
 
 function fadeColor(color: RGBA, alpha: number) {
@@ -163,6 +168,8 @@ export function Prompt(props: PromptProps) {
   const keymap = useOpencodeKeymap()
   const agentShortcut = useCommandShortcut("agent.cycle")
   const paletteShortcut = useCommandShortcut("command.palette.show")
+  const modeShortcut = useCommandShortcut("permission.mode.cycle")
+  const interruptShortcut = useCommandShortcut("session.interrupt")
   const renderer = useRenderer()
   const exit = useExit()
   const dimensions = useTerminalDimensions()
@@ -277,6 +284,7 @@ export function Prompt(props: PromptProps) {
     const cost = session?.cost ?? 0
     return {
       context: usage.label,
+      pct: usage.pct,
       cost: cost > 0 ? money.format(cost) : undefined,
     }
   })
@@ -296,6 +304,71 @@ export function Prompt(props: PromptProps) {
     mode: "normal",
     extmarkToPartIndex: new Map(),
     interrupt: 0,
+  })
+
+  // Footer facts, each shown only while true: permission mode, running subagents, queued
+  // prompts, MCP trouble, items other features register, and the context meter.
+  const registeredItems = useRegisteredFooterItems()
+  const footerItems = createMemo<FooterItem[]>(() => {
+    const items: FooterItem[] = []
+    const wide = dimensions().width >= 110
+    const mode = local.permission.current()
+    const key = shortKey(modeShortcut())
+    items.push(
+      mode === "auto"
+        ? { id: "mode", label: `⏵⏵ auto mode on${wide && key ? ` (${key} to switch)` : ""}`, color: theme.warning }
+        : { id: "mode", label: `manual approvals${wide && key ? ` (${key} to switch)` : ""}` },
+    )
+    const sessionID = props.sessionID
+    if (sessionID) {
+      const statuses = sync.data.session_status ?? {}
+      const agents = sync.data.session.filter(
+        (item) => item.parentID === sessionID && (statuses[item.id]?.type ?? "idle") !== "idle",
+      ).length
+      if (agents > 0) items.push({ id: "agents", label: `${agents} ${agents === 1 ? "agent" : "agents"} running` })
+      if (status().type !== "idle") {
+        const messages = sync.data.message[sessionID] ?? []
+        const turn = activeTurn(messages)
+        const queued = turn ? messages.filter((m) => m.role === "user" && m.id > turn.id).length : 0
+        if (queued > 0) items.push({ id: "queued", label: `${queued} queued`, color: theme.text })
+      }
+    }
+    const mcp = Object.values(sync.data.mcp)
+    const failed = mcp.filter((item) => item.status === "failed").length
+    if (failed > 0) items.push({ id: "mcp", label: `${failed} MCP failed · /status`, color: theme.error })
+    items.push(...registeredItems())
+    const meter = usage()
+    if (meter) {
+      const high = meter.pct !== undefined && meter.pct >= 70
+      items.push({
+        id: "context",
+        label: [meter.context + (high ? ` (${meter.pct}%)` : ""), meter.cost].filter(Boolean).join(" · "),
+        color: high ? theme.warning : undefined,
+      })
+    }
+    return items
+  })
+
+  // Contextual keys on the right of the footer: what you can do from here, nothing more.
+  const footerHints = createMemo(() => {
+    if (store.mode === "shell") return [{ key: "esc", label: "to exit shell mode" }]
+    if (status().type !== "idle") {
+      if (store.prompt.input.trim()) return [{ key: "enter", label: "to queue" }]
+      return []
+    }
+    return [
+      { key: shortKey(agentShortcut()), label: "agents" },
+      { key: shortKey(paletteShortcut()), label: "commands" },
+    ].filter((item) => item.key)
+  })
+
+  const working = createMemo(() => (props.sessionID && status().type !== "idle" ? props.sessionID : undefined))
+
+  const sessionTitle = createMemo(() => {
+    if (!props.sessionID) return
+    const title = sync.session.get(props.sessionID)?.title
+    if (!title || isDefaultTitle(title)) return
+    return ` ${Locale.truncate(title, Math.max(16, Math.floor(dimensions().width / 3)))} `
   })
 
   createEffect(
@@ -1305,7 +1378,9 @@ export function Prompt(props: PromptProps) {
     () => !!local.agent.current() && store.mode === "normal" && showVariant(),
     animationsEnabled,
   )
-  const borderHighlight = createMemo(() => tint(theme.border, highlight(), agentMetaAlpha()))
+  // Rules stay quiet: a light tint of the agent colour over the neutral border, enough to
+  // tell Build from Plan without framing the input in a bright box.
+  const borderHighlight = createMemo(() => tint(theme.border, highlight(), 0.45 * agentMetaAlpha()))
 
   const placeholderText = createMemo(() => {
     if (props.showPlaceholder === false) return undefined
@@ -1318,39 +1393,46 @@ export function Prompt(props: PromptProps) {
     return `Ask anything... "${list()[store.placeholder % list().length]}"`
   })
 
-  const spinnerDef = createMemo(() => {
-    const agent =
-      status().type !== "idle"
-        ? (local.agent.list().find((a) => a.name === lastUserMessage()?.agent) ?? local.agent.current())
-        : local.agent.current()
-    const color = agent ? local.agent.color(agent.name) : theme.border
-    return {
-      frames: createFrames({
-        color,
-        style: "blocks",
-        inactiveFactor: 0.6,
-        // enableFading: false,
-        minAlpha: 0.3,
-      }),
-      color: createColors({
-        color,
-        style: "blocks",
-        inactiveFactor: 0.6,
-        // enableFading: false,
-        minAlpha: 0.3,
-      }),
-    }
-  })
   const maxHeight = createMemo(() => tuiConfig.prompt?.max_height ?? Math.max(6, Math.floor(dimensions().height / 3)))
   const moveLabelWidth = createMemo(() => Math.max(12, Math.min(44, dimensions().width - 48)))
 
   return (
     <>
       <box ref={(r: BoxRenderable) => (anchor = r)} visible={props.visible !== false} width="100%">
+        <Show when={working() || installedUpdate()}>
+          <box
+            width="100%"
+            flexDirection="row"
+            justifyContent="space-between"
+            gap={2}
+            paddingLeft={1}
+            paddingRight={1}
+            marginBottom={1}
+          >
+            <Show when={working()} fallback={<box />}>
+              {(id) => (
+                <WorkingLine
+                  sessionID={id()}
+                  interrupt={store.interrupt}
+                  interruptKey={shortKey(interruptShortcut()) || "esc"}
+                />
+              )}
+            </Show>
+            <Show when={installedUpdate()}>
+              {(version) => (
+                <text fg={theme.textMuted} wrapMode="none" flexShrink={0}>
+                  <span style={{ fg: theme.success }}>✓</span> Updated to v{version()} · restart to use it
+                </text>
+              )}
+            </Show>
+          </box>
+        </Show>
         <box
           width="100%"
-          border={["top", "right", "bottom", "left"]}
+          border={["top", "bottom"]}
           borderColor={borderHighlight()}
+          title={sessionTitle()}
+          titleAlignment="right"
           customBorderChars={{
             topLeft: "╭",
             topRight: "╮",
@@ -1365,81 +1447,86 @@ export function Prompt(props: PromptProps) {
             rightT: "┤",
           }}
         >
-          <box paddingLeft={2} paddingRight={2} flexShrink={0} flexGrow={1} width="100%">
-            <textarea
-              width="100%"
-              placeholder={placeholderText()}
-              placeholderColor={theme.textMuted}
-              textColor={leader() ? theme.textMuted : theme.text}
-              focusedTextColor={leader() ? theme.textMuted : theme.text}
-              minHeight={1}
-              maxHeight={maxHeight()}
-              onContentChange={() => {
-                const value = input.plainText
-                setStore("prompt", "input", value)
-                auto()?.onInput(value)
-                syncExtmarksWithPromptParts()
-                setCursorVersion((value) => value + 1)
-              }}
-              onCursorChange={() => setCursorVersion((value) => value + 1)}
-              onKeyDown={(e: { preventDefault(): void }) => {
-                if (props.disabled) {
-                  e.preventDefault()
-                  return
-                }
-              }}
-              onSubmit={() => {
-                // IME: double-defer so the last composed character (e.g. Korean
-                // hangul) is flushed to plainText before we read it for submission.
-                setTimeout(() => setTimeout(() => submit(), 0), 0)
-              }}
-              onPaste={async (event: PasteEvent) => {
-                if (props.disabled) {
+          <box paddingLeft={1} paddingRight={1} flexShrink={0} flexGrow={1} width="100%">
+            <box flexDirection="row" width="100%">
+              <text fg={fadeColor(highlight(), agentMetaAlpha())} flexShrink={0} wrapMode="none">
+                {store.mode === "shell" ? "! " : "› "}
+              </text>
+              <textarea
+                flexGrow={1}
+                minWidth={0}
+                placeholder={placeholderText()}
+                placeholderColor={theme.textMuted}
+                textColor={leader() ? theme.textMuted : theme.text}
+                focusedTextColor={leader() ? theme.textMuted : theme.text}
+                minHeight={1}
+                maxHeight={maxHeight()}
+                onContentChange={() => {
+                  const value = input.plainText
+                  setStore("prompt", "input", value)
+                  auto()?.onInput(value)
+                  syncExtmarksWithPromptParts()
+                  setCursorVersion((value) => value + 1)
+                }}
+                onCursorChange={() => setCursorVersion((value) => value + 1)}
+                onKeyDown={(e: { preventDefault(): void }) => {
+                  if (props.disabled) {
+                    e.preventDefault()
+                    return
+                  }
+                }}
+                onSubmit={() => {
+                  // IME: double-defer so the last composed character (e.g. Korean
+                  // hangul) is flushed to plainText before we read it for submission.
+                  setTimeout(() => setTimeout(() => submit(), 0), 0)
+                }}
+                onPaste={async (event: PasteEvent) => {
+                  if (props.disabled) {
+                    event.preventDefault()
+                    return
+                  }
+
+                  // Normalize line endings at the boundary
+                  // Windows ConPTY/Terminal often sends CR-only newlines in bracketed paste
+                  // Replace CRLF first, then any remaining CR
+                  const normalizedText = decodePasteBytes(event.bytes).replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+                  const pastedContent = normalizedText.trim()
+
+                  // Windows Terminal <1.25 can surface image-only clipboard as an
+                  // empty bracketed paste. Windows Terminal 1.25+ does not.
+                  if (!pastedContent) {
+                    keymap.dispatchCommand("prompt.paste")
+                    return
+                  }
+
+                  // Once we cross an async boundary below, the terminal may perform its
+                  // default paste unless we suppress it first and handle insertion ourselves.
                   event.preventDefault()
-                  return
-                }
 
-                // Normalize line endings at the boundary
-                // Windows ConPTY/Terminal often sends CR-only newlines in bracketed paste
-                // Replace CRLF first, then any remaining CR
-                const normalizedText = decodePasteBytes(event.bytes).replace(/\r\n/g, "\n").replace(/\r/g, "\n")
-                const pastedContent = normalizedText.trim()
-
-                // Windows Terminal <1.25 can surface image-only clipboard as an
-                // empty bracketed paste. Windows Terminal 1.25+ does not.
-                if (!pastedContent) {
-                  keymap.dispatchCommand("prompt.paste")
-                  return
-                }
-
-                // Once we cross an async boundary below, the terminal may perform its
-                // default paste unless we suppress it first and handle insertion ourselves.
-                event.preventDefault()
-
-                await pasteInputText(normalizedText)
-              }}
-              ref={(r: TextareaRenderable) => {
-                input = r
-                Object.assign(r, {
-                  getClipboardText: (text: string) => expandPastedTextPlaceholders(text, store.prompt.parts),
-                })
-                setInputTarget(r)
-                if (promptPartTypeId === 0) {
-                  promptPartTypeId = input.extmarks.registerType("prompt-part")
-                }
-                props.ref?.(ref)
-                setTimeout(() => {
-                  // setTimeout is a workaround and needs to be addressed properly
-                  if (!input || input.isDestroyed) return
-                  input.cursorColor = theme.text
-                }, 0)
-              }}
-              onMouseDown={(r: MouseEvent) => r.target?.focus()}
-              focusedBackgroundColor={theme.backgroundElement}
-              cursorColor={props.disabled ? theme.backgroundElement : theme.text}
-              syntaxStyle={syntax()}
-            />
-            <box flexDirection="row" flexShrink={0} gap={1} justifyContent="space-between">
+                  await pasteInputText(normalizedText)
+                }}
+                ref={(r: TextareaRenderable) => {
+                  input = r
+                  Object.assign(r, {
+                    getClipboardText: (text: string) => expandPastedTextPlaceholders(text, store.prompt.parts),
+                  })
+                  setInputTarget(r)
+                  if (promptPartTypeId === 0) {
+                    promptPartTypeId = input.extmarks.registerType("prompt-part")
+                  }
+                  props.ref?.(ref)
+                  setTimeout(() => {
+                    // setTimeout is a workaround and needs to be addressed properly
+                    if (!input || input.isDestroyed) return
+                    input.cursorColor = theme.text
+                  }, 0)
+                }}
+                onMouseDown={(r: MouseEvent) => r.target?.focus()}
+                cursorColor={props.disabled ? theme.backgroundElement : theme.text}
+                syntaxStyle={syntax()}
+              />
+            </box>
+            <box flexDirection="row" flexShrink={0} gap={1} justifyContent="space-between" paddingLeft={2}>
               <box flexDirection="row" gap={1}>
                 <Show when={local.agent.current()} fallback={<box height={1} />}>
                   {(agent) => (
@@ -1465,14 +1552,6 @@ export function Prompt(props: PromptProps) {
                               </span>
                             </text>
                           </Show>
-                          <Show when={local.permission.current() === "auto"}>
-                            <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>·</text>
-                            <text>
-                              <span style={{ fg: fadeColor(theme.warning, modelMetaAlpha()), bold: true }}>
-                                ⏵⏵ auto
-                              </span>
-                            </text>
-                          </Show>
                         </box>
                       </Show>
                     </>
@@ -1487,175 +1566,87 @@ export function Prompt(props: PromptProps) {
             </box>
           </box>
         </box>
-        <box width="100%" flexDirection="row" justifyContent="space-between">
-          <Switch>
-            <Match when={status().type !== "idle"}>
-              <box
-                flexDirection="row"
-                gap={1}
-                flexGrow={1}
-                justifyContent={status().type === "retry" ? "space-between" : "flex-start"}
-              >
-                <box flexShrink={0} flexDirection="row" gap={1}>
-                  <box marginLeft={1}>
-                    <Show when={kv.get("animations_enabled", true)} fallback={<text fg={theme.textMuted}>[⋯]</text>}>
-                      <spinner color={spinnerDef().color} frames={spinnerDef().frames} interval={40} />
+        <box width="100%" flexDirection="row" justifyContent="space-between" gap={2} paddingLeft={1} paddingRight={1}>
+          <box flexDirection="row" flexShrink={1} minWidth={0} overflow="hidden">
+            <Switch>
+              <Match when={workspace.notice()}>
+                {(notice) => (
+                  <box>
+                    <text fg={theme.accent}>{notice()}</text>
+                  </box>
+                )}
+              </Match>
+              <Match when={workspace.label()}>
+                {(label) => (
+                  <box flexDirection="row" gap={1}>
+                    <Show when={workspace.creating()}>
+                      <Spinner color={theme.accent} />
                     </Show>
-                  </box>
-                  <box flexDirection="row" gap={1} flexShrink={0}>
-                    {(() => {
-                      const retry = createMemo(() => {
-                        const s = status()
-                        if (s.type !== "retry") return
-                        return s
-                      })
-                      const message = createMemo(() => {
-                        const r = retry()
-                        if (!r) return
-                        if (r.message.includes("exceeded your current quota") && r.message.includes("gemini"))
-                          return "gemini is way too hot right now"
-                        if (r.message.length > 80) return r.message.slice(0, 80) + "..."
-                        return r.message
-                      })
-                      const isTruncated = createMemo(() => {
-                        const r = retry()
-                        if (!r) return false
-                        return r.message.length > 120
-                      })
-                      const [seconds, setSeconds] = createSignal(0)
-                      onMount(() => {
-                        const timer = setInterval(() => {
-                          const next = retry()?.next
-                          if (next) setSeconds(Math.round((next - Date.now()) / 1000))
-                        }, 1000)
-
-                        onCleanup(() => {
-                          clearInterval(timer)
-                        })
-                      })
-                      const handleMessageClick = () => {
-                        const r = retry()
-                        if (!r) return
-                        if (isTruncated()) {
-                          void DialogAlert.show(dialog, "Retry Error", r.message)
+                    <text fg={workspace.creating() ? theme.accent : theme.text}>
+                      {(() => {
+                        const item = label()
+                        if (item.type === "new") {
+                          if (workspace.creating())
+                            return `Creating ${item.workspaceType}${".".repeat(workspace.creatingDots())}`
+                          return (
+                            <>
+                              Workspace <span style={{ fg: theme.textMuted }}>(new {item.workspaceType})</span>
+                            </>
+                          )
                         }
-                      }
-
-                      const retryText = () => {
-                        const r = retry()
-                        if (!r) return ""
-                        const baseMessage = message()
-                        const truncatedHint = isTruncated() ? " (click to expand)" : ""
-                        const duration = formatDuration(seconds())
-                        const retryInfo = ` [retrying ${duration ? `in ${duration} ` : ""}attempt #${r.attempt}]`
-                        return baseMessage + truncatedHint + retryInfo
-                      }
-
-                      return (
-                        <Show when={retry()}>
-                          <box onMouseUp={handleMessageClick}>
-                            <text fg={theme.error}>{retryText()}</text>
-                          </box>
-                        </Show>
-                      )
-                    })()}
-                  </box>
-                </box>
-                <text fg={store.interrupt > 0 ? theme.primary : theme.text}>
-                  esc{" "}
-                  <span style={{ fg: store.interrupt > 0 ? theme.primary : theme.textMuted }}>
-                    {store.interrupt > 0 ? "again to interrupt" : "interrupt"}
-                  </span>
-                </text>
-              </box>
-            </Match>
-            <Match when={workspace.notice()}>
-              {(notice) => (
-                <box paddingLeft={3}>
-                  <text fg={theme.accent}>{notice()}</text>
-                </box>
-              )}
-            </Match>
-            <Match when={workspace.label()}>
-              {(label) => (
-                <box paddingLeft={3} flexDirection="row" gap={1}>
-                  <Show when={workspace.creating()}>
-                    <Spinner color={theme.accent} />
-                  </Show>
-                  <text fg={workspace.creating() ? theme.accent : theme.text}>
-                    {(() => {
-                      const item = label()
-                      if (item.type === "new") {
-                        if (workspace.creating())
-                          return `Creating ${item.workspaceType}${".".repeat(workspace.creatingDots())}`
                         return (
                           <>
-                            Workspace <span style={{ fg: theme.textMuted }}>(new {item.workspaceType})</span>
+                            Workspace <span style={{ fg: theme.textMuted }}>{item.workspaceName}</span>
                           </>
                         )
-                      }
-                      return (
-                        <>
-                          Workspace <span style={{ fg: theme.textMuted }}>{item.workspaceName}</span>
-                        </>
-                      )
-                    })()}
-                  </text>
-                </box>
-              )}
-            </Match>
-            <Match when={move.progress()}>
-              {(progress) => (
-                <box paddingLeft={3}>
-                  <Spinner color={theme.accent}>
-                    {progress()}
-                    <span style={{ fg: theme.textMuted }}>{".".repeat(move.creatingDots())}</span>
-                  </Spinner>
-                </box>
-              )}
-            </Match>
-            <Match when={move.pendingNew()}>
-              <box paddingLeft={3}>
-                <text fg={theme.accent}>(new working copy)</text>
-              </box>
-            </Match>
-            <Match when={true}>{props.hint ?? <text />}</Match>
-          </Switch>
-          <Show when={status().type !== "retry"}>
-            <box gap={2} flexDirection="row">
-              <Show when={editorContextLabelState() !== "none" ? editorFileLabelDisplay() : undefined}>
-                {(file) => (
-                  <text fg={editorContextLabelState() === "pending" ? theme.secondary : theme.textMuted}>{file()}</text>
+                      })()}
+                    </text>
+                  </box>
                 )}
-              </Show>
-              <Switch>
-                <Match when={store.mode === "normal"}>
-                  <Switch>
-                    <Match when={usage()}>
-                      {(item) => (
-                        <text fg={theme.textMuted} wrapMode="none">
-                          {[item().context, item().cost].filter(Boolean).join(" · ")}
-                        </text>
-                      )}
-                    </Match>
-                    <Match when={true}>
-                      <text fg={theme.text}>
-                        {agentShortcut()} <span style={{ fg: theme.textMuted }}>agents</span>
-                      </text>
-                    </Match>
-                  </Switch>
-                  <text fg={theme.text}>
-                    {paletteShortcut()} <span style={{ fg: theme.textMuted }}>commands</span>
-                  </text>
-                </Match>
-                <Match when={store.mode === "shell"}>
-                  <text fg={theme.text}>
-                    esc <span style={{ fg: theme.textMuted }}>exit shell mode</span>
-                  </text>
-                </Match>
-              </Switch>
-            </box>
-          </Show>
+              </Match>
+              <Match when={move.progress()}>
+                {(progress) => (
+                  <box>
+                    <Spinner color={theme.accent}>
+                      {progress()}
+                      <span style={{ fg: theme.textMuted }}>{".".repeat(move.creatingDots())}</span>
+                    </Spinner>
+                  </box>
+                )}
+              </Match>
+              <Match when={move.pendingNew()}>
+                <box>
+                  <text fg={theme.accent}>(new working copy)</text>
+                </box>
+              </Match>
+              <Match when={props.hint}>{props.hint}</Match>
+              <Match when={true}>
+                <FooterItems items={footerItems()} />
+              </Match>
+            </Switch>
+          </box>
+          <box gap={2} flexDirection="row" flexShrink={0}>
+            <Show when={editorContextLabelState() !== "none" ? editorFileLabelDisplay() : undefined}>
+              {(file) => (
+                <text fg={editorContextLabelState() === "pending" ? theme.secondary : theme.textMuted}>{file()}</text>
+              )}
+            </Show>
+            <Show when={footerHints().length > 0}>
+              <text fg={theme.textMuted} wrapMode="none">
+                <For each={footerHints()}>
+                  {(hint, index) => (
+                    <>
+                      <Show when={index() > 0}>
+                        <span style={{ fg: theme.textMuted }}> · </span>
+                      </Show>
+                      <span style={{ fg: theme.text }}>{hint.key}</span>
+                      <span style={{ fg: theme.textMuted }}> {hint.label}</span>
+                    </>
+                  )}
+                </For>
+              </text>
+            </Show>
+          </box>
         </box>
       </box>
       <Autocomplete
