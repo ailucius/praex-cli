@@ -5,6 +5,7 @@ import {
   createSignal,
   For,
   Match,
+  on,
   onMount,
   Show,
   Switch,
@@ -57,7 +58,7 @@ import { patchFiles } from "./apply-patch-file"
 import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
 import { attached, inline, kind } from "./message-file"
-import { readPartText } from "./message-part-text"
+import { readPartText, reasoningState, thoughtSeconds } from "./message-part-text"
 
 async function writeClipboard(text: string): Promise<boolean> {
   const body = typeof document === "undefined" ? undefined : document.body
@@ -604,14 +605,16 @@ function index<T extends { id: string }>(items: readonly T[]) {
   return new Map(items.map((item) => [item.id, item] as const))
 }
 
-export function renderable(part: PartType, showReasoningSummaries = true) {
+// Reasoning always renders (as a folded "Thought for 12s" row); the reasoning setting only decides
+// whether that row starts open, see partDefaultOpen.
+export function renderable(part: PartType) {
   if (part.type === "tool") {
     if (HIDDEN_TOOLS.has(part.tool)) return false
     if (part.tool === "question") return part.state.status !== "pending" && part.state.status !== "running"
     return true
   }
   if (part.type === "text") return !!part.text?.trim()
-  if (part.type === "reasoning") return showReasoningSummaries && !!part.text?.trim()
+  if (part.type === "reasoning") return !!part.text?.trim()
   return !!PART_MAPPING[part.type]
 }
 
@@ -620,7 +623,8 @@ function toolDefaultOpen(tool: string, shell = false, edit = false) {
   if (tool === "edit" || tool === "write" || tool === "apply_patch") return edit
 }
 
-export function partDefaultOpen(part: PartType, shell = false, edit = false) {
+export function partDefaultOpen(part: PartType, shell = false, edit = false, reasoning = false) {
+  if (part.type === "reasoning") return reasoning
   if (part.type !== "tool") return
   return toolDefaultOpen(part.tool, shell, edit)
 }
@@ -650,7 +654,7 @@ export function AssistantParts(props: {
       groupParts(
         props.messages.flatMap((message) =>
           list(data.store.part?.[message.id], emptyParts)
-            .filter((part) => renderable(part, props.showReasoningSummaries ?? true))
+            .filter((part) => renderable(part))
             .map((part) => ({
               messageID: message.id,
               part,
@@ -713,7 +717,12 @@ export function AssistantParts(props: {
                         message={message()!}
                         showAssistantCopyPartID={props.showAssistantCopyPartID}
                         turnDurationMs={props.turnDurationMs}
-                        defaultOpen={partDefaultOpen(item()!, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
+                        defaultOpen={partDefaultOpen(
+                          item()!,
+                          props.shellToolDefaultOpen,
+                          props.editToolDefaultOpen,
+                          props.showReasoningSummaries,
+                        )}
                       />
                     </Show>
                   </Show>
@@ -869,7 +878,7 @@ export function AssistantMessageDisplay(props: {
     () =>
       groupParts(
         props.parts
-          .filter((part) => renderable(part, props.showReasoningSummaries ?? true))
+          .filter((part) => renderable(part))
           .map((part) => ({
             messageID: props.message.id,
             part,
@@ -921,6 +930,7 @@ export function AssistantMessageDisplay(props: {
                       part={item()!}
                       message={props.message}
                       showAssistantCopyPartID={props.showAssistantCopyPartID}
+                      defaultOpen={partDefaultOpen(item()!, false, false, props.showReasoningSummaries)}
                     />
                   </Show>
                 )
@@ -1578,19 +1588,98 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
   )
 }
 
+// Model thinking as one quiet disclosure row above the answer: "Thinking…" while it streams,
+// "Thought for 12s" once done. Folded by default; the reasoning setting opens it by default.
 PART_MAPPING["reasoning"] = function ReasoningPartDisplay(props) {
   const data = useData()
+  const i18n = useI18n()
   const part = () => props.part as ReasoningPart
-  const streaming = createMemo(
-    () => props.message.role === "assistant" && typeof (props.message as AssistantMessage).time.completed !== "number",
-  )
+  const completed = () =>
+    props.message.role === "assistant" ? (props.message as AssistantMessage).time.completed : undefined
+  const state = createMemo(() => reasoningState(part(), completed()))
+  const thinking = createMemo(() => state().thinking)
   const text = () => readPartText(data.store.part_text_accum_delta, part())
+  const numfmt = createMemo(() => new Intl.NumberFormat(i18n.locale()))
+  const label = createMemo(() => {
+    const current = state()
+    if (current.thinking) return i18n.t("ui.sessionTurn.status.thinking")
+    const total = thoughtSeconds(current.ms)
+    const duration =
+      total < 60
+        ? i18n.t("ui.message.duration.seconds", { count: numfmt().format(total) })
+        : i18n.t("ui.message.duration.minutesSeconds", {
+            minutes: numfmt().format(Math.floor(total / 60)),
+            seconds: numfmt().format(total % 60),
+          })
+    return i18n.t("ui.messagePart.reasoning.thoughtFor", { duration })
+  })
+
+  // Controlled by the timeline when it keeps open state across virtualized remounts, local otherwise.
+  const [localOpen, setLocalOpen] = createSignal(!!props.defaultOpen)
+  createEffect(
+    on(
+      () => props.defaultOpen,
+      (value) => setLocalOpen(!!value),
+      { defer: true },
+    ),
+  )
+  const open = () => props.toolOpen ?? localOpen()
+  const toggle = () => {
+    const next = !open()
+    setLocalOpen(next)
+    props.onToolOpenChange?.(next)
+  }
+  const bodyID = () => `reasoning-part-body-${part().id}`
+
+  // While thinking streams into an open row, keep the newest line in view unless the reader scrolled up.
+  let body: HTMLDivElement | undefined
+  let pinned = true
+  const follow = (content: HTMLDivElement) => {
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(() => {
+      if (!body || !pinned || !thinking()) return
+      body.scrollTop = body.scrollHeight
+    })
+    observer.observe(content)
+    onCleanup(() => observer.disconnect())
+  }
 
   return (
     <Show when={text()}>
-      <div data-component="reasoning-part" data-timeline-part-id={part().id}>
-        <Show when={streaming()} fallback={<Markdown text={text()} cacheKey={part().id} streaming={false} />}>
-          <PacedMarkdown text={text()} cacheKey={part().id} streaming={streaming()} />
+      <div
+        data-component="reasoning-part"
+        data-timeline-part-id={part().id}
+        data-open={open() ? "" : undefined}
+        data-thinking={thinking() ? "" : undefined}
+      >
+        <button
+          type="button"
+          data-slot="reasoning-part-trigger"
+          aria-expanded={open()}
+          aria-controls={bodyID()}
+          onClick={toggle}
+        >
+          <TextShimmer text={label()} active={thinking()} />
+          <span data-slot="reasoning-part-chevron" aria-hidden="true">
+            <Icon name="chevron-down" size="small" />
+          </span>
+        </button>
+        <Show when={open()}>
+          <div
+            ref={body}
+            id={bodyID()}
+            data-slot="reasoning-part-body"
+            onScroll={(event) => {
+              const el = event.currentTarget
+              pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+            }}
+          >
+            <div ref={follow} data-slot="reasoning-part-content">
+              <Show when={thinking()} fallback={<Markdown text={text()} cacheKey={part().id} streaming={false} />}>
+                <PacedMarkdown text={text()} cacheKey={part().id} streaming={thinking()} />
+              </Show>
+            </div>
+          </div>
         </Show>
       </div>
     </Show>
