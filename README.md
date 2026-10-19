@@ -63,7 +63,7 @@ bun run script/build.ts --single
 
 ## Built on OpenCode
 
-Praex is a fork of [OpenCode](https://github.com/anomalyco/opencode) (MIT). We keep its excellent agent core and take the product in our own direction: hosted Praex models, cloud sign-in, /afk remote sessions, persistent memory, and the no-nannying assistant experience. Upstream attribution is preserved in [LICENSE](LICENSE) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Praex is a fork of [OpenCode](https://github.com/anomalyco/opencode) (MIT). We keep its excellent agent core and take the product in our own direction: hosted Praex models, cloud sign-in, Remote Control (/rc), persistent memory, and the no-nannying assistant experience. Upstream attribution is preserved in [LICENSE](LICENSE) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ## License
 
