@@ -62,6 +62,7 @@ import { eq } from "drizzle-orm"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
+import { InstanceRef } from "@/effect/instance-ref"
 import { LLMEvent } from "@opencode-ai/llm"
 
 // @ts-ignore
@@ -1382,7 +1383,11 @@ export const layer = Layer.effect(
             const workspace = Agent.isWorkspaceAgent(agent)
             const [skills, env, instructions, memory, modelMsgs] = yield* Effect.all([
               workspace ? Effect.succeed(undefined) : sys.skills(agent),
-              sys.environment(model),
+              Effect.gen(function* () {
+                const scoped = yield* SessionTools.coworkInstance(agent, sessionID)
+                const env = sys.environment(model)
+                return yield* scoped ? env.pipe(Effect.provideService(InstanceRef, scoped)) : env
+              }),
               workspace ? Effect.succeed([] as string[]) : instruction.system().pipe(Effect.orDie),
               workspace ? Effect.succeed(undefined) : Memory.system().pipe(Effect.orElseSucceed(() => undefined)),
               MessageV2.toModelMessagesEffect(msgs, model),

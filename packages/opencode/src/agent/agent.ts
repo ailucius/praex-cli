@@ -67,6 +67,10 @@ export function isChat(agent: Pick<Info, "name">) {
   return agent.name === CHAT_AGENT
 }
 
+export function isCowork(agent: Pick<Info, "name">) {
+  return agent.name === COWORK_AGENT
+}
+
 /** Agents that run in the private chat workspace and carry no project context. */
 export function isWorkspaceAgent(agent: Pick<Info, "name">) {
   return agent.name === CHAT_AGENT || agent.name === COWORK_AGENT

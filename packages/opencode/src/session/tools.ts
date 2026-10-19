@@ -18,6 +18,27 @@ import { Session } from "./session"
 import { SessionProcessor } from "./processor"
 import { PartID } from "./schema"
 import { EffectBridge } from "@/effect/bridge"
+import { InstanceRef } from "@/effect/instance-ref"
+import { Global } from "@opencode-ai/core/global"
+import fs from "fs/promises"
+import path from "path"
+
+/**
+ * A Cowork thread in the chat workspace works in its own folder, <state>/chat/<sessionID>, so
+ * tasks cannot touch each other's files: its tools (and its environment block) see that folder
+ * as both the working directory and the root. Chat threads keep the shared workspace.
+ */
+export const coworkInstance = Effect.fn("SessionTools.coworkInstance")(function* (
+  agent: Pick<Agent.Info, "name">,
+  sessionID: string,
+) {
+  if (!Agent.isCowork(agent)) return undefined
+  const ctx = yield* InstanceRef
+  if (!ctx || path.resolve(ctx.directory) !== path.resolve(Global.Path.chat)) return undefined
+  const folder = path.join(Global.Path.chat, sessionID)
+  yield* Effect.promise(() => fs.mkdir(folder, { recursive: true }))
+  return { ...ctx, directory: folder, worktree: folder }
+})
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 
@@ -32,6 +53,9 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
 }) {
   const tools: Record<string, AITool> = {}
   const run = yield* EffectBridge.make()
+  const scoped = yield* coworkInstance(input.agent, input.session.id)
+  const inScope = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    scoped ? effect.pipe(Effect.provideService(InstanceRef, scoped)) : effect
   const plugin = yield* Plugin.Service
   const permission = yield* Permission.Service
   const registry = yield* ToolRegistry.Service
@@ -89,7 +113,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
               { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
               { args },
             )
-            const result = yield* item.execute(args, ctx)
+            const result = yield* inScope(item.execute(args, ctx))
             const output = {
               ...result,
               attachments: result.attachments?.map((attachment) => ({
