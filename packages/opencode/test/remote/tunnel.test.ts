@@ -227,6 +227,100 @@ describe("RemoteTunnel", () => {
   })
 })
 
+// Accepts the agent socket but never sends welcome (a hung relay or a proxy that swallows frames).
+function silentRelay() {
+  let opened = 0
+  let closed = 0
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(req, srv) {
+      if (srv.upgrade(req, { data: {} } as any)) return undefined
+      return new Response("no", { status: 400 })
+    },
+    websocket: {
+      open() {
+        opened++
+      },
+      message() {},
+      close() {
+        closed++
+      },
+    },
+  })
+  return {
+    url: `http://127.0.0.1:${server.port}`,
+    opened: () => opened,
+    closed: () => closed,
+    stop: () => server.stop(true),
+  }
+}
+
+async function until(check: () => boolean, ms = 3000) {
+  const end = Date.now() + ms
+  while (!check()) {
+    if (Date.now() > end) throw new Error("timeout")
+    await Bun.sleep(10)
+  }
+}
+
+describe("RemoteTunnel handshake deadline", () => {
+  let silent: ReturnType<typeof silentRelay> | undefined
+  let t: RemoteTunnel | undefined
+  afterEach(() => {
+    t?.stop()
+    silent?.stop()
+    t = silent = undefined
+  })
+
+  function makeSilent(opts: Partial<ConstructorParameters<typeof RemoteTunnel>[0]> = {}) {
+    silent = silentRelay()
+    const statuses: RemoteStatus[] = []
+    const logs: string[] = []
+    t = new RemoteTunnel({
+      relayUrl: silent.url,
+      link: "praex.ai/rc",
+      dispatch: async () => new Response("unused"),
+      credential: async () => ({ token: "test:alice", uid: "alice" }),
+      verifyPhone: fakePhoneVerifier,
+      meta: () => ({ name: "laptop", directory: "praex-cli" }),
+      onStatus: (s) => statuses.push(s),
+      log: (line) => logs.push(line),
+      ...opts,
+    })
+    return { silent, tunnel: t, statuses, logs }
+  }
+
+  test("a relay that never welcomes is closed at the deadline and goes to the retry path", async () => {
+    const { silent, tunnel, statuses, logs } = makeSilent({ welcomeMs: 200 })
+    const started = Date.now()
+    await tunnel.start()
+    expect(Date.now() - started).toBeLessThan(2000)
+    expect(logs.some((l) => l.includes("first connect failed") && l.includes("no welcome"))).toBe(true)
+    expect(statuses.at(-1)).toMatchObject({ state: "reconnecting", key: tunnel.key })
+    await until(() => silent.closed() >= 1)
+    // the retry opens a fresh socket, which hits the same deadline and is closed too
+    await until(() => silent.opened() >= 2)
+    await until(() => silent.closed() >= 2)
+  })
+
+  test("stop() cancels a handshake still waiting for welcome", async () => {
+    const { silent, tunnel, statuses } = makeSilent()
+    const starting = tunnel.start()
+    await until(() => silent.opened() === 1)
+    const stopped = Date.now()
+    tunnel.stop()
+    await starting
+    expect(Date.now() - stopped).toBeLessThan(1000)
+    await until(() => silent.closed() === 1)
+    expect(statuses.at(-1)).toEqual({ state: "off" })
+    // no retry is scheduled after stop (the first retry would fire after 250 ms)
+    await Bun.sleep(400)
+    expect(silent.opened()).toBe(1)
+    expect(statuses.at(-1)).toEqual({ state: "off" })
+  })
+})
+
 describe("config and tokens", () => {
   test("relay must be https unless it is on this machine; fake auth only on loopback", () => {
     expect(relayConfig({}).url).toStartWith("https://")

@@ -38,6 +38,8 @@ export type TunnelOptions = {
   rotateMs?: number
   drainMs?: number
   tokenCheckMs?: number
+  /** How long the relay has to send its welcome frame after the socket opens. */
+  welcomeMs?: number
   WebSocketImpl?: typeof WebSocket
   log?: (line: string) => void
 }
@@ -50,9 +52,13 @@ type Conn = {
   welcomed: boolean
   rotateTimer?: ReturnType<typeof setTimeout>
   drainTimer?: ReturnType<typeof setTimeout>
+  welcomeTimer?: ReturnType<typeof setTimeout>
+  /** Before welcome: close the socket and reject the pending open(). */
+  abandon?: (error: Error) => void
 }
 
 const CHUNK = 64 * 1024
+const WELCOME_MS = 15_000
 const MAX_GRANTS = 32
 // Paths a remote may not reach. Terminals need a WebSocket the tunnel does not carry, and a
 // raw shell from a phone is a bigger door than this feature needs; the agent's own tools
@@ -64,6 +70,8 @@ export const randomKey = (bytes = 16) => randomBytes(bytes).toString("base64url"
 export class RemoteTunnel {
   readonly key = randomKey()
   private conns = new Set<Conn>()
+  // Sockets still waiting for the relay's welcome; tracked from creation so stop() can cancel them.
+  private pending = new Set<Conn>()
   private grants: string[] = []
   private stopped = false
   private uid = ""
@@ -99,6 +107,7 @@ export class RemoteTunnel {
     try {
       await this.open()
     } catch (error) {
+      if (this.stopped) return
       if (error instanceof SignedOutError) throw error
       // A refused upgrade looks like a network error from a WebSocket client; ask plainly.
       const why = await this.diagnose()
@@ -107,6 +116,7 @@ export class RemoteTunnel {
       this.set({ state: "reconnecting", link: this.opts.link, key: this.key })
       this.scheduleRetry()
     }
+    if (this.stopped) return
     this.tokenTimer = setInterval(() => void this.pushToken(), this.opts.tokenCheckMs ?? 5 * 60_000)
     ;(this.tokenTimer as any).unref?.()
   }
@@ -116,6 +126,7 @@ export class RemoteTunnel {
     this.stopped = true
     clearTimeout(this.retry)
     clearInterval(this.tokenTimer)
+    for (const c of [...this.pending]) c.abandon?.(new Error("remote control off"))
     for (const c of this.conns) this.closeConn(c, 1000, "remote control off")
     this.conns.clear()
     this.grants = []
@@ -133,11 +144,29 @@ export class RemoteTunnel {
   private async open(force = false): Promise<Conn> {
     const { token, uid } = await this.opts.credential({ force })
     if (uid !== this.uid) throw new SignedOutError("You signed in as someone else. Run /rc again.")
+    if (this.stopped) throw new Error("remote control off")
     this.lastToken = token
     const url = `${this.opts.relayUrl.replace(/^http/, "ws").replace(/\/+$/, "")}/v1/agent?key=${this.key}`
     const ws = new this.WS(url, { headers: { authorization: `Bearer ${token}` } } as any)
     const conn: Conn = { ws, active: new Map(), draining: false, welcomed: false }
+    this.pending.add(conn)
     return new Promise<Conn>((resolve, reject) => {
+      // Settles the handshake exactly once: whichever of deadline, close, error or stop() comes
+      // first removes the socket from `pending`, closes it and rejects; later events are no-ops.
+      conn.abandon = (error) => {
+        if (!this.pending.delete(conn)) return
+        clearTimeout(conn.welcomeTimer)
+        try {
+          ws.close(1000, "handshake abandoned")
+        } catch {}
+        reject(error)
+      }
+      const welcomeMs = this.opts.welcomeMs ?? WELCOME_MS
+      conn.welcomeTimer = setTimeout(
+        () => conn.abandon?.(new Error(`relay sent no welcome within ${Math.round(welcomeMs / 1000)} s`)),
+        welcomeMs,
+      )
+      ;(conn.welcomeTimer as any).unref?.()
       ws.onmessage = (e) => {
         let frame: Frame
         try {
@@ -146,6 +175,9 @@ export class RemoteTunnel {
           return
         }
         if (frame.t === "welcome" && !conn.welcomed) {
+          // abandoned already (deadline, error or stop): ignore a late welcome
+          if (!this.pending.delete(conn)) return
+          clearTimeout(conn.welcomeTimer)
           conn.welcomed = true
           this.conns.add(conn)
           const m = this.opts.meta()
@@ -162,10 +194,14 @@ export class RemoteTunnel {
         void this.onFrame(conn, frame)
       }
       ws.onclose = (e) => {
-        if (!conn.welcomed) return reject(new Error(`relay closed the connection (${e.code})`))
+        if (!conn.welcomed) return conn.abandon?.(new Error(`relay closed the connection (${e.code})`))
         this.onClose(conn, e.code)
       }
-      ws.onerror = () => {}
+      // A live socket's error is followed by close, which reconnects; before welcome it ends the attempt.
+      ws.onerror = () => {
+        if (!conn.welcomed) return conn.abandon?.(new Error("relay connection failed"))
+        this.log("relay socket error")
+      }
     })
   }
 
@@ -174,6 +210,7 @@ export class RemoteTunnel {
     try {
       await this.open()
     } catch (error) {
+      if (this.stopped) return
       if (error instanceof SignedOutError) return this.fail(error.message)
       // keep the old socket; Cloud Run may close it, then the reconnect loop takes over
       this.log(`rotation failed: ${error}`)
@@ -227,6 +264,7 @@ export class RemoteTunnel {
       try {
         await this.open(forceToken || this.attempt > 2)
       } catch (error) {
+        if (this.stopped) return
         if (error instanceof SignedOutError) return this.fail(error.message)
         if (this.attempt > 3) {
           const why = await this.diagnose()

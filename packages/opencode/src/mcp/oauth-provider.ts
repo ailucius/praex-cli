@@ -1,4 +1,4 @@
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js"
+import type { OAuthClientProvider, OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js"
 import type {
   OAuthClientMetadata,
   OAuthTokens,
@@ -23,7 +23,41 @@ export interface McpOAuthCallbacks {
   onRedirect: (url: URL) => void | Promise<void>
 }
 
+/**
+ * The MCP server now names a different authorization server than the one its stored
+ * credentials were issued by. The credentials have already been dropped, unsent; the
+ * user has to sign in again. The message keeps the word "OAuth" so the connect path
+ * reports the server as needing sign-in.
+ */
+export class McpOAuthAuthServerChangedError extends Error {
+  constructor(
+    readonly mcpName: string,
+    readonly previous: McpAuth.AuthServer,
+    readonly current: McpAuth.AuthServer,
+  ) {
+    super(
+      `MCP ${mcpName}: OAuth authorization server changed from ${previous.issuer} to ${current.issuer}. ` +
+        `Stored credentials were removed without being sent; sign in again with: praex mcp auth ${mcpName}`,
+    )
+    this.name = "McpOAuthAuthServerChangedError"
+  }
+}
+
+// How the stored credentials relate to the authorization server discovered in this flow:
+// "unverified" = no discovery has happened yet (only the MCP server itself is being talked
+//                to, e.g. the transport attaching the access token), so no secret is handed out;
+// "bound"      = the stored credentials were issued by the discovered server;
+// "fresh"      = nothing usable is stored, a new registration/sign-in binds to this server.
+type Binding = "unverified" | "bound" | "fresh"
+
 export class McpOAuthProvider implements OAuthClientProvider {
+  // Authorization server found by the SDK's discovery in the current auth() call. The SDK
+  // calls saveDiscoveryState() after discovery and before it reads clientInformation() or
+  // tokens(), so the binding check below always runs before anything goes to that server.
+  // Do NOT implement discoveryState(): the SDK's cached-discovery branch skips
+  // saveDiscoveryState(), which would leave the check without a current server.
+  private discovered: McpAuth.AuthServer | undefined
+
   constructor(
     private mcpName: string,
     private serverUrl: string,
@@ -31,6 +65,35 @@ export class McpOAuthProvider implements OAuthClientProvider {
     private callbacks: McpOAuthCallbacks,
     private auth: McpAuth.Interface,
   ) {}
+
+  saveDiscoveryState(state: OAuthDiscoveryState): void {
+    const url = String(state.authorizationServerUrl)
+    this.discovered = { issuer: state.authorizationServerMetadata?.issuer ?? url, url }
+  }
+
+  private async binding(): Promise<Binding> {
+    const current = this.discovered
+    if (!current) return "unverified"
+    const entry = await Effect.runPromise(this.auth.getForUrl(this.mcpName, this.serverUrl))
+    const previous = entry?.authServer
+    if (previous) {
+      if (previous.issuer === current.issuer && previous.url === current.url) return "bound"
+      await Effect.runPromise(this.auth.dropCredentials(this.mcpName))
+      throw new McpOAuthAuthServerChangedError(this.mcpName, previous, current)
+    }
+    // Legacy credentials saved before the binding existed: the server they were issued by is
+    // unknown, so they are not trusted with any authorization server (binding them to whatever
+    // the MCP server names today is exactly the redirect this check exists for). Drop them; the
+    // flow continues as a fresh sign-in and the new credentials are bound. The legacy access
+    // token is still attached to MCP requests until it stops working, so the cost is one re-sign-in.
+    if (entry?.tokens || entry?.clientInfo) await Effect.runPromise(this.auth.dropCredentials(this.mcpName))
+    return "fresh"
+  }
+
+  private async bind(): Promise<void> {
+    if (!this.discovered) return
+    await Effect.runPromise(this.auth.updateAuthServer(this.mcpName, this.discovered, this.serverUrl))
+  }
 
   get redirectUrl(): string {
     if (this.config.redirectUri) {
@@ -53,11 +116,14 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async clientInformation(): Promise<OAuthClientInformation | undefined> {
-    // Check config first (pre-registered client)
+    const binding = await this.binding()
+
+    // Check config first (pre-registered client). Its secret only goes out once the flow
+    // has discovered an authorization server that passed the binding check.
     if (this.config.clientId) {
       return {
         client_id: this.config.clientId,
-        client_secret: this.config.clientSecret,
+        client_secret: binding === "unverified" ? undefined : this.config.clientSecret,
       }
     }
 
@@ -71,7 +137,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
       }
       return {
         client_id: entry.clientInfo.clientId,
-        client_secret: entry.clientInfo.clientSecret,
+        client_secret: binding === "bound" ? entry.clientInfo.clientSecret : undefined,
       }
     }
 
@@ -80,6 +146,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveClientInformation(info: OAuthClientInformationFull): Promise<void> {
+    await this.bind()
     await Effect.runPromise(
       this.auth.updateClientInfo(
         this.mcpName,
@@ -95,6 +162,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async tokens(): Promise<OAuthTokens | undefined> {
+    const binding = await this.binding()
     // Use getForUrl to validate tokens are for the current server URL
     const entry = await Effect.runPromise(this.auth.getForUrl(this.mcpName, this.serverUrl))
     if (!entry?.tokens) return undefined
@@ -102,7 +170,8 @@ export class McpOAuthProvider implements OAuthClientProvider {
     return {
       access_token: entry.tokens.accessToken,
       token_type: "Bearer",
-      refresh_token: entry.tokens.refreshToken,
+      // The refresh token is only handed to the SDK for a refresh at the bound server.
+      refresh_token: binding === "bound" ? entry.tokens.refreshToken : undefined,
       expires_in: entry.tokens.expiresAt
         ? Math.max(0, Math.floor(entry.tokens.expiresAt - Date.now() / 1000))
         : undefined,
@@ -111,6 +180,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveTokens(tokens: OAuthTokens): Promise<void> {
+    await this.bind()
     await Effect.runPromise(
       this.auth.updateTokens(
         this.mcpName,
