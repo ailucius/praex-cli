@@ -10,6 +10,8 @@ import { Heap } from "@/cli/heap"
 import { AppRuntime } from "@/effect/app-runtime"
 import { Effect } from "effect"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
+import { createRemoteControl, type RemoteStatus } from "@/remote"
+import { InstallationVersion } from "@opencode-ai/core/installation/version"
 
 Heap.start()
 
@@ -19,6 +21,15 @@ GlobalBus.on("event", (event) => {
 })
 
 let server: Awaited<ReturnType<typeof Server.listen>> | undefined
+let remote: ReturnType<typeof createRemoteControl> | undefined
+
+// Remote Control requests are served in-process, exactly like the TUI's own requests: no
+// TCP listener is opened for them. If the user armed a server password, it applies here too.
+async function dispatchInProcess(request: Request) {
+  const auth = ServerAuth.header()
+  if (auth && !request.headers.has("authorization")) request.headers.set("authorization", auth)
+  return Server.Default().app.fetch(request)
+}
 
 export const rpc = {
   async fetch(input: { url: string; method: string; headers: Record<string, string>; body?: string }) {
@@ -57,6 +68,21 @@ export const rpc = {
     if (server) await server.stop(true)
     server = undefined
   },
+  async remoteStart(input: { directory: string }) {
+    remote ??= createRemoteControl({
+      directory: input.directory,
+      version: InstallationVersion,
+      dispatch: dispatchInProcess,
+      onStatus: (status: RemoteStatus) => Rpc.emit("remote.status", status),
+    })
+    return remote.start()
+  },
+  async remoteStop() {
+    remote?.stop()
+  },
+  async remoteTitle(input: { title?: string }) {
+    remote?.setTitle(input.title)
+  },
   async checkUpgrade(input: { directory: string }) {
     await InstanceRuntime.load({ directory: input.directory })
     await upgrade().catch(() => {})
@@ -71,6 +97,7 @@ export const rpc = {
     )
   },
   async shutdown() {
+    remote?.stop()
     await InstanceRuntime.disposeAllInstances()
     if (server) await server.stop(true)
   },

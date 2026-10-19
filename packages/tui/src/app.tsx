@@ -42,7 +42,7 @@ import { DialogMcp } from "./component/dialog-mcp"
 import { DialogStatus } from "./component/dialog-status"
 import { DialogThemeList } from "./component/dialog-theme-list"
 import { DialogHelp } from "./ui/dialog-help"
-import { DialogAfk } from "./component/dialog-afk"
+import { DialogRemote } from "./component/dialog-remote"
 import { DialogUsage } from "./component/dialog-usage"
 import { DialogAgent } from "./component/dialog-agent"
 import { DialogSessionList } from "./component/dialog-session-list"
@@ -134,10 +134,17 @@ const appBindingCommands = [
   "app.toggle.session_directory_filter",
 ] as const
 
-export type AfkInfo = {
-  urls: string[]
-  username: string
-  password?: string
+export type RemoteStatus =
+  | { state: "off" }
+  | { state: "connecting" | "on" | "reconnecting"; link: string; key: string }
+  | { state: "error"; message: string }
+
+/** Remote Control (/rc), provided by the CLI: an outbound tunnel to the Praex relay. */
+export type RemoteControl = {
+  start: () => Promise<{ ok: true; status: RemoteStatus } | { ok: false; message: string }>
+  stop: () => Promise<void>
+  setTitle: (title?: string) => void
+  subscribe: (handler: (status: RemoteStatus) => void) => () => void
 }
 
 export type TuiInput = {
@@ -145,8 +152,7 @@ export type TuiInput = {
   args: Args
   config: TuiConfig.Resolved
   onSnapshot?: () => Promise<string[]>
-  onExpose?: () => Promise<AfkInfo>
-  onExposeStop?: () => Promise<void>
+  remote?: RemoteControl
   directory?: string
   fetch?: typeof fetch
   headers?: RequestInit["headers"]
@@ -312,8 +318,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                                               <EditorContextProvider>
                                                                 <App
                                                                   onSnapshot={input.onSnapshot}
-                                                                  onExpose={input.onExpose}
-                                                                  onExposeStop={input.onExposeStop}
+                                                                  remote={input.remote}
                                                                   pluginHost={input.pluginHost}
                                                                 />
                                                               </EditorContextProvider>
@@ -359,8 +364,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
 
 function App(props: {
   onSnapshot?: () => Promise<string[]>
-  onExpose?: () => Promise<AfkInfo>
-  onExposeStop?: () => Promise<void>
+  remote?: RemoteControl
   pluginHost: TuiPluginHost
 }) {
   const startup = useTuiStartup()
@@ -444,6 +448,23 @@ function App(props: {
 
     renderer.clearSelection()
   }
+  // Remote Control (/rc): status from the worker's tunnel, shown as one quiet line while on.
+  const [remote, setRemote] = createSignal<RemoteStatus>({ state: "off" })
+  const remoteOn = () => remote().state !== "off" && remote().state !== "error"
+  if (props.remote) {
+    const off = props.remote.subscribe((status) => {
+      setRemote(status)
+      if (status.state === "error") toast.show({ variant: "error", message: status.message, duration: 8000 })
+    })
+    onCleanup(off)
+  }
+  // The phone's session list shows the open session's title.
+  createEffect(() => {
+    if (!props.remote || !remoteOn()) return
+    const session = route.data.type === "session" ? sync.session.get(route.data.sessionID) : undefined
+    props.remote.setTitle(session && !isDefaultTitle(session.title) ? session.title : undefined)
+  })
+
   const [terminalTitleEnabled, setTerminalTitleEnabled] = createSignal(kv.get("terminal_title_enabled", true))
   const [pasteSummaryEnabled, setPasteSummaryEnabled] = createSignal(
     kv.get("paste_summary_enabled", !sync.data.config.experimental?.disable_paste_summary),
@@ -834,25 +855,28 @@ function App(props: {
         category: "System",
       },
       {
-        name: "app.afk",
-        title: "AFK: control this session from your phone",
-        slashName: "afk",
-        slashAliases: ["remote"],
+        name: "app.remote_control",
+        title: remoteOn() ? "Remote Control: turn off" : "Remote Control: continue this session from your phone",
+        slashName: "rc",
+        slashAliases: ["remote-control", "remote", "afk"],
         category: "System",
-        enabled: !!props.onExpose,
+        enabled: !!props.remote,
         run: async () => {
-          try {
-            const info = await props.onExpose!()
-            toast.show({
-              variant: "success",
-              message: "AFK is on. Control this session from your phone or the web.",
-              duration: 4000,
-            })
-            dialog.replace(() => <DialogAfk info={info} onStop={props.onExposeStop} />)
-          } catch (error) {
-            toast.show({ variant: "error", message: errorMessage(error), duration: 5000 })
+          const rc = props.remote!
+          if (remoteOn()) {
+            await rc.stop().catch(() => {})
+            toast.show({ variant: "info", message: "Remote Control is off.", duration: 3000 })
             dialog.clear()
+            return
           }
+          const result = await rc.start().catch(() => ({ ok: false as const, message: "Couldn't start Remote Control." }))
+          if (!result.ok) {
+            toast.show({ variant: "error", message: result.message, duration: 6000 })
+            dialog.clear()
+            return
+          }
+          setRemote(result.status)
+          dialog.replace(() => <DialogRemote status={remote} onStop={rc.stop} />)
         },
       },
       {
@@ -1166,6 +1190,19 @@ function App(props: {
           </Switch>
           {plugin()}
         </box>
+        <Show when={remoteOn()}>
+          <box flexShrink={0} flexDirection="row" gap={1} paddingLeft={2} paddingRight={2}>
+            <text fg={remote().state === "on" ? theme.success : theme.warning}>●</text>
+            <text fg={theme.textMuted}>
+              {remote().state === "on" ? "Remote Control on" : "Remote Control reconnecting"} ·{" "}
+              {(() => {
+                const s = remote()
+                return "link" in s ? s.link : "praex.ai/rc"
+              })()}{" "}
+              · /rc to turn off
+            </text>
+          </box>
+        </Show>
         <box flexShrink={0}>
           <pluginRuntime.Slot name="app_bottom" />
         </box>
