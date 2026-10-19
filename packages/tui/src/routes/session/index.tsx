@@ -1736,7 +1736,7 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
             open={!inMinimal() || expanded()}
             done={isDone()}
             title={summary().title}
-            duration={isDone() ? Locale.duration(duration()) : undefined}
+            duration={isDone() ? thoughtFor(duration()) : undefined}
           />
         </box>
         <Show when={(!inMinimal() || expanded()) && summary().body}>
@@ -1755,6 +1755,13 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
       </box>
     </Show>
   )
+}
+
+// "Thought for 4s" / "Thought for 1m 12s": whole seconds like Claude and ChatGPT, never "109ms"
+// (a stand-in streams its thinking in a burst after Vertex's queue, so ms read as nonsense).
+export function thoughtFor(ms: number): string {
+  const s = Math.max(1, Math.round(ms / 1000))
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
 }
 
 function ReasoningHeader(props: {
@@ -1782,18 +1789,9 @@ function ReasoningHeader(props: {
           <Show when={props.toggleable}>
             <span>{props.open ? "- " : "+ "}</span>
           </Show>
-          <span>Thought</span>
-          <Show when={props.title || props.duration}>
-            <span>: </span>
-          </Show>
+          <span>{props.duration ? `Thought for ${props.duration}` : "Thought"}</span>
           <Show when={props.title}>
-            <span>{props.title}</span>
-          </Show>
-          <Show when={props.duration}>
-            <span>
-              {props.title ? " · " : ""}
-              {props.duration}
-            </span>
+            <span>{" · " + props.title}</span>
           </Show>
         </text>
       </Match>
