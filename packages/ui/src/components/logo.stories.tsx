@@ -2,7 +2,7 @@
 import * as mod from "./logo"
 
 const docs = `### Overview
-OpenCode logo assets: mark, splash, and wordmark.
+Praex logo assets: mark, splash, and wordmark. The mark is always a white wave on a black tile, never recoloured.
 
 Use Mark for compact spaces, Logo for headers, Splash for hero sections.
 
