@@ -21,7 +21,6 @@ import { DiffChanges } from "./diff-changes"
 import { Icon } from "./icon"
 import { TextShimmer } from "./text-shimmer"
 import { SessionRetry } from "./session-retry"
-import { TextReveal } from "./text-reveal"
 import { createAutoScroll } from "../hooks"
 import { useI18n } from "../context/i18n"
 import { normalize } from "./session-diff"
@@ -98,55 +97,16 @@ function summaryDiff(value: SnapshotFileDiff): value is SummaryDiff {
 
 const hidden = new Set(["todowrite"])
 
-function partState(part: PartType, showReasoningSummaries: boolean) {
+function partState(part: PartType) {
   if (part.type === "tool") {
     if (hidden.has(part.tool)) return
     if (part.tool === "question" && (part.state.status === "pending" || part.state.status === "running")) return
     return "visible" as const
   }
   if (part.type === "text") return part.text?.trim() ? ("visible" as const) : undefined
-  if (part.type === "reasoning") {
-    if (showReasoningSummaries && part.text?.trim()) return "visible" as const
-    return
-  }
+  if (part.type === "reasoning") return part.text?.trim() ? ("visible" as const) : undefined
   if (PART_MAPPING[part.type]) return "visible" as const
   return
-}
-
-function clean(value: string) {
-  return value
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[*_~]+/g, "")
-    .trim()
-}
-
-function heading(text: string) {
-  const markdown = text.replace(/\r\n?/g, "\n")
-
-  const html = markdown.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i)
-  if (html?.[1]) {
-    const value = clean(html[1].replace(/<[^>]+>/g, " "))
-    if (value) return value
-  }
-
-  const atx = markdown.match(/^\s{0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+[ \t]*)?$/m)
-  if (atx?.[1]) {
-    const value = clean(atx[1])
-    if (value) return value
-  }
-
-  const setext = markdown.match(/^([^\n]+)\n(?:=+|-+)\s*$/m)
-  if (setext?.[1]) {
-    const value = clean(setext[1])
-    if (value) return value
-  }
-
-  const strong = markdown.match(/^\s*(?:\*\*|__)(.+?)(?:\*\*|__)\s*$/m)
-  if (strong?.[1]) {
-    const value = clean(strong[1])
-    if (value) return value
-  }
 }
 
 export function SessionTurn(
@@ -328,7 +288,8 @@ export function SessionTurn(
     return data.store.session_status[props.sessionID] ?? idle
   })
   const working = createMemo(() => status().type !== "idle" && active())
-  const showReasoningSummaries = createMemo(() => props.showReasoningSummaries ?? true)
+  // Stored as "show reasoning summaries"; it now means "expand thinking by default".
+  const showReasoningSummaries = createMemo(() => props.showReasoningSummaries ?? false)
 
   const assistantCopyPartID = createMemo(() => {
     if (working()) return null
@@ -349,30 +310,21 @@ export function SessionTurn(
     if (end < start) return undefined
     return end - start
   })
-  const assistantDerived = createMemo(() => {
+  const assistantVisible = createMemo(() => {
     let visible = 0
-    let reason: string | undefined
-    const show = showReasoningSummaries()
     for (const message of assistantMessages()) {
       for (const part of list(data.store.part?.[message.id], emptyParts)) {
-        if (partState(part, show) === "visible") {
-          visible++
-        }
-        if (part.type === "reasoning" && part.text) {
-          const h = heading(part.text)
-          if (h) reason = h
-        }
+        if (partState(part) === "visible") visible++
       }
     }
-    return { visible, reason }
+    return visible
   })
-  const assistantVisible = createMemo(() => assistantDerived().visible)
-  const reasoningHeading = createMemo(() => assistantDerived().reason)
+  // One "Thinking…" at a time: this status only covers the wait before the first part lands.
+  // Once the model streams its thinking, the reasoning row carries the label itself.
   const showThinking = createMemo(() => {
     if (!working() || !!error()) return false
     if (status().type === "retry") return false
-    if (showReasoningSummaries()) return assistantVisible() === 0
-    return true
+    return assistantVisible() === 0
   })
 
   const autoScroll = createAutoScroll({
@@ -421,14 +373,6 @@ export function SessionTurn(
               <Show when={showThinking()}>
                 <div data-slot="session-turn-thinking">
                   <TextShimmer text={i18n.t("ui.sessionTurn.status.thinking")} />
-                  <Show when={!showReasoningSummaries()}>
-                    <TextReveal
-                      text={reasoningHeading()}
-                      class="session-turn-thinking-heading"
-                      travel={25}
-                      duration={700}
-                    />
-                  </Show>
                 </div>
               </Show>
               <SessionRetry status={status()} show={active()} />
