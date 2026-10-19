@@ -465,7 +465,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
           headers: {
             "HTTP-Referer": "https://praex.ai/",
             "X-Title": "praex",
-            "X-BILLING-INVOKE-ORIGIN": "OpenCode",
+            "X-BILLING-INVOKE-ORIGIN": "Praex",
           },
         },
       }),
