@@ -1,4 +1,5 @@
 import { Show, createEffect, createMemo, onCleanup } from "solid-js"
+import { isChatDirectory, useChatDirectory } from "@/utils/chat-workspace"
 import { createStore } from "solid-js/store"
 import { useNavigate, useSearchParams } from "@solidjs/router"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
@@ -75,6 +76,7 @@ export function SessionComposerRegion(props: {
   const pickDirectory = useDirectoryPicker()
   const [search] = useSearchParams<{ draftId?: string }>()
   const view = layout.view(route.sessionKey)
+  const chatDir = useChatDirectory()
 
   const agentsQuery = createQuery(() => queryOptions().agents(pathKey(sdk().directory)))
   const globalProvidersQuery = createQuery(() => queryOptions().providers(null))
@@ -125,6 +127,7 @@ export function SessionComposerRegion(props: {
       reviewPanel: view.reviewPanel,
     },
     newLayoutDesigns: settings.general.newLayoutDesigns(),
+    chat: isChatDirectory(sdk().directory, chatDir()),
   }))
 
   const handoffPrompt = createMemo(() => getSessionHandoff(route.sessionKey())?.prompt)

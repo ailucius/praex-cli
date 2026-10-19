@@ -118,6 +118,8 @@ export type PromptInputControls = {
     }
   }
   newLayoutDesigns: boolean
+  /** A plain chat (private chat workspace): no shell mode, no coding examples. */
+  chat?: boolean
 }
 
 export function createPromptInputHistory(): PromptInputHistory {
@@ -433,7 +435,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     promptPlaceholder({
       mode: store.mode,
       commentCount: commentCount(),
-      example: suggest() ? (store.mode === "shell" ? "git status" : language.t(EXAMPLES[store.placeholder])) : "",
+      example:
+        suggest() && !props.controls.chat
+          ? store.mode === "shell"
+            ? "git status"
+            : language.t(EXAMPLES[store.placeholder])
+          : "",
       suggest: suggest(),
       t: (key, params) => language.t(key as Parameters<typeof language.t>[0], params as never),
     }),
@@ -1236,7 +1243,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       }
     }
 
-    if (event.key === "!" && store.mode === "normal") {
+    if (event.key === "!" && store.mode === "normal" && !props.controls.chat) {
       const cursorPosition = getCursorPosition(editorRef)
       if (cursorPosition === 0) {
         setStore("mode", "shell")
@@ -1873,7 +1880,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     </Button>
                   </div>
                   <div class="flex items-center gap-1.5 min-w-0 flex-1 h-7">
-                    <Show when={!agentsLoading()}>
+                    {/* one agent (a plain chat) means nothing to pick */}
+                    <Show when={!agentsLoading() && props.controls.agents.options.length > 1}>
                       <div
                         data-component="prompt-agent-control"
                         style={agentsShouldFadeIn() ? { animation: "fade-in 0.3s" } : undefined}

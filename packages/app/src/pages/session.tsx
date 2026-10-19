@@ -32,6 +32,8 @@ import { showToast } from "@/utils/toast"
 import { checksum } from "@opencode-ai/core/util/encode"
 import { useLocation, useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
+import { ChatHomeView } from "@/components/session/chat-home-view"
+import { isChatDirectory, useChatDirectory } from "@/utils/chat-workspace"
 import { useComments } from "@/context/comments"
 import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
 import { useServerSync } from "@/context/server-sync"
@@ -279,13 +281,16 @@ export default function Page() {
         opened: layout.fileTree.opened(),
       }),
   )
-  const desktopSidePanelOpen = createMemo(() => desktopReviewOpen() || desktopFileTreeOpen())
+  // Plain chats (private chat workspace): no file tree, review, terminal or project header.
+  const chatDir = useChatDirectory()
+  const chat = createMemo(() => isChatDirectory(sdk().directory, chatDir()))
+  const desktopSidePanelOpen = createMemo(() => !chat() && (desktopReviewOpen() || desktopFileTreeOpen()))
   const sessionPanelWidth = createMemo(() => {
     if (!desktopSidePanelOpen()) return "100%"
     if (desktopReviewOpen()) return `${layout.session.width()}px`
     return `calc(100% - ${layout.fileTree.width()}px)`
   })
-  const centered = createMemo(() => isDesktop() && !desktopReviewOpen())
+  const centered = createMemo(() => isDesktop() && (chat() || !desktopReviewOpen()))
 
   function normalizeTab(tab: string) {
     if (!tab.startsWith("file://")) return tab
@@ -1725,7 +1730,9 @@ export default function Page() {
   return (
     <div class="relative size-full overflow-hidden flex flex-col">
       {sessionSync() ?? ""}
-      <SessionHeader />
+      <Show when={!chat()}>
+        <SessionHeader />
+      </Show>
       <div
         class="flex-1 min-h-0 flex flex-col md:flex-row "
         classList={{
@@ -1824,13 +1831,16 @@ export default function Page() {
                     />
                   </Show>
                 </Match>
+                <Match when={chat()}>
+                  <ChatHomeView composer={composerRegion("inline")} />
+                </Match>
                 <Match when={true}>
                   <NewSessionView worktree={newSessionWorktree()} />
                 </Match>
               </Switch>
             </div>
 
-            <Show when={params.id || !newSessionDesign()}>{composerRegion("dock")}</Show>
+            <Show when={params.id || (!newSessionDesign() && !chat())}>{composerRegion("dock")}</Show>
           </div>
 
           <Show when={desktopReviewOpen()}>
@@ -1852,6 +1862,7 @@ export default function Page() {
           </Show>
         </div>
 
+        <Show when={!chat()}>
         <SessionSidePanel
           canReview={canReview}
           diffs={reviewDiffs}
@@ -1865,9 +1876,12 @@ export default function Page() {
           reviewSnap={ui.reviewSnap}
           size={size}
         />
+        </Show>
       </div>
 
-      <TerminalPanel />
+      <Show when={!chat()}>
+        <TerminalPanel />
+      </Show>
     </div>
   )
 }
