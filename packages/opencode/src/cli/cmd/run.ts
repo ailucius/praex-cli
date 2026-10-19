@@ -156,7 +156,7 @@ export const RunCommand = effectCmd({
       })
       .option("share", {
         type: "boolean",
-        describe: "share the session",
+        describe: "share a read-only snapshot of the session on praex.ai when the run finishes",
       })
       .option("model", {
         type: "string",
@@ -467,20 +467,19 @@ export const RunCommand = effectCmd({
         }
       }
 
+      // --share: a read-only snapshot once the run is done (Praex Share is never live or automatic).
       async function share(sdk: OpencodeClient, sessionID: string) {
-        const cfg = await sdk.config.get()
-        if (!cfg.data) return
-        if (cfg.data.share !== "auto" && !flags.autoShare && !args.share) return
-        const res = await sdk.session.share({ sessionID }).catch((error) => {
-          if (error instanceof Error && error.message.includes("disabled")) {
-            UI.println(UI.Style.TEXT_DANGER_BOLD + "!  " + error.message)
-          }
-          return { error }
-        })
-        if (!res.error && "data" in res && res.data?.share?.url) {
+        if (!args.share) return
+        const res = await sdk.session.share({ sessionID }).catch((error) => ({ error, data: undefined }))
+        if (res.data?.share?.url) {
           UI.println(UI.Style.TEXT_INFO_BOLD + "~  " + res.data.share.url)
+          return
         }
+        const error = res.error as { message?: string; data?: { message?: string } } | undefined
+        UI.println(UI.Style.TEXT_DANGER_BOLD + "!  " + (error?.message || error?.data?.message || "Couldn't share this session."))
       }
+      // Interactive runs share with /share, at the moment the user picks.
+      const noShare = async () => {}
 
       async function createFreshSession(
         sdk: OpencodeClient,
@@ -503,7 +502,6 @@ export const RunCommand = effectCmd({
           throw new Error("Failed to create session")
         }
 
-        void share(sdk, id).catch(() => {})
         return {
           id,
           title: result.data?.title,
@@ -790,8 +788,6 @@ export const RunCommand = effectCmd({
         // Validate agent if specified
         const agent = await pickAgent(client)
 
-        await share(client, sessionID)
-
         if (!args.interactive) {
           const events = await client.event.subscribe()
           const completed = loop(client, events).catch((e) => {
@@ -803,6 +799,7 @@ export const RunCommand = effectCmd({
             if (args.attach) return
             const error = await completed
             if (error) process.exitCode = 1
+            await share(client, sessionID)
           }
 
           if (args.command) {
@@ -885,7 +882,7 @@ export const RunCommand = effectCmd({
             fetch: fetchFn,
             resolveAgent: localAgent,
             session,
-            share,
+            share: noShare,
             createSession: createFreshSession,
             agent: args.agent,
             model,
