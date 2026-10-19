@@ -78,7 +78,11 @@ const ModelList: Component<{
     >
       {(i) => (
         <div class="w-full flex items-center gap-x-2 text-13-regular">
-          <span class="truncate">{i.name}</span>
+          {/* Praex names carry their tier ("Faber II · Pro"): show the tier as a quiet label */}
+          <span class="truncate text-text-strong">{i.name.split(" · ")[0]}</span>
+          <Show when={i.name.includes(" · ") && i.name.split(" · ").slice(1).join(" · ")}>
+            {(tier) => <span class="ml-auto shrink-0 pr-1 text-12-regular text-text-weaker">{tier()}</span>}
+          </Show>
           <Show when={isFree(i.provider.id, i.cost)}>
             <Tag>{language.t("model.tag.free")}</Tag>
           </Show>
@@ -147,7 +151,7 @@ export function ModelSelectorPopover(props: {
       </Kobalte.Trigger>
       <Kobalte.Portal>
         <Kobalte.Content
-          class="w-72 h-80 flex flex-col p-2 rounded-md border border-border-base bg-surface-raised-stronger-non-alpha shadow-md z-50 outline-none overflow-hidden"
+          class="w-72 h-80 flex flex-col p-2 rounded-xl border border-border-weak-base bg-surface-raised-stronger-non-alpha shadow-lg z-50 outline-none overflow-hidden"
           onEscapeKeyDown={(event) => {
             close("escape")
             event.preventDefault()
