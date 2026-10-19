@@ -60,7 +60,7 @@ export function ChatHomeView(props: { composer: JSX.Element }) {
               )}
             </For>
           </div>
-          <p class="text-12-regular text-text-weak text-center max-w-[460px]">
+          <p class="min-h-9 text-12-regular text-text-weak text-center max-w-[460px]">
             {language.t(cowork() ? "home.cowork.scope" : "home.chat.scope")}{" "}
             <button
               type="button"
