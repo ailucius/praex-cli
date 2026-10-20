@@ -27,6 +27,44 @@ jobs:
       - name: Typecheck
         run: bun turbo typecheck
 
+  # 10-20: A11. Unit suites that are green today run on every push and PR. Add a suite here once
+  # it is green. Known failures stay out until they are fixed, not deleted or snapshot-updated:
+  # packages/core (10, see the 10-20 second-pass audit) and packages/tui (10, sync/hydration and
+  # exit epilogue). The full packages/opencode suite (~7 min) is not run here yet.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Desktop unit tests
+        working-directory: packages/desktop
+        run: bun test
+
+      - name: App unit tests
+        working-directory: packages/app
+        run: bun run test:unit
+
+      - name: CLI Remote Control tests
+        working-directory: packages/opencode
+        run: bun test --timeout 30000 test/remote
+
+      - name: CLI help snapshots
+        working-directory: packages/opencode
+        run: bun test --timeout 30000 test/cli/help
+
+      - name: Library unit tests (llm, ui, http-recorder, effect-drizzle-sqlite)
+        run: |
+          set -e
+          for pkg in llm ui http-recorder effect-drizzle-sqlite; do
+            echo "== packages/$pkg"
+            (cd "packages/$pkg" && bun run test)
+          done
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
