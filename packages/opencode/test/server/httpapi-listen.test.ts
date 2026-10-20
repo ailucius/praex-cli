@@ -214,7 +214,10 @@ describe("HttpApi Server.listen", () => {
     } finally {
       if (!stopped) await stop(listener, "timed out cleaning up listener").catch(() => undefined)
     }
-  })
+    // 10-20: two full listener lifecycles (instance boot ~1 s, each stop(true) ~1.3 s with the
+    // 1 s graceful shutdown) run past bun's 5 s default when the file is run without the
+    // package script's --timeout 30000. Every step keeps its own 5 s guard above.
+  }, 30_000)
 
   testPty("stop(true) is safe when called concurrently and repeatedly", async () => {
     await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
@@ -291,7 +294,10 @@ describe("HttpApi Server.listen", () => {
       return true
     }) as typeof process.stderr.write
     try {
-      const response = await Server.Default().app.request("/status")
+      // 10-20: "/status" is no API route; it fell through to the web UI, which proxied
+      // app.opencode.ai until a42de33 and now answers 503 when no web bundle is built.
+      // A real route keeps this a test of the response log, not of the build.
+      const response = await Server.Default().app.request("/global/health")
       expect(response.status).toBe(200)
     } finally {
       process.stderr.write = original
