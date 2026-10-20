@@ -395,7 +395,7 @@ export async function praexAccessToken(authFile = path.join(Global.Path.data, "a
 
 // What a signed out Praex request gets instead of a trip to the gateway: the prompt never leaves
 // the machine. Same body shape as the gateway's own 401, so it is shown and not retried.
-export const SIGNED_OUT_MESSAGE = "Sign in with praex auth login, or pick another model."
+export const SIGNED_OUT_MESSAGE = "Sign in with `praex login`, or pick another model."
 export async function signedOutFetch(): Promise<Response> {
   return new Response(JSON.stringify({ error: { message: SIGNED_OUT_MESSAGE, type: "praex_gateway" } }), {
     status: 401,
@@ -537,14 +537,15 @@ export async function PraexCloudAuthPlugin(input: PluginInput): Promise<Hooks> {
       ],
       async loader(getAuth) {
         const auth = await getAuth()
-        if (auth.type !== "oauth") return {}
-
+        // 10-20 (audit5 F7): never signed in used to return no fetch at all, so `praex run` sent the prompt
+        // to the gateway without a token and printed its 401. The wrapper now always runs and answers a
+        // signed-out request locally (below), so the prompt never leaves the machine.
         let refreshPromise: Promise<string> | undefined
 
         return {
           apiKey: OAUTH_DUMMY_KEY,
           // read by the desktop/web app to know a Praex account is connected (options reach the client)
-          signedIn: true,
+          signedIn: auth.type === "oauth",
           async fetch(requestInput: RequestInfo | URL, init?: RequestInit) {
             const headers = new Headers(init?.headers)
             headers.delete("authorization")

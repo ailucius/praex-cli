@@ -242,6 +242,27 @@ describe("praex-cloud hosted lineup", () => {
     }
   })
 
+  test("never signed in: the prompt is answered locally and never reaches the gateway", async () => {
+    const seen: string[] = []
+    const server = Bun.serve({ port: 0, fetch(req) { seen.push(new URL(req.url).pathname); return new Response("{}") } })
+    const prev = process.env.PRAEX_GATEWAY_URL
+    process.env.PRAEX_GATEWAY_URL = `http://127.0.0.1:${server.port}/v1`
+    try {
+      const hooks = await PraexCloudAuthPlugin({ client: { auth: { set: async () => {} } } } as any)
+      await hooks.config!({ provider: {} } as any)
+      const opts: any = await hooks.auth!.loader!(async () => ({ type: "none" }) as any, {} as any)
+      expect(opts.signedIn).toBe(false)
+      const res: Response = await opts.fetch(`http://127.0.0.1:${server.port}/v1/chat/completions`, { method: "POST", body: "{}" })
+      expect(res.status).toBe(401)
+      expect(((await res.json()) as any).error.message).toBe(SIGNED_OUT_MESSAGE)
+      expect(seen.filter((p) => p !== "/v1/models")).toEqual([])
+    } finally {
+      if (prev === undefined) delete process.env.PRAEX_GATEWAY_URL
+      else process.env.PRAEX_GATEWAY_URL = prev
+      server.stop(true)
+    }
+  })
+
   test("small model hook: titles run on the free tier, other providers untouched", async () => {
     const hooks = await PraexCloudAuthPlugin({} as any)
     const models = { "faber-ii": { id: "faber-ii" }, "velox-ii-baked": { id: "velox-ii-baked" } }

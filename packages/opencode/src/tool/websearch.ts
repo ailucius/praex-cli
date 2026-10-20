@@ -37,7 +37,7 @@ export function isPraexModel(extra: Tool.Context["extra"]) {
   return typeof providerID === "string" && providerID.startsWith("praex")
 }
 
-export const PRAEX_SEARCH_SIGNED_OUT = "Web search on Praex needs a Praex account. Sign in with praex auth login."
+export const PRAEX_SEARCH_SIGNED_OUT = "Web search on Praex needs a Praex account. Sign in with `praex login`."
 
 type SearchHit = { title?: unknown; url?: unknown; snippet?: unknown }
 export function formatPraexHits(body: unknown): string | undefined {
