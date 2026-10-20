@@ -7,6 +7,7 @@ import os from "os"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@opencode-ai/core/event"
+import { PermissionDiff } from "./diff"
 
 export const Event = {
   Asked: EventV2.define({ type: "permission.asked", schema: PermissionV1.Request.fields }),
@@ -100,7 +101,8 @@ export const layer = Layer.effect(
         sessionID: request.sessionID,
         permission: request.permission,
         patterns: request.patterns,
-        metadata: request.metadata,
+        // The proposed change rides along so clients can show it before approval, capped in size.
+        metadata: request.permission === "edit" ? PermissionDiff.metadata(request.metadata) : request.metadata,
         always: request.always,
         tool: request.tool,
       }

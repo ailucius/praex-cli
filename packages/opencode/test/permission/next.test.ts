@@ -6,6 +6,7 @@ import { EventV2Bridge } from "../../src/event-v2-bridge"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Database } from "@opencode-ai/core/database/database"
 import { Permission } from "../../src/permission"
+import { PermissionDiff } from "../../src/permission/diff"
 import { InstanceBootstrap } from "../../src/project/bootstrap-service"
 import { InstanceStore } from "../../src/project/instance-store"
 import { TestInstance, tmpdirScoped } from "../fixture/fixture"
@@ -689,6 +690,53 @@ it.instance(
         permission: "bash",
         patterns: ["ls"],
       })
+
+      yield* rejectAll()
+      yield* Fiber.await(fiber)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - edit request carries a size-capped diff on the asked event",
+  () =>
+    Effect.gen(function* () {
+      const events = yield* EventV2Bridge.Service
+      const seen = yield* Deferred.make<PermissionV1.Request>()
+      const unsub = yield* events.listen((event) => {
+        if (event.type === Permission.Event.Asked.type)
+          Deferred.doneUnsafe(seen, Effect.succeed(event.data as PermissionV1.Request))
+        return Effect.void
+      })
+      yield* Effect.addFinalizer(() => unsub)
+
+      const body = Array.from({ length: 5000 }, (_, i) => `+line ${i}`).join("\n")
+      const diff = `--- big.txt\t\n+++ big.txt\t\n@@ -0,0 +1,5000 @@\n${body}\n`
+      const fiber = yield* ask({
+        sessionID: SessionID.make("session_test"),
+        permission: "edit",
+        patterns: ["big.txt"],
+        metadata: { filepath: "/w/big.txt", diff },
+        always: ["*"],
+        tool: {
+          messageID: MessageID.make("msg_test"),
+          callID: "call_test",
+        },
+        ruleset: [],
+      }).pipe(Effect.forkScoped)
+
+      yield* waitForPending(1)
+      const event = yield* Deferred.await(seen).pipe(
+        Effect.timeoutOrElse({
+          duration: "1 second",
+          orElse: () => Effect.fail(new Error("timed out waiting for permission asked event")),
+        }),
+      )
+      expect(event.metadata.filepath).toBe("/w/big.txt")
+      expect(event.metadata.diff).toStartWith("--- big.txt\t\n+++ big.txt\t\n@@ -0,0 +1,")
+      expect(event.metadata.diff).toContain("+line 0\n")
+      expect((event.metadata.diff as string).length).toBeLessThan(diff.length)
+      expect(event.metadata.diffTruncated).toEqual({ shown: PermissionDiff.MAX_LINES, total: 5003 })
 
       yield* rejectAll()
       yield* Fiber.await(fiber)

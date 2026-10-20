@@ -146,6 +146,37 @@ describe("tool.edit", () => {
   })
 
   describe("editing existing files", () => {
+    it.instance("asks for permission with the proposed diff before writing", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const filepath = path.join(test.directory, "asked.txt")
+        yield* put(filepath, "alpha\nbeta\ngamma\n")
+
+        const asked: Parameters<Tool.Context["ask"]>[0][] = []
+        let contentAtAsk = ""
+        yield* run(
+          { filePath: filepath, oldString: "beta", newString: "BETA" },
+          {
+            ...ctx,
+            ask: (input) =>
+              Effect.gen(function* () {
+                asked.push(input)
+                contentAtAsk = yield* load(filepath)
+              }).pipe(Effect.orDie),
+          },
+        )
+
+        expect(asked).toHaveLength(1)
+        expect(asked[0].permission).toBe("edit")
+        expect(asked[0].metadata.filepath).toBe(filepath)
+        expect(asked[0].metadata.diff).toContain("-beta")
+        expect(asked[0].metadata.diff).toContain("+BETA")
+        // The diff describes a change that has not been written yet.
+        expect(contentAtAsk).toBe("alpha\nbeta\ngamma\n")
+        expect(yield* load(filepath)).toBe("alpha\nBETA\ngamma\n")
+      }),
+    )
+
     it.instance("replaces text in existing file", () =>
       Effect.gen(function* () {
         const test = yield* TestInstance

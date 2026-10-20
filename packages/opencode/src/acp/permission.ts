@@ -96,6 +96,8 @@ export class Handler {
     const filepath = stringValue(metadata.filepath)
     const diff = stringValue(metadata.diff)
     if (!filepath || !diff || !this.input.connection.writeTextFile) return
+    // A size-capped preview is only the start of the change; applying it would write a partial file.
+    if (metadata.diffTruncated) return
 
     const content = (await exists(filepath)) ? await readText(filepath) : ""
     const next = applyPatch(content, diff)
