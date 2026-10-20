@@ -66,16 +66,51 @@ const ORIGIN = "http://opencode.internal"
 // shell from a phone is a bigger door than this feature needs; the agent's own tools (with
 // their permission prompts) still run.
 const BLOCKED = [/^\/(api\/)?pty(\/|$)/i, /^\/(api\/)?session\/[^/]+\/shell(\/|$)/i]
+// 10-20: config writes are refused over Remote Control too. Config can name commands this
+// machine will run (local MCP servers, formatters, LSP servers, provider npm packages), so a
+// phone that can write it can run anything here. Reading stays open (the phone shows the model
+// and agent from GET /config). Any method other than a read counts as a write, so an odd verb
+// can not slip past a PATCH/PUT/POST list. Covers /config, /global/config, the /api surface,
+// and POST /mcp, which adds an MCP server whose config may be a local command line.
+// Connecting or disconnecting an MCP server the user already configured stays allowed (the
+// phone's toggle); it starts nothing the user did not set up on this machine.
+const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
+const NO_WRITE = [/^\/(api\/)?(global\/)?config(\/|$)/i, /^\/(api\/)?mcp\/?$/i]
+// 10-20: routes the phone uses for ordinary things whose body can also carry a command, so the
+// body is read instead of refusing the route: project edit (name and icon are fine, a startup
+// script in commands.start is not), worktree create (a startCommand runs in a shell), and
+// provider auth (a "wellknown" entry makes this machine load that server's remote config,
+// which can add local MCP commands; API keys and OAuth tokens are fine).
+type BodyRule = { re: RegExp; refuse: (body: any, method: string) => boolean }
+const nonEmpty = (v: unknown) => typeof v === "string" && v.trim() !== ""
+const BODY_RULES: BodyRule[] = [
+  { re: /^\/(api\/)?project\/[^/]+\/?$/i, refuse: (b) => !!b?.commands && Object.values(b.commands).some(nonEmpty) },
+  { re: /^\/(api\/)?experimental\/worktree\/?$/i, refuse: (b) => nonEmpty(b?.startCommand) },
+  // removing a credential (DELETE) carries no body and runs nothing
+  { re: /^\/(api\/)?auth\/[^/]+\/?$/i, refuse: (b, m) => m !== "DELETE" && b?.type !== "api" && b?.type !== "oauth" },
+]
 
 export type PathCheck = { ok: true; url: string } | { ok: false; status: 400 | 403; message: string }
 
+const CONFIG_REFUSED = "Settings that can run commands can only be changed on the computer, not over Remote Control."
+
+function parseBody(body: Uint8Array | undefined): { ok: true; value: unknown } | { ok: false } {
+  if (!body || body.byteLength === 0) return { ok: true, value: {} }
+  try {
+    return { ok: true, value: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)) }
+  } catch {
+    return { ok: false }
+  }
+}
+
 /**
- * The one gate for every path a remote asks for. The path is normalised the way the request
+ * The one gate for every request a remote makes. The path is normalised the way the request
  * URL will be (dot segments, %2e, backslashes), then tested as normalised and as percent-decoded
  * (a router may decode before matching), with repeated slashes folded. The URL handed back is
- * the one that was checked, so the check and the dispatch can not disagree.
+ * the one that was checked, so the check and the dispatch can not disagree. `method` must be
+ * the one the request is dispatched with (upper case), and `body` the exact bytes sent on.
  */
-export function checkRemotePath(path: unknown): PathCheck {
+export function checkRemotePath(path: unknown, method = "GET", body?: Uint8Array): PathCheck {
   const bad = { ok: false, status: 400, message: "Bad path." } as const
   if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) return bad
   let url: URL
@@ -85,11 +120,22 @@ export function checkRemotePath(path: unknown): PathCheck {
     return bad
   }
   if (url.origin !== ORIGIN) return bad
+  const write = !READ_METHODS.has(method)
+  let parsed: ReturnType<typeof parseBody> | undefined
   let pathname = url.pathname
   for (let round = 0; round < 4; round++) {
     const flat = pathname.replace(/\/{2,}/g, "/")
     if (BLOCKED.some((re) => re.test(flat)))
       return { ok: false, status: 403, message: "The terminal and shell are not available over Remote Control." }
+    if (write && NO_WRITE.some((re) => re.test(flat))) return { ok: false, status: 403, message: CONFIG_REFUSED }
+    if (write) {
+      for (const rule of BODY_RULES) {
+        if (!rule.re.test(flat)) continue
+        parsed ??= parseBody(body)
+        if (!parsed.ok) return { ok: false, status: 400, message: "Bad request body." }
+        if (rule.refuse(parsed.value, method)) return { ok: false, status: 403, message: CONFIG_REFUSED }
+      }
+    }
     let decoded: string
     try {
       decoded = decodeURIComponent(pathname)
@@ -392,7 +438,10 @@ export class RemoteTunnel {
   private async serve(conn: Conn, f: Frame) {
     const id = String(f.id)
     if (!(await this.authorized(f.auth))) return this.reply(conn, id, 401, "Not authorized for this computer.")
-    const target = checkRemotePath(f.path)
+    // 10-20: method and body are settled before the check, and the same values are dispatched
+    const method = typeof f.method === "string" ? f.method.toUpperCase() : "GET"
+    const body = typeof f.body === "string" && method !== "GET" && method !== "HEAD" ? Buffer.from(f.body, "base64") : undefined
+    const target = checkRemotePath(f.path, method, body)
     if (!target.ok) return this.reply(conn, id, target.status, target.message)
 
     const ctrl = new AbortController()
@@ -404,10 +453,8 @@ export class RemoteTunnel {
       },
     })
     try {
-      const method = typeof f.method === "string" ? f.method.toUpperCase() : "GET"
       const headers = new Headers()
       for (const [k, v] of Object.entries(f.headers ?? {})) if (typeof v === "string") headers.set(k, v)
-      const body = typeof f.body === "string" && method !== "GET" && method !== "HEAD" ? Buffer.from(f.body, "base64") : undefined
       const res = await this.opts.dispatch(
         new Request(target.url, { method, headers, body, signal: ctrl.signal }),
       )
