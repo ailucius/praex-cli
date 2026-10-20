@@ -1,0 +1,3 @@
+[test]
+# 10-20: isolate XDG dirs (see test/preload.ts) so tests never read the developer's own config
+preload = ["./test/preload.ts"]
