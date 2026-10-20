@@ -1513,11 +1513,6 @@ export const layer = Layer.effect(
           mergeProvider(providerID, patch)
         }
 
-        // Praex signed out: answer locally instead of uploading the prompt for a 401 (10-20 audit F7).
-        const praexID = ProviderV2.ID.make("praex-cloud")
-        if (providers[praexID] && !(yield* auth.get(praexID).pipe(Effect.orDie)))
-          mergeProvider(praexID, { options: { fetch: signedOutFetch } })
-
         for (const [id, fn] of Object.entries(custom(dep))) {
           const providerID = ProviderV2.ID.make(id)
           if (disabled.has(providerID)) continue
@@ -1545,6 +1540,12 @@ export const layer = Layer.effect(
           if (provider.options) partial.options = provider.options
           mergeProvider(providerID, partial)
         }
+
+        // Praex signed out: answer locally instead of uploading the prompt for a 401 (10-20 audit F7). It runs
+        // after the config step because a never-signed-in user's praex-cloud only exists from that step on.
+        const praexID = ProviderV2.ID.make("praex-cloud")
+        if (providers[praexID] && !(yield* auth.get(praexID).pipe(Effect.orDie)))
+          mergeProvider(praexID, { options: { fetch: signedOutFetch } })
 
         const gitlab = ProviderV2.ID.make("gitlab")
         if (discoveryLoaders[gitlab] && providers[gitlab] && isProviderAllowed(gitlab)) {
