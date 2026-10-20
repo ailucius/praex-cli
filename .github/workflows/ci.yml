@@ -29,8 +29,10 @@ jobs:
 
   # 10-20: A11. Unit suites that are green today run on every push and PR. Add a suite here once
   # it is green. Known failures stay out until they are fixed, not deleted or snapshot-updated:
-  # packages/core (10, see the 10-20 second-pass audit) and packages/tui (10, sync/hydration and
-  # exit epilogue). The full packages/opencode suite (~7 min) is not run here yet.
+  # packages/core (6 left after the 10-20 fix pass, all broken since the fork snapshot: 2 in
+  # SessionRunnerLLM Location moves, 4 provider plugin tests for account credentials that core
+  # never applies). packages/tui is green since 10-20 and runs below. The full packages/opencode
+  # suite (~7 min) is not run here yet.
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -56,6 +58,10 @@ jobs:
       - name: CLI help snapshots
         working-directory: packages/opencode
         run: bun test --timeout 30000 test/cli/help
+
+      - name: TUI unit tests
+        working-directory: packages/tui
+        run: bun test --timeout 30000
 
       - name: Library unit tests (llm, ui, http-recorder, effect-drizzle-sqlite)
         run: |
