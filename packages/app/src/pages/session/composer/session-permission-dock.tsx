@@ -91,9 +91,13 @@ export function SessionPermissionDock(props: {
 }) {
   const language = useLanguage()
   const diffs = createMemo(() => permissionDiffs(props.request))
-  const [expanded, setExpanded] = createSignal<string[] | undefined>()
+  const [expanded, setExpanded] = createSignal<{ id: string; files: string[] }>()
   // Every file starts open: the change is what the user is being asked to approve.
-  const open = () => expanded() ?? diffs().map((entry) => entry.file)
+  const open = () => {
+    const value = expanded()
+    if (value?.id === props.request.id) return value.files
+    return diffs().map((entry) => entry.file)
+  }
 
   const toolDescription = () => {
     const key = `settings.permissions.tool.${props.request.permission}.description`
@@ -160,7 +164,9 @@ export function SessionPermissionDock(props: {
             data-scope="apply-patch"
             style={{ "--sticky-accordion-offset": "0px" }}
             value={open()}
-            onChange={(value) => setExpanded(Array.isArray(value) ? value : value ? [value] : [])}
+            onChange={(value) =>
+              setExpanded({ id: props.request.id, files: Array.isArray(value) ? value : value ? [value] : [] })
+            }
           >
             <For each={diffs()}>{(entry) => <PermissionDiff entry={entry} />}</For>
           </Accordion>
