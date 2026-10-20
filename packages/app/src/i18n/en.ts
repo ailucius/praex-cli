@@ -568,6 +568,8 @@ export const dict = {
 
   "notification.permission.title": "Permission required",
   "notification.permission.description": "{{sessionTitle}} in {{projectName}} needs permission",
+  "notification.permission.diff.toggle": "Changes to {{file}}",
+  "notification.permission.diff.truncated": "Showing the first {{shown}} of {{total}} diff lines",
   "notification.question.title": "Question",
   "notification.question.description": "{{sessionTitle}} in {{projectName}} has a question",
   "notification.action.goToSession": "Go to session",

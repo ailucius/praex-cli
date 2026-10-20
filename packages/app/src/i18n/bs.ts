@@ -483,6 +483,8 @@ export const dict = {
 
   "notification.permission.title": "Potrebna dozvola",
   "notification.permission.description": "{{sessionTitle}} u {{projectName}} traži dozvolu",
+  "notification.permission.diff.toggle": "Izmjene u {{file}}",
+  "notification.permission.diff.truncated": "Prikazano prvih {{shown}} od {{total}} linija izmjena",
   "notification.question.title": "Pitanje",
   "notification.question.description": "{{sessionTitle}} u {{projectName}} ima pitanje",
   "notification.action.goToSession": "Idi na sesiju",
