@@ -34,6 +34,14 @@ function EditBody(props: { request: PermissionRequest }) {
     const value = props.request.metadata?.diff
     return typeof value === "string" ? value : ""
   })
+  // The server caps the preview of a very large change and says how much it kept.
+  const truncated = createMemo(() => {
+    const value = props.request.metadata?.diffTruncated
+    if (!value || typeof value !== "object") return
+    const { shown, total } = value as Record<string, unknown>
+    if (typeof shown !== "number" || typeof total !== "number") return
+    return { shown, total }
+  })
 
   // A diff with only additions (a new file) or only removals has nothing to put in the
   // other column of a split view, so it rendered as a half-width block hugging one side.
@@ -57,6 +65,15 @@ function EditBody(props: { request: PermissionRequest }) {
 
   return (
     <box flexDirection="column" gap={1}>
+      <Show when={truncated()}>
+        {(cut) => (
+          <box paddingLeft={1}>
+            <text fg={theme.textMuted}>
+              Showing the first {cut().shown} of {cut().total} diff lines
+            </text>
+          </box>
+        )}
+      </Show>
       <Show when={diff()}>
         <scrollbox
           height="100%"
