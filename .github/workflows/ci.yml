@@ -28,11 +28,9 @@ jobs:
         run: bun turbo typecheck
 
   # 10-20: A11. Unit suites that are green today run on every push and PR. Add a suite here once
-  # it is green. Known failures stay out until they are fixed, not deleted or snapshot-updated:
-  # packages/core (6 left after the 10-20 fix pass, all broken since the fork snapshot: 2 in
-  # SessionRunnerLLM Location moves, 4 provider plugin tests for account credentials that core
-  # never applies). packages/tui is green since 10-20 and runs below. The full packages/opencode
-  # suite (~7 min) is not run here yet.
+  # it is green. Known failures stay out until they are fixed, not deleted or snapshot-updated.
+  # packages/core is green since audit 6 and runs in its own core-test job below. packages/tui is
+  # green since 10-20 and runs below. The full packages/opencode suite (~7 min) is not run here yet.
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -70,6 +68,21 @@ jobs:
             echo "== packages/$pkg"
             (cd "packages/$pkg" && bun run test)
           done
+
+  # Core suite (packages/core, ~40 s locally), its own job so a core failure is easy to spot.
+  core-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Core unit tests
+        working-directory: packages/core
+        run: bun test --timeout 30000
 
   build:
     runs-on: ubuntu-latest

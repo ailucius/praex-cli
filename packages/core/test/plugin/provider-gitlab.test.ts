@@ -163,7 +163,8 @@ describe("GitLabPlugin", () => {
     }),
   )
 
-  itWithAccount.effect("uses active account API token over GITLAB_TOKEN", () =>
+  // Core applies stored account credentials at request time (SessionRunnerModel.fromCatalogModel), never in the catalog.
+  itWithAccount.effect("keeps the active account API token out of catalog options and uses GITLAB_TOKEN", () =>
     withEnv(
       {
         GITLAB_TOKEN: "env-token",
@@ -191,12 +192,13 @@ describe("GitLabPlugin", () => {
             },
             {},
           )
-          expect(gitlabSDKOptions[0].apiKey).toBe("account-token")
+          expect(gitlabSDKOptions[0].apiKey).toBe("env-token")
         }),
     ),
   )
 
-  itWithAccount.effect("uses active account OAuth access token when no API token exists", () =>
+  // Core applies stored account credentials at request time (SessionRunnerModel.fromCatalogModel), never in the catalog.
+  itWithAccount.effect("keeps the active account OAuth access token out of catalog options", () =>
     withEnv(
       {
         GITLAB_TOKEN: undefined,
@@ -230,7 +232,7 @@ describe("GitLabPlugin", () => {
             },
             {},
           )
-          expect(gitlabSDKOptions[0].apiKey).toBe("account-oauth-token")
+          expect(gitlabSDKOptions[0].apiKey).toBeUndefined()
         }),
     ),
   )

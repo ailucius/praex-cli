@@ -126,7 +126,8 @@ describe("CloudflareWorkersAIPlugin", () => {
     ),
   )
 
-  itWithAccount.effect("falls back to account metadata when account env is absent", () =>
+  // Core applies stored account credentials at request time (SessionRunnerModel.fromCatalogModel), never in the catalog.
+  itWithAccount.effect("keeps account key and metadata out of the catalog when account env is absent", () =>
     withEnv(
       {
         CLOUDFLARE_ACCOUNT_ID: undefined,
@@ -152,12 +153,10 @@ describe("CloudflareWorkersAIPlugin", () => {
               provider.api = { type: "aisdk", package: "test-provider" }
             }),
           )
-          expect((yield* catalog.provider.get(ProviderV2.ID.make("cloudflare-workers-ai"))).request.body).toMatchObject(
-            {
-              apiKey: "account-key",
-              accountId: "account-acct",
-            },
-          )
+          const provider = yield* catalog.provider.get(ProviderV2.ID.make("cloudflare-workers-ai"))
+          expect(provider.request.body).not.toHaveProperty("apiKey")
+          expect(provider.request.body).not.toHaveProperty("accountId")
+          expect(provider.api).toEqual({ type: "aisdk", package: "test-provider" })
         }),
     ),
   )
