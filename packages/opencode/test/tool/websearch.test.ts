@@ -1,7 +1,19 @@
 import { describe, expect, test } from "bun:test"
+import fs from "node:fs/promises"
+import path from "node:path"
 import { Effect } from "effect"
+import { HttpClient, HttpClientResponse } from "effect/unstable/http"
+import { Global } from "@opencode-ai/core/global"
 import { parseResponse } from "../../src/tool/mcp-websearch"
-import { selectWebSearchProvider, webSearchModelName, webSearchProviderLabel } from "../../src/tool/websearch"
+import {
+  formatPraexHits,
+  isPraexModel,
+  PRAEX_SEARCH_SIGNED_OUT,
+  praexSearch,
+  selectWebSearchProvider,
+  webSearchModelName,
+  webSearchProviderLabel,
+} from "../../src/tool/websearch"
 
 import { webSearchEnabled } from "../../src/tool/registry"
 import { it } from "../lib/effect"
@@ -96,4 +108,62 @@ describe("websearch MCP response parser", () => {
       expect(result).toBe("search results")
     }),
   )
+})
+
+describe("websearch on Praex models goes through the gateway", () => {
+  test("Praex providers are detected from the session model", () => {
+    expect(isPraexModel({ model: { providerID: "praex-cloud", id: "velox-ii" } })).toBe(true)
+    expect(isPraexModel({ model: { providerID: "openai", id: "gpt-5" } })).toBe(false)
+    expect(isPraexModel(undefined)).toBe(false)
+  })
+
+  test("gateway hits are formatted as a numbered list", () => {
+    expect(formatPraexHits({ results: [{ title: "Bun", url: "https://bun.sh", snippet: "fast" }] })).toBe(
+      "1. Bun\nhttps://bun.sh\nfast",
+    )
+    expect(formatPraexHits({ results: [] })).toBeUndefined()
+  })
+
+  test("POST /v1/search with the Praex token and only the query; signed out never calls out", async () => {
+    const auth = path.join(Global.Path.data, "auth.json")
+    const seen: { url: string; auth?: string; body: string }[] = []
+    const client = HttpClient.make((req) =>
+      Effect.succeed(
+        HttpClientResponse.fromWeb(
+          req,
+          new Response(JSON.stringify({ query: "q", results: [{ title: "T", url: "https://t.example", snippet: "s" }] }), {
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            const body = (req.body as any)?.body
+            seen.push({ url: req.url, auth: req.headers["authorization"], body: new TextDecoder().decode(body) })
+          }),
+        ),
+      ),
+    )
+    await fs.rm(auth, { force: true })
+    const out = await Effect.runPromiseExit(praexSearch(client, "bun test"))
+    expect(out._tag).toBe("Failure")
+    expect(String((out as any).cause)).toContain(PRAEX_SEARCH_SIGNED_OUT)
+    expect(seen).toEqual([])
+
+    await fs.mkdir(path.dirname(auth), { recursive: true })
+    await fs.writeFile(
+      auth,
+      JSON.stringify({ "praex-cloud": { type: "oauth", refresh: "r", access: "TOKEN", expires: Date.now() + 3_600_000 } }),
+    )
+    try {
+      const text = await Effect.runPromise(praexSearch(client, "bun test"))
+      expect(text).toBe("1. T\nhttps://t.example\ns")
+      expect(seen).toHaveLength(1)
+      expect(seen[0].url).toMatch(/^https:\/\/praex-gateway-.*\/v1\/search$/)
+      expect(seen[0].auth).toBe("Bearer TOKEN")
+      expect(JSON.parse(seen[0].body)).toEqual({ query: "bun test" })
+    } finally {
+      await fs.rm(auth, { force: true })
+    }
+  })
 })

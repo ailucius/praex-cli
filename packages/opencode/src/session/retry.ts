@@ -27,7 +27,15 @@ export type Retryable = {
 export const RETRY_INITIAL_DELAY = 2000
 export const RETRY_BACKOFF_FACTOR = 2
 export const RETRY_MAX_DELAY_NO_HEADERS = 30_000 // 30 seconds
-export const RETRY_MAX_DELAY = 2_147_483_647 // max 32-bit signed integer for setTimeout
+// A server's retry-after is honoured up to a minute; a longer hint means "not soon", and the
+// attempt cap below ends the turn instead of sleeping for hours (10-20 audit F2).
+export const RETRY_MAX_DELAY = 60_000
+// Transient failures (5xx, offline, rate limits) get this many retries, then the error is shown
+// and `praex run` exits.
+export const RETRY_MAX_ATTEMPTS = 5
+// A Praex model waking on demand answers "waking up" / "warming up" with retry-after 60 until it is
+// live (usually ~15 minutes), so that one case polls longer.
+export const RETRY_MAX_ATTEMPTS_WAKE = 30
 
 function cap(ms: number) {
   return Math.min(ms, RETRY_MAX_DELAY)
@@ -58,8 +66,6 @@ export function delay(attempt: number, error?: SessionV1.APIError) {
           return cap(Math.ceil(parsed))
         }
       }
-
-      return cap(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1))
     }
   }
 
@@ -69,7 +75,25 @@ export function delay(attempt: number, error?: SessionV1.APIError) {
 // Praex gateway: a failed GPU start ("Faber II could not start: GPU capacity is full…") or a spent
 // monthly wake budget will not clear in 60s, and every retry asks for the GPU again. Waking/warming
 // messages stay retryable: the wake path relies on the CLI polling until the model is live.
-const PRAEX_FINAL = /\bcould not start\b|used this month's capacity/i
+// The daily allowance, the guest trial limit and a spent daily wake budget reset at midnight, and a
+// sign-in prompt needs the user: retrying only hits the gateway again (10-20 audit F2).
+const PRAEX_FINAL =
+  /\bcould not start\b|used (?:this month's|today's) capacity|allowance reached|trial limit reached|sign in required/i
+const PRAEX_WAKE = /\b(?:waking|warming) up\b/i
+// Machine codes that need the user (start a new chat, fix the payment, sign in), whatever the status.
+const FINAL_CODES = new Set([
+  "context_length_exceeded",
+  "payment_past_due",
+  "deletion_pending",
+  "insufficient_quota",
+  "invalid_api_key",
+])
+
+function errorCode(body: string | undefined) {
+  const json = parseJSON(body)
+  const code = json?.error?.code ?? json?.code
+  return typeof code === "string" ? code : undefined
+}
 
 export function retryable(error: Err, provider: string): Retryable | undefined {
   // context overflow errors should not be retried
@@ -77,6 +101,13 @@ export function retryable(error: Err, provider: string): Retryable | undefined {
   if (SessionV1.APIError.isInstance(error)) {
     if (provider === "praex-cloud" && PRAEX_FINAL.test(error.data.message)) return undefined
     const status = error.data.statusCode
+    // auth and account errors never clear on their own
+    if (status === 401 || status === 403) return undefined
+    const code = errorCode(error.data.responseBody)
+    if (code && FINAL_CODES.has(code)) return undefined
+    // The gateway sends retry-after on every 429 that is worth waiting for (fleet restart, plan
+    // lookup); one without it is a quota answer.
+    if (provider === "praex-cloud" && status === 429 && !retryHint(error)) return undefined
     // 5xx errors are transient server failures and should always be retried,
     // even when the provider SDK doesn't explicitly mark them as retryable.
     if (!error.data.isRetryable && !(status !== undefined && status >= 500)) return undefined
@@ -134,6 +165,11 @@ export function retryable(error: Err, provider: string): Retryable | undefined {
   return undefined
 }
 
+function retryHint(error: SessionV1.APIError) {
+  const headers = error.data.responseHeaders
+  return Boolean(headers?.["retry-after"] || headers?.["retry-after-ms"])
+}
+
 function str(value: unknown) {
   if (value === undefined || value === null) return ""
   return String(value)
@@ -166,6 +202,9 @@ export function policy(opts: {
       const error = opts.parse(meta.input)
       const retry = retryable(error, opts.provider)
       if (!retry) return Cause.done(meta.attempt)
+      const limit =
+        opts.provider === "praex-cloud" && PRAEX_WAKE.test(retry.message) ? RETRY_MAX_ATTEMPTS_WAKE : RETRY_MAX_ATTEMPTS
+      if (meta.attempt > limit) return Cause.done(meta.attempt)
       return Effect.gen(function* () {
         const wait = delay(meta.attempt, SessionV1.APIError.isInstance(error) ? error : undefined)
         const now = yield* Clock.currentTimeMillis

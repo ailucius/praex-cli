@@ -35,6 +35,8 @@ export default defineConfig({
   main: {
     define: {
       "import.meta.env.OPENCODE_CHANNEL": JSON.stringify(channel),
+      // Same test electron-builder.config.ts uses to pick a real Apple identity over ad hoc signing.
+      "import.meta.env.PRAEX_MAC_SIGNED": JSON.stringify(process.env.CSC_LINK || process.env.CSC_NAME ? "1" : ""),
     },
     build: {
       rollupOptions: {

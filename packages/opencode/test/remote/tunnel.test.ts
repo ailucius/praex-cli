@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { RemoteTunnel, SignedOutError, checkRemotePath, type RemoteStatus } from "../../src/remote/tunnel"
+import { GRANT_EXPIRED, GRANT_TTL_MS, grantTtlFromEnv, RemoteTunnel, SignedOutError, checkRemotePath, type RemoteStatus } from "../../src/remote/tunnel"
 import { fakePhoneVerifier, uidOf } from "../../src/remote/verify"
 import { relayConfig } from "../../src/remote"
 
@@ -286,6 +286,39 @@ describe("RemoteTunnel", () => {
       },
     })
     await expect(tunnel.start()).rejects.toThrow("praex login")
+  })
+
+  test("grants expire and need a fresh attach; stop revokes every grant", async () => {
+    let clock = 1_000_000
+    const { relay, tunnel } = make({ grantTtlMs: 60_000, now: () => clock })
+    await tunnel.start()
+    const ws = relay.sockets[0]
+    ws.send(JSON.stringify({ t: "attach", id: "a", idToken: "test:alice" }))
+    const { grant } = await relay.next((f) => f.id === "a")
+    const ask = async (id: string, g: string) => {
+      ws.send(JSON.stringify({ t: "req", id, method: "GET", path: "/session", headers: {}, auth: { grant: g } }))
+      return collect(relay, id)
+    }
+    expect((await ask("r1", grant)).status).toBe(200)
+    clock += 60_001
+    const late = await ask("r2", grant)
+    expect(late.status).toBe(401)
+    expect(JSON.parse(late.body).error).toBe(GRANT_EXPIRED)
+    // a fresh attach with a valid phone token is approved again
+    ws.send(JSON.stringify({ t: "attach", id: "b", idToken: "test:alice" }))
+    const { grant: again } = await relay.next((f) => f.id === "b")
+    expect((await ask("r3", again)).status).toBe(200)
+    // Remote Control off: the grant is gone (a restarted tunnel never honours it)
+    tunnel.stop()
+    expect(await (tunnel as any).authorized({ grant: again })).toBe(false)
+  })
+
+  test("grant lifetime is configurable with PRAEX_RC_GRANT_HOURS", () => {
+    expect(grantTtlFromEnv({})).toBe(GRANT_TTL_MS)
+    expect(GRANT_TTL_MS).toBe(12 * 60 * 60 * 1000)
+    expect(grantTtlFromEnv({ PRAEX_RC_GRANT_HOURS: "2" })).toBe(2 * 60 * 60 * 1000)
+    expect(grantTtlFromEnv({ PRAEX_RC_GRANT_HOURS: "nope" })).toBe(GRANT_TTL_MS)
+    expect(grantTtlFromEnv({ PRAEX_RC_GRANT_HOURS: "-1" })).toBe(GRANT_TTL_MS)
   })
 
   test("stop turns everything off and forgets grants", async () => {

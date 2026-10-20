@@ -6,9 +6,9 @@ import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
-import { app, BrowserWindow } from "electron"
+import { app, BrowserWindow, dialog } from "electron"
 
-import { Deferred, Effect, Fiber } from "effect"
+import { Cause, Deferred, Effect, Fiber } from "effect"
 import contextMenu from "electron-context-menu"
 
 import type { ServerReadyData } from "../preload/types"
@@ -38,7 +38,6 @@ import {
 import { createWslServersController } from "./wsl/servers"
 import { registerWslIpcHandlers } from "./wsl/ipc"
 import { spawnWslSidecar } from "./wsl/sidecar"
-import { migrate } from "./migrate"
 
 const APP_NAMES: Record<string, string> = {
   dev: "Praex Dev",
@@ -190,7 +189,7 @@ const main = Effect.gen(function* () {
   preferAppEnv(app.getPath("userData"))
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
-    const urls = argv.filter((arg: string) => arg.startsWith("praex://") || arg.startsWith("opencode://"))
+    const urls = argv.filter((arg: string) => arg.startsWith("praex://"))
     if (urls.length) {
       logger.log("deep link received via second-instance", { urls })
       emitDeepLinks(urls)
@@ -243,11 +242,20 @@ const main = Effect.gen(function* () {
 
   yield* Effect.promise(() => app.whenReady())
 
-  if (!TEST_ONBOARDING) migrate()
+  // 10-20: F14. No Tauri import: Praex never shipped a Tauri build, and the only Tauri data on a
+  // machine belongs to upstream OpenCode (including its default server URL).
   app.setAsDefaultProtocolClient("praex")
   registerRendererProtocol()
   setDockIcon()
-  const updater = setupAutoUpdater(stopSidecars)
+  // Set once the local server's address is known; the updater uses it to bring the server back
+  // when an install does not go through.
+  let respawn: (() => Promise<void>) | undefined
+  const updater = setupAutoUpdater({
+    stop: () => killSidecar(),
+    restart: async () => {
+      await respawn?.()
+    },
+  })
   registerIpcHandlers({
     killSidecar: () => killSidecar(),
     relaunch,
@@ -321,15 +329,21 @@ const main = Effect.gen(function* () {
     useEnvProxy()
 
     logger.log("spawning sidecar", { url })
-    const { listener, health } = yield* Effect.promise(() =>
+    const spawn = () =>
       spawnLocalServer(hostname, port, password, {
         userDataPath: app.getPath("userData"),
         onStdout: (message) => writeLog("server", "stdout", { message }),
         onStderr: (message) => writeLog("server", "stderr", { message }, "warn"),
         onExit: (code) => writeLog("utility", "sidecar exited", { code }, "warn"),
-      }),
-    )
+      })
+    const { listener, health } = yield* Effect.promise(() => spawn())
     server = listener
+    respawn = async () => {
+      if (server) return
+      logger.log("respawning sidecar", { url })
+      const next = await spawn()
+      server = next.listener
+    }
     yield* Deferred.succeed(serverReady, {
       url,
       username: "opencode",
@@ -371,4 +385,31 @@ const main = Effect.gen(function* () {
   }
 })
 
-Effect.runFork(main)
+// 10-20: F12. A failure before the window exists used to leave a silent, windowless process that
+// held the single-instance lock, so every relaunch quit at once. Log it, say so, and exit.
+function startupFailed(error: unknown) {
+  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error)
+  console.error("praex desktop startup failed", detail)
+  try {
+    logger?.error("startup failed", detail)
+  } catch {}
+  if (mainWindow) return
+  try {
+    dialog.showErrorBox("Praex could not start", error instanceof Error ? error.message : String(error))
+  } catch {}
+  app.exit(1)
+}
+
+process.on("uncaughtException", (error) => {
+  console.error("praex desktop uncaught exception", error)
+  try {
+    logger?.error("uncaught exception", error instanceof Error ? (error.stack ?? error.message) : String(error))
+  } catch {}
+})
+process.on("unhandledRejection", (reason) => {
+  try {
+    logger?.error("unhandled rejection", reason instanceof Error ? (reason.stack ?? reason.message) : String(reason))
+  } catch {}
+})
+
+Effect.runFork(main.pipe(Effect.catchCause((cause) => Effect.sync(() => startupFailed(Cause.squash(cause))))))

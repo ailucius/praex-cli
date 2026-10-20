@@ -80,6 +80,7 @@ import {
   collectNewSessionDeepLinks,
   collectOpenProjectDeepLinks,
   deepLinkEvent,
+  deepLinkNeedsConfirm,
   drainPendingDeepLinks,
 } from "./layout/deep-links"
 import { createInlineEditorController } from "./layout/inline-editor"
@@ -178,7 +179,27 @@ export default function Layout(props: ParentProps) {
     if (state?.status !== "ready") return
     return state.version
   }
-  const installUpdate = () => void platform.updater?.install()
+  const updateManual = () => {
+    const state = platform.updater?.state()
+    return state?.status === "ready" && !!state.manual
+  }
+  const runInstall = () =>
+    void platform.updater?.install().catch((error: unknown) => {
+      showToast({ title: language.t("common.requestFailed"), description: updateErrorMessage(error) })
+    })
+  // 10-20: F17. Installing restarts the app, so a running task is never cut off without asking.
+  const installUpdate = () => {
+    if (updateManual() || !serverSync().busy()) return runInstall()
+    dialog.show(() => (
+      <DialogConfirm
+        title={language.t("toast.update.busy.title")}
+        description={language.t("toast.update.busy.description")}
+        confirm={language.t("toast.update.busy.install")}
+        cancel={language.t("toast.update.busy.wait")}
+        onConfirm={runInstall}
+      />
+    ))
+  }
   const titlebarUpdate: TitlebarUpdate = {
     version: updateVersion,
     installing: () => platform.updater?.state().status === "installing",
@@ -1403,24 +1424,45 @@ export default function Layout(props: ParentProps) {
     if (navigate) return navigateToProject(directory)
   }
 
+  // 10-20: F13. A folder that is not already a project is opened only after the user confirms
+  // it; opening it is what starts the project and loads its config and plugins.
+  const confirmDeepLink = (directory: string, open: () => void) => {
+    const known = layout.projects.list().map((project) => project.worktree)
+    if (!deepLinkNeedsConfirm(directory, known, pathKey)) return open()
+    dialog.show(() => (
+      <DialogConfirm
+        title={language.t("deepLink.open.title")}
+        description={language.t("deepLink.open.description")}
+        detail={directory}
+        confirm={language.t("deepLink.open.confirm")}
+        cancel={language.t("common.cancel")}
+        onConfirm={open}
+      />
+    ))
+  }
+
   const handleDeepLinks = (urls: string[]) => {
     if (!server.isLocal()) return
 
     for (const directory of collectOpenProjectDeepLinks(urls)) {
-      void openProject(directory)
+      confirmDeepLink(directory, () => void openProject(directory))
     }
 
     for (const link of collectNewSessionDeepLinks(urls)) {
-      void openProject(link.directory, false)
-      const slug = base64Encode(link.directory)
-      if (link.prompt) {
-        setSessionHandoff(SessionStateKey.from(server.scope(), SessionRouteKey.fromLegacy(slug)), {
-          prompt: link.prompt,
-        })
-      }
-      const href = link.prompt ? `/${slug}/session?prompt=${encodeURIComponent(link.prompt)}` : `/${slug}/session`
-      navigateWithSidebarReset(href)
+      confirmDeepLink(link.directory, () => openNewSessionLink(link))
     }
+  }
+
+  const openNewSessionLink = (link: { directory: string; prompt?: string }) => {
+    void openProject(link.directory, false)
+    const slug = base64Encode(link.directory)
+    if (link.prompt) {
+      setSessionHandoff(SessionStateKey.from(server.scope(), SessionRouteKey.fromLegacy(slug)), {
+        prompt: link.prompt,
+      })
+    }
+    const href = link.prompt ? `/${slug}/session?prompt=${encodeURIComponent(link.prompt)}` : `/${slug}/session`
+    navigateWithSidebarReset(href)
   }
 
   onMount(() => {
@@ -2440,7 +2482,12 @@ export default function Layout(props: ParentProps) {
         {autoselecting() ?? ""}
         <Titlebar update={titlebarUpdate} />
         <Show when={updateVersion() !== undefined}>
-          <UpdateAvailableToast version={updateVersion() ?? ""} install={installUpdate} language={language} />
+          <UpdateAvailableToast
+            version={updateVersion() ?? ""}
+            manual={updateManual()}
+            install={installUpdate}
+            language={language}
+          />
         </Show>
         <div class="flex-1 min-h-0 min-w-0 flex">
           <div class="flex-1 min-h-0 relative">
@@ -2592,8 +2639,53 @@ export default function Layout(props: ParentProps) {
   )
 }
 
+// Electron prefixes errors thrown across IPC with the channel name; keep only the message.
+function updateErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, "")
+}
+
+function DialogConfirm(props: {
+  title: string
+  description: string
+  detail?: string
+  confirm: string
+  cancel: string
+  onConfirm: () => void
+}) {
+  const dialog = useDialog()
+  return (
+    <Dialog title={props.title} fit>
+      <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+        <div class="flex flex-col gap-1">
+          <span class="text-14-regular text-text-strong">{props.description}</span>
+          <Show when={props.detail}>
+            <span class="text-12-regular text-text-weak break-all">{props.detail}</span>
+          </Show>
+        </div>
+        <div class="flex justify-end gap-2">
+          <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+            {props.cancel}
+          </Button>
+          <Button
+            variant="primary"
+            size="large"
+            onClick={() => {
+              dialog.close()
+              props.onConfirm()
+            }}
+          >
+            {props.confirm}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
 function UpdateAvailableToast(props: {
   version: string
+  manual: boolean
   install: () => void
   language: ReturnType<typeof useLanguage>
 }) {
@@ -2604,10 +2696,14 @@ function UpdateAvailableToast(props: {
       persistent: true,
       icon: "download",
       title: props.language.t("toast.update.title"),
-      description: props.language.t("toast.update.description", { version: props.version }),
+      description: props.manual
+        ? props.language.t("toast.update.manual.description", { version: props.version })
+        : props.language.t("toast.update.description", { version: props.version }),
       actions: [
         {
-          label: props.language.t("toast.update.action.installRestart"),
+          label: props.manual
+            ? props.language.t("toast.update.action.download")
+            : props.language.t("toast.update.action.installRestart"),
           onClick: props.install,
         },
         {

@@ -1,14 +1,18 @@
-import { app, dialog } from "electron"
+import { app, dialog, shell } from "electron"
 import pkg from "electron-updater"
-import { UPDATER_ENABLED } from "./constants"
+import { MAC_SIGNED, UPDATER_ENABLED } from "./constants"
 import { createUpdaterController, type UpdaterReadyRecord } from "./updater-controller"
 import { getLogger } from "./logging"
 import { getStore } from "./store"
 
 const { autoUpdater } = pkg
 const key = "ready"
+export const DOWNLOAD_URL = "https://praex.ai/download"
 
-export function setupAutoUpdater(stop: () => Promise<void>) {
+// macOS installs go through Squirrel.Mac, which only accepts a Developer ID signed build.
+export const CAN_INSTALL = process.platform !== "darwin" || MAC_SIGNED
+
+export function setupAutoUpdater(input: { stop: () => Promise<void>; restart: () => Promise<void> }) {
   const logger = getLogger()
   autoUpdater.logger = logger
   autoUpdater.channel = "latest"
@@ -25,8 +29,13 @@ export function setupAutoUpdater(stop: () => Promise<void>) {
     currentVersion: app.getVersion(),
   })
 
+  let quitting = false
+  app.once("before-quit", () => {
+    quitting = true
+  })
+
   const store = getStore("opencode.updater")
-  return createUpdaterController({
+  const controller = createUpdaterController({
     enabled: UPDATER_ENABLED,
     currentVersion: app.getVersion(),
     backend: autoUpdater,
@@ -39,9 +48,15 @@ export function setupAutoUpdater(stop: () => Promise<void>) {
       set: (value) => store.set(key, value),
       clear: () => store.delete(key),
     },
-    stop,
+    stop: input.stop,
+    restart: input.restart,
+    canInstall: CAN_INSTALL,
+    openDownload: () => void shell.openExternal(DOWNLOAD_URL),
+    quitting: () => quitting,
     log: (message, data) => logger.log(message, data),
   })
+  autoUpdater.on("error", (error) => controller.fail(error))
+  return controller
 }
 
 export async function showUpdaterDialog(controller: ReturnType<typeof setupAutoUpdater>, alertOnFail: boolean) {
@@ -58,6 +73,20 @@ export async function showUpdaterDialog(controller: ReturnType<typeof setupAutoU
   }
   if (state.status !== "ready") return
 
+  if (state.manual) {
+    const response = await dialog.showMessageBox({
+      type: "info",
+      message: "A new version is available",
+      detail: `Praex ${state.version} is ready to download.`,
+      title: "Update Available",
+      buttons: ["Download", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    if (response.response === 0) await controller.install()
+    return
+  }
+
   const response = await dialog.showMessageBox({
     type: "info",
     message: `Update ${state.version} downloaded. Restart now?`,
@@ -66,5 +95,12 @@ export async function showUpdaterDialog(controller: ReturnType<typeof setupAutoU
     defaultId: 0,
     cancelId: 1,
   })
-  if (response.response === 0) await controller.install()
+  if (response.response !== 0) return
+  await controller.install().catch(async (error) => {
+    await dialog.showMessageBox({
+      type: "error",
+      message: error instanceof Error ? error.message : String(error),
+      title: "Update Error",
+    })
+  })
 }

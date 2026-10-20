@@ -7,7 +7,7 @@ import { Effect } from "effect"
 import { AppRuntime } from "@/effect/app-runtime"
 import { Auth } from "@/auth"
 import { exchangeRefreshToken, expiresAt } from "@/plugin/praex-cloud"
-import { RemoteTunnel, SignedOutError, type Credential, type RemoteStatus } from "./tunnel"
+import { grantTtlFromEnv, RemoteTunnel, SignedOutError, type Credential, type RemoteStatus } from "./tunnel"
 import { fakePhoneVerifier, firebasePhoneVerifier, uidOf } from "./verify"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 
@@ -112,6 +112,7 @@ export function createRemoteControl(input: {
         onStatus: (s) => {
           if (tunnel === next) report(s)
         },
+        grantTtlMs: grantTtlFromEnv(),
         log: input.log,
       })
       tunnel?.stop()

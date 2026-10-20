@@ -473,6 +473,11 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     },
     child: children.child,
     peek: children.peek,
+    // True while any loaded project has a session that is still working.
+    busy: () =>
+      Object.values(children.children).some(([store]) =>
+        Object.keys(store.session_status).some((id) => store.session_working(id)),
+      ),
     disableMcp: children.disableMcp,
     queryOptions: queryOptionsApi,
     // bootstrap,

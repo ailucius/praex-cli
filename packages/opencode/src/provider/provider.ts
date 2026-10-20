@@ -8,6 +8,7 @@ import { NoSuchModelError, type Provider as SDK } from "ai"
 import { Npm } from "@opencode-ai/core/npm"
 import { Hash } from "@opencode-ai/core/util/hash"
 import { Plugin } from "../plugin"
+import { signedOutFetch } from "../plugin/praex-cloud"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import { type LanguageModelV3 } from "@ai-sdk/provider"
 import { ModelsDev } from "@opencode-ai/core/models-dev"
@@ -1512,6 +1513,11 @@ export const layer = Layer.effect(
           mergeProvider(providerID, patch)
         }
 
+        // Praex signed out: answer locally instead of uploading the prompt for a 401 (10-20 audit F7).
+        const praexID = ProviderV2.ID.make("praex-cloud")
+        if (providers[praexID] && !(yield* auth.get(praexID).pipe(Effect.orDie)))
+          mergeProvider(praexID, { options: { fetch: signedOutFetch } })
+
         for (const [id, fn] of Object.entries(custom(dep))) {
           const providerID = ProviderV2.ID.make(id)
           if (disabled.has(providerID)) continue
@@ -1915,7 +1921,18 @@ export const layer = Layer.effect(
         return { providerID: entry.providerID, modelID: entry.modelID }
       }
 
-      const provider = Object.values(s.providers).find((p) => !cfg.provider || Object.keys(cfg.provider).includes(p.id))
+      // The Praex plugin always adds its own block, so it does not count as "the user listed providers".
+      // Signed out, a provider the user has keys for comes before Praex (10-20 audit F7).
+      const listed = Object.keys(cfg.provider ?? {}).filter((id) => id !== "praex-cloud")
+      const pool = Object.values(s.providers).filter(
+        (p) => p.id === "praex-cloud" || !listed.length || listed.includes(p.id),
+      )
+      const praexReady = s.providers[ProviderV2.ID.make("praex-cloud")]?.options?.["signedIn"] === true
+      const own = (p: Info) => p.id !== "praex-cloud" && (p.source === "env" || p.source === "api" || listed.includes(p.id))
+      const provider =
+        (praexReady ? pool.find((p) => p.id === "praex-cloud") : pool.find(own)) ??
+        pool.find((p) => p.id === "praex-cloud") ??
+        pool[0]
       if (!provider) return yield* new NoProvidersError()
       const [model] = sort(Object.values(provider.models))
       if (!model) return yield* new NoModelsError({ providerID: provider.id })

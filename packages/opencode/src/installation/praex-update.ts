@@ -1,7 +1,7 @@
 import path from "path"
 import os from "os"
 import fs from "fs/promises"
-import { createHash } from "crypto"
+import { createHash, randomBytes } from "crypto"
 import { InstallationLocal } from "@opencode-ai/core/installation/version"
 
 // Praex release channel. praex.ai serves /dl/* straight from GCS, so a release
@@ -68,6 +68,29 @@ export async function fetchManifest(): Promise<Manifest | undefined> {
   return undefined
 }
 
+/** Throws unless the bytes match the manifest's sha256. */
+export function checkDigest(bytes: Uint8Array, sha256: string) {
+  const sum = createHash("sha256").update(bytes).digest("hex")
+  if (sum !== sha256.toLowerCase()) throw new Error("checksum mismatch, refusing to install")
+}
+
+/**
+ * Copy `binary` next to `dest` under a name no other praex process uses, then rename it over
+ * `dest`. Two terminals updating at once each stage their own file (10-20 audit F5: a shared
+ * staged name let one process rename or delete another's half-written copy); the last rename
+ * wins and both are complete binaries. The staged file is removed if anything fails.
+ */
+export async function swapInto(binary: string, dest: string) {
+  const staged = path.join(path.dirname(dest), `.praex-update-${process.pid}-${randomBytes(6).toString("hex")}`)
+  try {
+    await fs.copyFile(binary, staged)
+    await fs.chmod(staged, 0o755)
+    await fs.rename(staged, dest)
+  } finally {
+    await fs.rm(staged, { force: true }).catch(() => {})
+  }
+}
+
 /**
  * Download the latest release, verify its checksum against the manifest, and
  * atomically replace the running binary. The running process keeps its old
@@ -87,15 +110,13 @@ export async function apply(manifest?: Manifest): Promise<string> {
   if (!writable) throw new Error(`no write access to ${destDir}`)
 
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "praex-update-"))
-  const staged = path.join(destDir, ".praex-update-staged")
   try {
     const res = await fetch(`${BASE_URL}/${m.asset}`, {
       signal: AbortSignal.timeout(300_000),
     }).catch(() => undefined)
     if (!res?.ok) throw new Error(`download failed${res ? ` (HTTP ${res.status})` : ""}`)
     const bytes = new Uint8Array(await res.arrayBuffer())
-    const sum = createHash("sha256").update(bytes).digest("hex")
-    if (sum !== m.sha256) throw new Error("checksum mismatch, refusing to install")
+    checkDigest(bytes, m.sha256)
 
     const tarball = path.join(tmp, "praex.tar.gz")
     await Bun.write(tarball, bytes)
@@ -105,12 +126,9 @@ export async function apply(manifest?: Manifest): Promise<string> {
 
     // Stage next to the destination so the final rename stays on one filesystem
     // and is atomic even while another praex process is running.
-    await fs.copyFile(binary, staged)
-    await fs.chmod(staged, 0o755)
-    await fs.rename(staged, dest)
+    await swapInto(binary, dest)
     return m.version
   } finally {
     await fs.rm(tmp, { recursive: true, force: true }).catch(() => {})
-    await fs.rm(staged, { force: true }).catch(() => {})
   }
 }

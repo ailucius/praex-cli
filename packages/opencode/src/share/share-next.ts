@@ -20,7 +20,7 @@ import { Config } from "@/config/config"
 import { SessionShareTable } from "@opencode-ai/core/share/sql"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
-import { exchangeRefreshToken, expiresAt, hostedBaseURL } from "@/plugin/praex-cloud"
+import { exchangeRefreshToken, expiresAt, trustedGateway } from "@/plugin/praex-cloud"
 import { buildSnapshot } from "./snapshot"
 
 const PRAEX_PROVIDER = "praex-cloud"
@@ -49,7 +49,6 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const auth = yield* Auth.Service
-    const cfg = yield* Config.Service
     const { db } = yield* Database.Service
     const http = yield* HttpClient.HttpClient
     const provider = yield* Provider.Service
@@ -57,11 +56,11 @@ export const layer = Layer.effect(
 
     const fail = (message: string) => Effect.fail(new ShareError({ message }))
 
-    // The gateway the praex-cloud provider talks to (a config override, e.g. staging, applies here too).
+    // The gateway the praex-cloud provider talks to: PRAEX_GATEWAY_URL or the user's global config,
+    // never a project file (10-20 audit F1).
     const gateway = Effect.fn("ShareNext.gateway")(function* () {
-      const conf = yield* cfg.get()
-      const user = (conf.provider as Record<string, any> | undefined)?.[PRAEX_PROVIDER]
-      return hostedBaseURL(user).replace(/\/+$/, "")
+      const { baseURL } = yield* Effect.promise(() => trustedGateway())
+      return baseURL.replace(/\/+$/, "")
     })
 
     // A fresh Firebase ID token for the signed-in Praex account, refreshed when it is about to expire.

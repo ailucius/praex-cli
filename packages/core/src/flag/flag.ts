@@ -1,5 +1,14 @@
 import { Config } from "effect"
 
+// 10-20 audit F24: every OPENCODE_X knob can be set as PRAEX_X (the name the help text shows). An
+// OPENCODE_X that is already set (the desktop app sets its server password) is left alone. Runs
+// before any flag below is read.
+for (const [key, value] of Object.entries(process.env)) {
+  if (!key.startsWith("PRAEX_") || value === undefined) continue
+  const legacy = "OPENCODE_" + key.slice("PRAEX_".length)
+  if (process.env[legacy] === undefined) process.env[legacy] = value
+}
+
 export function truthy(key: string) {
   const value = process.env[key]?.toLowerCase()
   return value === "true" || value === "1"

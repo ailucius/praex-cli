@@ -2,7 +2,21 @@ import { describe, expect, test } from "bun:test"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { BAKED_LINEUP, freeModelID, hostedLineup, hostedProvider, parseLineup, PraexCloudAuthPlugin } from "../../src/plugin/praex-cloud"
+import { Global } from "@opencode-ai/core/global"
+import {
+  BAKED_LINEUP,
+  freeModelID,
+  gatewayURLAllowed,
+  hostedLineup,
+  hostedProvider,
+  otherProviderConfigured,
+  parseLineup,
+  pinGateway,
+  PraexCloudAuthPlugin,
+  SIGNED_OUT_MESSAGE,
+  signedOutFetch,
+  trustedGateway,
+} from "../../src/plugin/praex-cloud"
 
 const tmpCache = async () => path.join(await fs.mkdtemp(path.join(os.tmpdir(), "praex-lineup-")), "models.json")
 const DEAD = "http://127.0.0.1:9/v1" // discard port: refused instantly, never answers
@@ -118,15 +132,114 @@ describe("praex-cloud hosted lineup", () => {
     expect(freeModelID({ "x": { name: "X", limit: { context: 1, output: 1 } } })).toBe("x")
   })
 
-  test("config hook: Praex free tier is the default model; a user-set model survives", async () => {
-    const hooks = await PraexCloudAuthPlugin({} as any)
-    // DEAD endpoint → baked lineup (or the on-disk cache when one exists for that URL): both name the free tier
-    const fresh: any = { provider: { "praex-cloud": { options: { baseURL: DEAD } } } }
-    await hooks.config!(fresh)
-    expect(fresh.model).toBe("praex-cloud/velox-ii-baked")
-    const mine: any = { model: "google/gemini-3.5-flash", provider: { "praex-cloud": { options: { baseURL: DEAD } } } }
-    await hooks.config!(mine)
-    expect(mine.model).toBe("google/gemini-3.5-flash")
+  test("config hook: signed in, Praex free tier is the default model; a user-set model survives", async () => {
+    const auth = path.join(Global.Path.data, "auth.json")
+    await fs.mkdir(path.dirname(auth), { recursive: true })
+    await fs.writeFile(auth, JSON.stringify({ "praex-cloud": { type: "oauth", refresh: "r", access: "a", expires: 0 } }))
+    const prev = process.env.PRAEX_GATEWAY_URL
+    process.env.PRAEX_GATEWAY_URL = DEAD // loopback http is allowed from the env var
+    try {
+      const hooks = await PraexCloudAuthPlugin({} as any)
+      // DEAD endpoint → baked lineup (or the on-disk cache when one exists for that URL): both name the free tier
+      const fresh: any = { provider: {} }
+      await hooks.config!(fresh)
+      expect(fresh.model).toBe("praex-cloud/velox-ii-baked")
+      expect(fresh.provider["praex-cloud"].options.baseURL).toBe(DEAD)
+      const mine: any = { model: "google/gemini-3.5-flash", provider: {} }
+      await hooks.config!(mine)
+      expect(mine.model).toBe("google/gemini-3.5-flash")
+    } finally {
+      if (prev === undefined) delete process.env.PRAEX_GATEWAY_URL
+      else process.env.PRAEX_GATEWAY_URL = prev
+      await fs.rm(auth, { force: true })
+    }
+  })
+
+  test("signed out with another provider set up: Praex is not the default", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "praex-auth-"))
+    const authFile = path.join(dir, "auth.json")
+    expect(await otherProviderConfigured({ provider: { "praex-cloud": {} } }, { env: {}, authFile })).toBe(false)
+    expect(await otherProviderConfigured({}, { env: { GEMINI_API_KEY: "x" }, authFile })).toBe(true)
+    expect(await otherProviderConfigured({ provider: { anthropic: {} } }, { env: {}, authFile })).toBe(true)
+    await fs.writeFile(authFile, JSON.stringify({ openai: { type: "api", key: "k" } }))
+    expect(await otherProviderConfigured({}, { env: {}, authFile })).toBe(true)
+  })
+
+  test("signed out: the request is answered locally with the sign-in hint, never sent", async () => {
+    const res = await signedOutFetch()
+    expect(res.status).toBe(401)
+    expect(((await res.json()) as any).error.message).toBe(SIGNED_OUT_MESSAGE)
+  })
+
+  test("gateway URL: https only; http just for loopback from the env var", () => {
+    expect(gatewayURLAllowed("https://staging.example/v1", false)).toBe(true)
+    expect(gatewayURLAllowed("http://evil.example/v1", false)).toBe(false)
+    expect(gatewayURLAllowed("http://evil.example/v1", true)).toBe(false)
+    expect(gatewayURLAllowed("http://127.0.0.1:8080/v1", false)).toBe(false)
+    expect(gatewayURLAllowed("http://127.0.0.1:8080/v1", true)).toBe(true)
+    expect(gatewayURLAllowed("http://localhost:8080/v1", true)).toBe(true)
+    expect(gatewayURLAllowed("not a url", true)).toBe(false)
+  })
+
+  test("a project config can not repoint the gateway or swap the key; global config and env can", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "praex-global-"))
+    // nothing set anywhere: the official gateway, and a project override is ignored with a warning
+    const none = await trustedGateway({ env: {}, configDir: dir })
+    expect(none.baseURL).toMatch(/^https:\/\/praex-gateway-.*\/v1$/)
+    const evil = pinGateway({ options: { baseURL: "http://127.0.0.1:18997/v1", apiKey: "stolen" } }, none)
+    expect(evil.block.options.baseURL).toBe(none.baseURL)
+    expect(evil.block.options.apiKey).toBeUndefined()
+    expect(evil.warning).toContain("ignoring")
+    // the user's own global config may point at staging over https
+    await fs.writeFile(
+      path.join(dir, "praex.jsonc"),
+      `{ // staging\n "provider": { "praex-cloud": { "options": { "baseURL": "https://staging.example/v1" } } } }`,
+    )
+    const staging = await trustedGateway({ env: {}, configDir: dir })
+    expect(staging.baseURL).toBe("https://staging.example/v1")
+    const same = pinGateway({ options: { baseURL: "https://staging.example/v1/" } }, staging)
+    expect(same.warning).toBeUndefined()
+    // http in the global config is refused (env only, loopback only)
+    await fs.writeFile(
+      path.join(dir, "praex.jsonc"),
+      `{ "provider": { "praex-cloud": { "options": { "baseURL": "http://staging.example/v1" } } } }`,
+    )
+    const plain = await trustedGateway({ env: {}, configDir: dir })
+    expect(plain.baseURL).toBe(none.baseURL)
+    expect(pinGateway(undefined, plain).warning).toContain("https")
+    // the env var wins
+    const local = await trustedGateway({ env: { PRAEX_GATEWAY_URL: "http://127.0.0.1:8080/v1" }, configDir: dir })
+    expect(local.baseURL).toBe("http://127.0.0.1:8080/v1")
+  })
+
+  test("the Praex token is only ever attached for the gateway origin", async () => {
+    const seen: { url: string; auth: string | null }[] = []
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        seen.push({ url: new URL(req.url).pathname, auth: req.headers.get("authorization") })
+        return new Response("{}")
+      },
+    })
+    const prev = process.env.PRAEX_GATEWAY_URL
+    process.env.PRAEX_GATEWAY_URL = `http://127.0.0.1:${server.port}/v1`
+    try {
+      const hooks = await PraexCloudAuthPlugin({ client: { auth: { set: async () => {} } } } as any)
+      await hooks.config!({ provider: { "praex-cloud": { options: { baseURL: "http://localhost:9/v1" } } } } as any)
+      const auth = { type: "oauth", refresh: "r", access: "TOKEN", expires: Date.now() + 3_600_000 }
+      const opts: any = await hooks.auth!.loader!(async () => auth as any, {} as any)
+      await opts.fetch(`http://127.0.0.1:${server.port}/v1/chat/completions`, { method: "POST" })
+      await opts.fetch(`http://localhost:${server.port}/elsewhere`, { method: "POST" })
+      // (the lineup fetch to /v1/models is public and carries no token either)
+      expect(seen.filter((r) => r.url !== "/v1/models")).toEqual([
+        { url: "/v1/chat/completions", auth: "Bearer TOKEN" },
+        { url: "/elsewhere", auth: null },
+      ])
+    } finally {
+      if (prev === undefined) delete process.env.PRAEX_GATEWAY_URL
+      else process.env.PRAEX_GATEWAY_URL = prev
+      server.stop(true)
+    }
   })
 
   test("small model hook: titles run on the free tier, other providers untouched", async () => {

@@ -72,17 +72,15 @@ describe("session.retry.delay", () => {
     expect(SessionRetry.delay(1, error)).toBe(2000)
   })
 
-  test("uses retry-after values even when exceeding 10 minutes with headers", () => {
-    const error = apiError({ "retry-after": "50" })
-    expect(SessionRetry.delay(1, error)).toBe(50000)
-
-    const longError = apiError({ "retry-after-ms": "700000" })
-    expect(SessionRetry.delay(1, longError)).toBe(700000)
+  test("honours retry-after up to 60 seconds, never longer", () => {
+    expect(SessionRetry.delay(1, apiError({ "retry-after": "50" }))).toBe(50000)
+    expect(SessionRetry.delay(1, apiError({ "retry-after-ms": "700000" }))).toBe(60000)
+    expect(SessionRetry.delay(1, apiError({ "retry-after-ms": "999999999999" }))).toBe(SessionRetry.RETRY_MAX_DELAY)
   })
 
-  test("caps oversized header delays to the runtime timer limit", () => {
-    const error = apiError({ "retry-after-ms": "999999999999" })
-    expect(SessionRetry.delay(1, error)).toBe(SessionRetry.RETRY_MAX_DELAY)
+  test("headers without a retry hint still cap backoff at 30 seconds", () => {
+    const error = apiError({ "content-type": "application/json" })
+    expect(SessionRetry.delay(20, error)).toBe(30000)
   })
 
   it.instance("policy updates retry status and increments attempts", () =>
@@ -240,6 +238,85 @@ describe("session.retry.retryable", () => {
     })
     // other providers keep upstream behaviour
     expect(SessionRetry.retryable(full, retryProvider)).toBeDefined()
+  })
+
+  test("praex-cloud: allowance, trial limit and daily capacity are final; quota 429s are not retried", () => {
+    const gateway = (message: string, status: number, headers?: Record<string, string>, code?: string) =>
+      Schema.decodeUnknownSync(SessionV1.APIError.Schema)(
+        new SessionV1.APIError({
+          message,
+          isRetryable: true,
+          statusCode: status,
+          responseHeaders: headers,
+          responseBody: JSON.stringify({ error: { message, type: "praex_gateway", ...(code ? { code } : {}) } }),
+        }).toObject(),
+      )
+    const final = [
+      gateway("Daily allowance reached (200000 tokens). Resets at midnight UTC. Upgrade at praex.ai for more.", 429),
+      gateway("Free trial limit reached. Sign in to keep chatting free every day.", 429),
+      gateway("Faber II has used today's capacity for you. Back tomorrow.", 503, { "retry-after": "60" }),
+      gateway("Some other quota answer", 429),
+    ]
+    for (const e of final) expect(SessionRetry.retryable(e, "praex-cloud")).toBeUndefined()
+    // a 429 that says when to come back (fleet restart) keeps retrying
+    expect(SessionRetry.retryable(gateway("Restarting, back in a minute.", 429, { "retry-after": "60" }), "praex-cloud")).toBeDefined()
+    // 5xx keeps retrying (bounded by the policy)
+    expect(SessionRetry.retryable(gateway("Something went wrong", 500), "praex-cloud")).toBeDefined()
+  })
+
+  test("auth, payment, deletion and context errors are never retried, on any provider", () => {
+    const e = (status: number, code?: string) =>
+      Schema.decodeUnknownSync(SessionV1.APIError.Schema)(
+        new SessionV1.APIError({
+          message: "nope",
+          isRetryable: true,
+          statusCode: status,
+          responseBody: JSON.stringify({ error: { message: "nope", ...(code ? { code } : {}) } }),
+        }).toObject(),
+      )
+    expect(SessionRetry.retryable(e(401), retryProvider)).toBeUndefined()
+    expect(SessionRetry.retryable(e(403), retryProvider)).toBeUndefined()
+    expect(SessionRetry.retryable(e(409, "payment_past_due"), "praex-cloud")).toBeUndefined()
+    expect(SessionRetry.retryable(e(409, "deletion_pending"), "praex-cloud")).toBeUndefined()
+    expect(SessionRetry.retryable(e(400, "context_length_exceeded"), "praex-cloud")).toBeUndefined()
+    expect(SessionRetry.retryable(e(503), retryProvider)).toBeDefined()
+  })
+
+  test("policy gives up after the attempt cap; a waking Praex model polls longer", async () => {
+    const run = async (provider: string, error: SessionV1.APIError, steps: number) => {
+      const step = await Effect.runPromise(
+        Schedule.toStepWithMetadata(
+          SessionRetry.policy({
+            provider,
+            parse: Schema.decodeUnknownSync(SessionV1.APIError.Schema),
+            set: () => Effect.void,
+          }),
+        ),
+      )
+      let done = 0
+      for (let i = 1; i <= steps; i++) {
+        const exit = await Effect.runPromiseExit(step(error))
+        if (exit._tag === "Failure") {
+          done = i
+          break
+        }
+      }
+      return done
+    }
+    const offline = Schema.decodeUnknownSync(SessionV1.APIError.Schema)(
+      new SessionV1.APIError({ message: "Cannot connect to API", isRetryable: true, responseHeaders: { "retry-after-ms": "0" } }).toObject(),
+    )
+    // attempts 1..5 retry, the 6th failure ends the turn
+    expect(await run(retryProvider, offline, 10)).toBe(SessionRetry.RETRY_MAX_ATTEMPTS + 1)
+    const waking = Schema.decodeUnknownSync(SessionV1.APIError.Schema)(
+      new SessionV1.APIError({
+        message: "Faber II is waking up, usually live in ~15 minutes.",
+        isRetryable: false,
+        statusCode: 503,
+        responseHeaders: { "retry-after-ms": "0" },
+      }).toObject(),
+    )
+    expect(await run("praex-cloud", waking, 40)).toBe(SessionRetry.RETRY_MAX_ATTEMPTS_WAKE + 1)
   })
 
   test("does not retry 4xx errors when isRetryable is false", () => {

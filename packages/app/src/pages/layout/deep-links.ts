@@ -1,7 +1,8 @@
 export const deepLinkEvent = "opencode:deep-link"
 
 const parseUrl = (input: string) => {
-  if (!input.startsWith("praex://") && !input.startsWith("opencode://")) return
+  // 10-20: F13. Only praex:// links; legacy opencode:// links belong to upstream OpenCode.
+  if (!input.startsWith("praex://")) return
   if (typeof URL.canParse === "function" && !URL.canParse(input)) return
   try {
     return new URL(input)
@@ -29,6 +30,11 @@ export const parseNewSessionDeepLink = (input: string) => {
   if (!prompt) return { directory }
   return { directory, prompt }
 }
+
+// A link can name any folder on disk, and opening a folder loads its project config and plugins,
+// so a folder that is not already in the sidebar is only opened after the user confirms it.
+export const deepLinkNeedsConfirm = (directory: string, known: string[], key: (path: string) => string) =>
+  !known.some((item) => key(item) === key(directory))
 
 export const collectOpenProjectDeepLinks = (urls: string[]) =>
   urls.map(parseDeepLink).filter((directory): directory is string => !!directory)

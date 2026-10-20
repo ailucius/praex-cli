@@ -149,9 +149,15 @@ function manifest() {
   }
 }
 
+// 10-20: F15. The server writes to <data>/praex/log; opencode/log is kept for older installs.
 function serverLogRoots() {
   const xdgData = process.env.XDG_DATA_HOME || join(homedir(), ".local", "share")
-  return [...new Set([join(xdgData, "opencode", "log"), join(app.getPath("userData"), "opencode", "log")])]
+  const userData = app.getPath("userData")
+  return [
+    ...new Set(
+      ["praex", "opencode"].flatMap((name) => [join(xdgData, name, "log"), join(userData, name, "log")]),
+    ),
+  ]
 }
 
 type Entry = { name: string; path?: string; data?: Buffer }

@@ -59,8 +59,8 @@ Options:
   -c, --continue    continue the last session                                              [boolean]
   -s, --session     session id to continue                                                  [string]
       --fork        fork the session when continuing (use with --continue or --session)    [boolean]
-  -p, --password    basic auth password (defaults to OPENCODE_SERVER_PASSWORD)              [string]
-  -u, --username    basic auth username (defaults to OPENCODE_SERVER_USERNAME)              [string]"
+  -p, --password    basic auth password (defaults to PRAEX_SERVER_PASSWORD)                 [string]
+  -u, --username    basic auth username (defaults to PRAEX_SERVER_USERNAME)                 [string]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode run --help 1`] = `
@@ -93,9 +93,9 @@ Options:
                                       provided)                                             [string]
       --attach                        attach to a running praex server (e.g., http://localhost:4096)
                                                                                             [string]
-  -p, --password                      basic auth password (defaults to OPENCODE_SERVER_PASSWORD)
+  -p, --password                      basic auth password (defaults to PRAEX_SERVER_PASSWORD)
                                                                                             [string]
-  -u, --username                      basic auth username (defaults to OPENCODE_SERVER_USERNAME)
+  -u, --username                      basic auth username (defaults to PRAEX_SERVER_USERNAME)
                                                                                             [string]
       --dir                           directory to run in, path on remote server if attaching
                                                                                             [string]

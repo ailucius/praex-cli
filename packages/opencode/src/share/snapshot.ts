@@ -28,27 +28,39 @@ export type Snapshot = {
 
 type WithParts = { info: SDK.Message; parts: SDK.Part[] }
 
-const SECRETS: RegExp[] = [
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)/g,
-  /\bsk-(?:ant-|proj-|live-|test-)?[A-Za-z0-9_-]{20,}/g,
-  /\b(?:rk|pk)_(?:live|test)_[A-Za-z0-9]{20,}/g,
-  /\bwhsec_[A-Za-z0-9]{20,}/g,
-  /\bgh[pousr]_[A-Za-z0-9]{30,}/g,
-  /\bgithub_pat_[A-Za-z0-9_]{40,}/g,
-  /\bglpat-[A-Za-z0-9_-]{20,}/g,
-  /\bxox[abprs]-[A-Za-z0-9-]{10,}/g,
-  /\bAKIA[0-9A-Z]{16}\b/g,
-  /\bAIza[0-9A-Za-z_-]{35}\b/g,
-  /\bya29\.[0-9A-Za-z_-]{20,}/g,
-  /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
-  /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^\s:@/]+:[^\s@/]+@/g,
+// 10-20 audit F3 added Stripe sk_live_/sk_test_, Bearer/Basic headers, npm, Hugging Face, Slack
+// webhooks, AWS ASIA keys, URL credentials, mysql -p and uppercase KEY=... env lines.
+const SECRETS: [RegExp, string][] = [
+  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)/g, "[redacted]"],
+  [/\bsk-(?:ant-|proj-|live-|test-)?[A-Za-z0-9_-]{20,}/g, "[redacted]"],
+  [/\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}/g, "[redacted]"],
+  [/\bwhsec_[A-Za-z0-9]{20,}/g, "[redacted]"],
+  [/\bgh[pousr]_[A-Za-z0-9]{30,}/g, "[redacted]"],
+  [/\bgithub_pat_[A-Za-z0-9_]{40,}/g, "[redacted]"],
+  [/\bglpat-[A-Za-z0-9_-]{20,}/g, "[redacted]"],
+  [/\bnpm_[A-Za-z0-9]{30,}/g, "[redacted]"],
+  [/\bhf_[A-Za-z0-9]{30,}/g, "[redacted]"],
+  [/\bxox[abprs]-[A-Za-z0-9-]{10,}/g, "[redacted]"],
+  [/https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/_-]+/g, "[redacted]"],
+  [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, "[redacted]"],
+  [/\bAIza[0-9A-Za-z_-]{35}\b/g, "[redacted]"],
+  [/\bya29\.[0-9A-Za-z_-]{20,}/g, "[redacted]"],
+  [/\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, "[redacted]"],
+  [/\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^\s:@/]+:[^\s@/]+@/g, "[redacted]"],
+  [/\b(https?|ftp):\/\/[^\s:@/]+:[^\s@/]+@/g, "$1://[redacted]@"],
+  [/\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{16,}/g, "$1 [redacted]"],
+  [/(\bmysql(?:dump|admin)?\b[^\n|;&]*?\s-p)(?!\s)\S+/g, "$1[redacted]"],
 ]
 const ASSIGN =
   /\b([A-Za-z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|PRIVATE_KEY|ACCESS_KEY)[A-Za-z0-9_]*)(["']?\s*[:=]\s*["']?)([^\s"']{8,})/gi
+// .env style: an UPPERCASE name holding KEY anywhere (OPENAI_KEY=, STRIPE_KEY=, KEY=). Case
+// sensitive, so prose like "monkey: something" stays.
+const ENV_ASSIGN = /\b([A-Z0-9_]*KEY[A-Z0-9_]*)(["']?\s*[:=]\s*["']?)([^\s"']{6,})/g
 export function redact(s: string): string {
   let out = s
-  for (const re of SECRETS) out = out.replace(re, "[redacted]")
-  return out.replace(ASSIGN, (_, k, sep) => `${k}${sep}[redacted]`)
+  for (const [re, to] of SECRETS) out = out.replace(re, to)
+  out = out.replace(ASSIGN, (_, k, sep) => `${k}${sep}[redacted]`)
+  return out.replace(ENV_ASSIGN, (all, k, sep, v) => (v === "[redacted]" ? all : `${k}${sep}[redacted]`))
 }
 
 const clip = (s: string, n: number, mark = "…") => (s.length > n ? s.slice(0, n - mark.length) + mark : s)

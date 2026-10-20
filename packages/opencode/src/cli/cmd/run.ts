@@ -190,12 +190,12 @@ export const RunCommand = effectCmd({
       .option("password", {
         alias: ["p"],
         type: "string",
-        describe: "basic auth password (defaults to OPENCODE_SERVER_PASSWORD)",
+        describe: "basic auth password (defaults to PRAEX_SERVER_PASSWORD)",
       })
       .option("username", {
         alias: ["u"],
         type: "string",
-        describe: "basic auth username (defaults to OPENCODE_SERVER_USERNAME)",
+        describe: "basic auth username (defaults to PRAEX_SERVER_USERNAME)",
       })
       .option("dir", {
         type: "string",

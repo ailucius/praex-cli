@@ -5,12 +5,13 @@
 //
 // Every forwarded request must carry either a grant this process minted (after checking the
 // phone's Google-signed ID token itself) or such an ID token, for this same uid. A relay
-// alone cannot drive this machine.
+// alone cannot drive this machine. Grants expire (12 hours by default, PRAEX_RC_GRANT_HOURS), after
+// which the phone has to attach again with a fresh ID token, and all of them die with stop().
 //
 // Cloud Run ends WebSockets at its request timeout (60 min), so the socket is rotated
 // make-before-break: a new one registers the same session key, the old one drains.
 
-import { randomBytes } from "node:crypto"
+import { randomBytes, timingSafeEqual } from "node:crypto"
 import type { PhoneVerifier } from "./verify"
 
 export type RemoteStatus =
@@ -40,6 +41,9 @@ export type TunnelOptions = {
   tokenCheckMs?: number
   /** How long the relay has to send its welcome frame after the socket opens. */
   welcomeMs?: number
+  /** How long a phone's grant stays valid before it must attach again with a fresh ID token. */
+  grantTtlMs?: number
+  now?: () => number
   WebSocketImpl?: typeof WebSocket
   log?: (line: string) => void
 }
@@ -60,6 +64,20 @@ type Conn = {
 const CHUNK = 64 * 1024
 const WELCOME_MS = 15_000
 const MAX_GRANTS = 32
+export const GRANT_TTL_MS = 12 * 60 * 60 * 1000
+export const GRANT_EXPIRED = "Remote Control approval expired. Open the page again to reconnect."
+
+/** PRAEX_RC_GRANT_HOURS, when set to a positive number, else 12 hours. */
+export function grantTtlFromEnv(env: Record<string, string | undefined> = process.env) {
+  const hours = Number(env.PRAEX_RC_GRANT_HOURS)
+  return Number.isFinite(hours) && hours > 0 ? hours * 60 * 60 * 1000 : GRANT_TTL_MS
+}
+
+const sameSecret = (a: string, b: string) => {
+  const x = Buffer.from(a)
+  const y = Buffer.from(b)
+  return x.length === y.length && timingSafeEqual(x, y)
+}
 const ORIGIN = "http://opencode.internal"
 // Paths a remote may not reach: terminals (the legacy /pty routes and the /api/pty surface,
 // whose create call takes a command line) and the one-off shell command on a session. A raw
@@ -163,7 +181,7 @@ export class RemoteTunnel {
   private conns = new Set<Conn>()
   // Sockets still waiting for the relay's welcome; tracked from creation so stop() can cancel them.
   private pending = new Set<Conn>()
-  private grants: string[] = []
+  private grants: { grant: string; exp: number }[] = []
   private stopped = false
   private uid = ""
   private lastToken = ""
@@ -416,15 +434,28 @@ export class RemoteTunnel {
       const uid = typeof f.idToken === "string" ? await this.opts.verifyPhone(f.idToken) : null
       if (!uid || uid !== this.uid) return this.send(conn, { t: "denied", id: f.id })
       const grant = randomKey(32)
-      this.grants.push(grant)
+      const now = this.now()
+      this.grants = this.grants.filter((g) => g.exp > now)
+      this.grants.push({ grant, exp: now + (this.opts.grantTtlMs ?? GRANT_TTL_MS) })
       if (this.grants.length > MAX_GRANTS) this.grants.shift()
       return this.send(conn, { t: "attached", id: f.id, grant })
     }
   }
 
-  private async authorized(auth: any) {
+  private now() {
+    return this.opts.now?.() ?? Date.now()
+  }
+
+  /** true, false, or "expired" for a grant this process minted that has run out. */
+  private async authorized(auth: any): Promise<boolean | "expired"> {
     if (!auth || typeof auth !== "object") return false
-    if (typeof auth.grant === "string") return this.grants.includes(auth.grant)
+    if (typeof auth.grant === "string") {
+      const found = this.grants.find((g) => sameSecret(g.grant, auth.grant))
+      if (!found) return false
+      if (found.exp > this.now()) return true
+      this.grants = this.grants.filter((g) => g !== found)
+      return "expired"
+    }
     if (typeof auth.idToken === "string") return (await this.opts.verifyPhone(auth.idToken)) === this.uid
     return false
   }
@@ -437,7 +468,9 @@ export class RemoteTunnel {
 
   private async serve(conn: Conn, f: Frame) {
     const id = String(f.id)
-    if (!(await this.authorized(f.auth))) return this.reply(conn, id, 401, "Not authorized for this computer.")
+    const ok = await this.authorized(f.auth)
+    if (ok === "expired") return this.reply(conn, id, 401, GRANT_EXPIRED)
+    if (!ok) return this.reply(conn, id, 401, "Not authorized for this computer.")
     // 10-20: method and body are settled before the check, and the same values are dispatched
     const method = typeof f.method === "string" ? f.method.toUpperCase() : "GET"
     const body = typeof f.body === "string" && method !== "GET" && method !== "HEAD" ? Buffer.from(f.body, "base64") : undefined

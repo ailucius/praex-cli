@@ -3,6 +3,7 @@ import { createServer } from "http"
 import fs from "node:fs/promises"
 import path from "node:path"
 import { Global } from "@opencode-ai/core/global"
+import { parse as parseJsonc } from "jsonc-parser"
 import open from "open"
 import { OAUTH_DUMMY_KEY } from "../auth"
 
@@ -277,6 +278,131 @@ export function hostedBaseURL(user: Record<string, any> | undefined): string {
   return typeof u === "string" && u ? u : GATEWAY_BASE_URL
 }
 
+// 10-20 audit F1: a praex.json committed in a cloned repo could repoint options.baseURL, and the
+// loader then sent the user's Praex ID token and prompts to that host. The endpoint and API key are
+// now taken only from PRAEX_GATEWAY_URL or the user's own (global) config, and must be https;
+// plain http is accepted only for a loopback dev gateway named in the env var. The config hook
+// replaces whatever the merged (project) config says with this, and warns once when they differ.
+export const GATEWAY_ENV = "PRAEX_GATEWAY_URL"
+const GLOBAL_CONFIG_FILES = ["config.json", "opencode.json", "opencode.jsonc", "praex.json", "praex.jsonc"]
+
+const isLoopback = (host: string) => host === "localhost" || host === "127.0.0.1" || host === "[::1]"
+
+export function gatewayURLAllowed(url: string, fromEnv: boolean) {
+  try {
+    const u = new URL(url)
+    if (u.protocol === "https:") return true
+    return fromEnv && u.protocol === "http:" && isLoopback(u.hostname)
+  } catch {
+    return false
+  }
+}
+
+async function globalBlock(files: string[]): Promise<Record<string, any> | undefined> {
+  let block: Record<string, any> | undefined
+  for (const file of files) {
+    const text = await fs.readFile(file, "utf8").catch(() => undefined)
+    if (!text) continue
+    const p = parseJsonc(text)?.provider?.["praex-cloud"]
+    if (!p || typeof p !== "object") continue
+    block = { ...block, ...p, options: { ...block?.options, ...p.options } }
+  }
+  return block
+}
+
+export type TrustedGateway = { baseURL: string; apiKey?: string; rejected?: string }
+
+export async function trustedGateway(
+  opts: { env?: Record<string, string | undefined>; configDir?: string } = {},
+): Promise<TrustedGateway> {
+  const env = opts.env ?? process.env
+  const files = GLOBAL_CONFIG_FILES.map((f) => path.join(opts.configDir ?? Global.Path.config, f))
+  // OPENCODE_CONFIG names a file the user picked, so it counts as their own config.
+  if (env.OPENCODE_CONFIG) files.push(env.OPENCODE_CONFIG)
+  const own = await globalBlock(files)
+  const apiKey = typeof own?.options?.apiKey === "string" && own.options.apiKey ? own.options.apiKey : undefined
+  const fromEnv = env[GATEWAY_ENV]
+  const asked = fromEnv || own?.options?.baseURL
+  if (typeof asked !== "string" || !asked) return { baseURL: GATEWAY_BASE_URL, apiKey }
+  if (gatewayURLAllowed(asked, Boolean(fromEnv))) return { baseURL: asked, apiKey }
+  return { baseURL: GATEWAY_BASE_URL, apiKey, rejected: asked }
+}
+
+const sameURL = (a: string, b: string) => a.replace(/\/+$/, "") === b.replace(/\/+$/, "")
+
+/** The merged praex-cloud block with endpoint and key forced to the trusted values; `warning` when a project tried to change them. */
+export function pinGateway(user: Record<string, any> | undefined, trusted: TrustedGateway) {
+  const options: Record<string, any> = { ...(user?.options ?? {}), baseURL: trusted.baseURL }
+  const askedURL = user?.options?.baseURL
+  const askedKey = user?.options?.apiKey
+  if (trusted.apiKey) options.apiKey = trusted.apiKey
+  else delete options.apiKey
+  const overridden =
+    (typeof askedURL === "string" && askedURL && !sameURL(askedURL, trusted.baseURL)) ||
+    (askedKey !== undefined && askedKey !== trusted.apiKey)
+  const warning = trusted.rejected
+    ? `Praex: ignoring gateway URL ${trusted.rejected}. It must use https (http only for localhost via ${GATEWAY_ENV}).`
+    : overridden
+      ? `Praex: ignoring the Praex gateway settings in this project's config. Only ${GATEWAY_ENV} or your global config can change them.`
+      : undefined
+  return { block: { ...(user ?? {}), options }, warning }
+}
+
+// 10-20 audit F7: signed out users who brought their own keys used to get Praex as the default
+// model and a 401 on the first message. Praex is the default when signed in, or when nothing else is set up.
+const OTHER_KEY_ENV =
+  /^(ANTHROPIC|OPENAI|GEMINI|GOOGLE_GENERATIVE_AI|GOOGLE|OPENROUTER|GROQ|XAI|DEEPSEEK|MISTRAL|TOGETHER|TOGETHER_AI|FIREWORKS|CEREBRAS|MOONSHOT|ZHIPU|ZAI|DASHSCOPE|AZURE|AZURE_OPENAI|HF|HUGGINGFACE|PERPLEXITY|COHERE|NVIDIA|VENICE|BASETEN|CHUTES|SAMBANOVA|DEEPINFRA|NEBIUS|MINIMAX)_API_KEY$/
+
+async function readAuthFile(file: string): Promise<Record<string, any>> {
+  try {
+    const data = JSON.parse(await fs.readFile(file, "utf8"))
+    return data && typeof data === "object" ? data : {}
+  } catch {
+    return {}
+  }
+}
+
+export async function praexSignedIn(authFile = path.join(Global.Path.data, "auth.json")) {
+  const entry = (await readAuthFile(authFile))["praex-cloud"]
+  return entry?.type === "oauth" && typeof entry.refresh === "string" && entry.refresh.length > 0
+}
+
+export async function otherProviderConfigured(
+  cfg: { provider?: Record<string, any> },
+  opts: { env?: Record<string, string | undefined>; authFile?: string } = {},
+) {
+  const env = opts.env ?? process.env
+  if (Object.keys(env).some((k) => OTHER_KEY_ENV.test(k) && env[k])) return true
+  const auth = await readAuthFile(opts.authFile ?? path.join(Global.Path.data, "auth.json"))
+  if (Object.keys(auth).some((id) => id !== "praex-cloud")) return true
+  return Object.keys(cfg.provider ?? {}).some((id) => id !== "praex-cloud")
+}
+
+// A current Praex ID token for client-side calls that are not chat (web search), or undefined when
+// signed out. A refreshed token is kept in memory only; the provider loader owns auth.json writes.
+let cachedToken: { access: string; expires: number } | undefined
+export async function praexAccessToken(authFile = path.join(Global.Path.data, "auth.json")) {
+  const entry = (await readAuthFile(authFile))["praex-cloud"]
+  if (entry?.type !== "oauth" || typeof entry.refresh !== "string" || !entry.refresh) return undefined
+  const soon = Date.now() + REFRESH_SKEW_MS
+  if (typeof entry.access === "string" && entry.access && Number(entry.expires) > soon) return entry.access as string
+  if (cachedToken && cachedToken.expires > soon) return cachedToken.access
+  const tokens = await exchangeRefreshToken(entry.refresh).catch(() => undefined)
+  if (!tokens) return undefined
+  cachedToken = { access: tokens.id_token, expires: expiresAt(tokens) }
+  return tokens.id_token
+}
+
+// What a signed out Praex request gets instead of a trip to the gateway: the prompt never leaves
+// the machine. Same body shape as the gateway's own 401, so it is shown and not retried.
+export const SIGNED_OUT_MESSAGE = "Sign in with praex auth login, or pick another model."
+export async function signedOutFetch(): Promise<Response> {
+  return new Response(JSON.stringify({ error: { message: SIGNED_OUT_MESSAGE, type: "praex_gateway" } }), {
+    status: 401,
+    headers: { "content-type": "application/json" },
+  })
+}
+
 // The provider block the CLI actually uses: the user's endpoint/name survive, the model list
 // is always the lineup (so a stale user block can never resurrect a retired model).
 /** The free tier's id: the entry with plan "free", else a display name ending in "· free", else the first entry. */
@@ -324,17 +450,28 @@ export function hostedProvider(user: Record<string, any> | undefined, lineup: Ho
   }
 }
 
+let warned = false
+
 export async function PraexCloudAuthPlugin(input: PluginInput): Promise<Hooks> {
   let lineup: HostedLineup = BAKED_LINEUP
+  // The only origin the Praex ID token is ever sent to.
+  let gatewayOrigin = new URL(GATEWAY_BASE_URL).origin
   return {
     config: async (cfg) => {
       cfg.provider ??= {}
-      const user = cfg.provider["praex-cloud"] as Record<string, any> | undefined
+      const pinned = pinGateway(cfg.provider["praex-cloud"] as Record<string, any> | undefined, await trustedGateway())
+      if (pinned.warning && !warned) {
+        warned = true
+        console.warn(pinned.warning)
+      }
+      const user = pinned.block
+      gatewayOrigin = new URL(hostedBaseURL(user)).origin
       lineup = await hostedLineup(hostedBaseURL(user))
       cfg.provider["praex-cloud"] = hostedProvider(user, lineup) as any
-      // Praex is the default even when other providers are configured (a GEMINI_API_KEY in the
-      // shell, say); a model the user set themselves always wins.
-      cfg.model ??= `praex-cloud/${freeModelID(lineup)}`
+      // Praex is the default when signed in, or when no other provider is set up (a GEMINI_API_KEY in
+      // the shell, say); a model the user set themselves always wins.
+      if (!cfg.model && ((await praexSignedIn()) || !(await otherProviderConfigured(cfg))))
+        cfg.model = `praex-cloud/${freeModelID(lineup)}`
     },
     // Session titles and other small-model work run on the free tier, never on a paid one.
     "experimental.provider.small_model": async (incoming, output) => {
@@ -413,7 +550,11 @@ export async function PraexCloudAuthPlugin(input: PluginInput): Promise<Hooks> {
             headers.delete("authorization")
 
             const current = await getAuth()
-            if (current.type !== "oauth") return fetch(requestInput, init)
+            if (current.type !== "oauth") return signedOutFetch()
+            // never hand the token to any other host
+            const target = requestInput instanceof Request ? requestInput.url : String(requestInput)
+            if (URL.canParse(target) && new URL(target).origin !== gatewayOrigin)
+              return fetch(requestInput, { ...init, headers })
 
             let access = current.access
             if (!access || current.expires < Date.now() + REFRESH_SKEW_MS) {

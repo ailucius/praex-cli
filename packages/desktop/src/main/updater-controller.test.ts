@@ -1,7 +1,18 @@
 import { describe, expect, test } from "bun:test"
-import { createUpdaterController, type UpdaterBackend, type UpdaterReadyRecord } from "./updater-controller"
+import {
+  createUpdaterController,
+  INSTALL_FAILED,
+  type UpdaterBackend,
+  type UpdaterReadyRecord,
+} from "./updater-controller"
 
-function setup(input?: { currentVersion?: string; ready?: UpdaterReadyRecord }) {
+function setup(input?: {
+  currentVersion?: string
+  ready?: UpdaterReadyRecord
+  canInstall?: boolean
+  quitting?: boolean
+  install?: () => void
+}) {
   const calls: string[] = []
   const backend: UpdaterBackend = {
     async checkForUpdates() {
@@ -13,6 +24,7 @@ function setup(input?: { currentVersion?: string; ready?: UpdaterReadyRecord }) 
     },
     quitAndInstall() {
       calls.push("install")
+      input?.install?.()
     },
   }
   let ready = input?.ready
@@ -32,6 +44,13 @@ function setup(input?: { currentVersion?: string; ready?: UpdaterReadyRecord }) 
     stop: async () => {
       calls.push("stop")
     },
+    restart: async () => {
+      calls.push("restart")
+    },
+    canInstall: input?.canInstall,
+    openDownload: () => calls.push("open-download"),
+    quitting: () => input?.quitting ?? false,
+    installTimeout: 20,
   })
   return { controller, calls, getReady: () => ready }
 }
@@ -76,14 +95,60 @@ describe("updater controller", () => {
     expect(app.calls).toEqual(["check", "download"])
   })
 
-  test("returns to ready when quitAndInstall returns without exiting", async () => {
+  test("restarts the server and reports an error when the app is still running after install", async () => {
     const app = setup()
+    await app.controller.start()
+
+    await expect(app.controller.install()).rejects.toThrow(INSTALL_FAILED)
+
+    expect(app.calls).toEqual(["check", "download", "stop", "install", "restart"])
+    expect(app.controller.getState()).toEqual({ status: "error", message: INSTALL_FAILED })
+  })
+
+  test("restarts the server when the updater reports an install error", async () => {
+    let fail: ((error: unknown) => void) | undefined
+    const app = setup({ install: () => queueMicrotask(() => fail?.(new Error("code signature mismatch"))) })
+    fail = (error) => app.controller.fail(error)
+    await app.controller.start()
+
+    await expect(app.controller.install()).rejects.toThrow("code signature mismatch")
+
+    expect(app.calls).toEqual(["check", "download", "stop", "install", "restart"])
+    expect(app.controller.getState().status).toBe("error")
+  })
+
+  test("restarts the server when quitAndInstall throws", async () => {
+    const app = setup({
+      install: () => {
+        throw new Error("pkexec cancelled")
+      },
+    })
+    await app.controller.start()
+
+    await expect(app.controller.install()).rejects.toThrow("pkexec cancelled")
+    expect(app.calls.at(-1)).toBe("restart")
+  })
+
+  test("leaves the server stopped once the app is quitting to install", async () => {
+    const app = setup({ quitting: true })
     await app.controller.start()
 
     await app.controller.install()
 
     expect(app.calls).toEqual(["check", "download", "stop", "install"])
-    expect(app.controller.getState()).toEqual({ status: "ready", version: "2.0.0" })
+    expect(app.controller.getState()).toEqual({ status: "installing", version: "2.0.0" })
+  })
+
+  test("offers a download instead of an install when the build cannot install in place", async () => {
+    const app = setup({ canInstall: false })
+    await app.controller.start()
+
+    expect(app.controller.getState()).toEqual({ status: "ready", version: "2.0.0", manual: true })
+    await app.controller.install()
+
+    // No download, no server stop, no install attempt.
+    expect(app.calls).toEqual(["check", "open-download"])
+    expect(app.controller.getState()).toEqual({ status: "ready", version: "2.0.0", manual: true })
   })
 
   test("returns to ready when installation cannot start", async () => {

@@ -218,7 +218,10 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           }
         }
 
-        const provider = sync.data.provider[0]
+        // Signed out of Praex, a provider the user set up comes first (10-20 audit F7).
+        const provider =
+          sync.data.provider.find((p) => p.id !== "praex-cloud" || p.options?.["signedIn"] === true) ??
+          sync.data.provider[0]
         if (!provider) return undefined
         const defaultModel = sync.data.provider_default[provider.id]
         const firstModel = Object.values(provider.models)[0]
