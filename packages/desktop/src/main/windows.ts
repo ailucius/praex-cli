@@ -2,19 +2,24 @@ import windowState from "electron-window-state"
 import { resolveThemeVariant } from "@opencode-ai/ui/theme/resolve"
 import type { DesktopTheme } from "@opencode-ai/ui/theme/types"
 import praexThemeJson from "../../../ui/src/theme/themes/praex.json"
-import { app, BrowserWindow, dialog, net, nativeImage, nativeTheme, protocol } from "electron"
+import { app, BrowserWindow, dialog, net, nativeImage, nativeTheme, protocol, shell } from "electron"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import type { WebContents } from "electron"
 import type { TitlebarTheme } from "../preload/types"
+import { trustWebContents } from "./ipc-trust"
 import { exportDebugLogs, write as writeLog } from "./logging"
+import { applyNavigationGuard } from "./navigation"
+import { isRendererUrl, RENDERER_HOST, RENDERER_PROTOCOL, rendererPageUrl } from "./renderer-origin"
 import { getStore } from "./store"
 import { PINCH_ZOOM_ENABLED_KEY } from "./store-keys"
 import { createUnresponsiveSampler } from "./unresponsive"
 
 const root = dirname(fileURLToPath(import.meta.url))
 const rendererRoot = join(root, "../renderer")
-const rendererProtocol = "oc"
-const rendererHost = "renderer"
+// 10-20: A14. renderer-origin.ts is the single source of truth for where the renderer lives
+const rendererProtocol = RENDERER_PROTOCOL
+const rendererHost = RENDERER_HOST
 const clipboardWritePermission = "clipboard-sanitized-write"
 const notificationPermission = "notifications"
 const rendererPermissions = new Set([clipboardWritePermission, notificationPermission])
@@ -158,6 +163,9 @@ export function createMainWindow() {
     },
   })
 
+  // 10-20: A14. IPC is served only to this window's main frame, and it may not navigate away
+  trustWebContents(win.webContents)
+  guardNavigation(win.webContents)
   allowRendererPermissions(win)
   wireWindowRecovery(win, "main")
 
@@ -225,14 +233,22 @@ export function registerRendererProtocol() {
 }
 
 function loadWindow(win: BrowserWindow, html: string) {
-  const devUrl = process.env.ELECTRON_RENDERER_URL
-  if (devUrl) {
-    const url = new URL(html, devUrl)
-    void win.loadURL(url.toString())
-    return
-  }
+  void win.loadURL(rendererPageUrl(html))
+}
 
-  void win.loadURL(`${rendererProtocol}://${rendererHost}/${html}`)
+/**
+ * 10-20: A14. Navigation and window-open allowlist for a webContents. Applied to our windows
+ * here and to every other webContents from app "web-contents-created" (index.ts). The WeakSet
+ * keeps it to one set of listeners per contents, so a click opens the browser once.
+ */
+const guardedContents = new WeakSet<WebContents>()
+export function guardNavigation(contents: WebContents) {
+  if (guardedContents.has(contents)) return
+  guardedContents.add(contents)
+  applyNavigationGuard(contents, {
+    openExternal: (url) => shell.openExternal(url),
+    log: (message, data) => writeLog("window", message, data, "warn"),
+  })
 }
 
 function wireWindowRecovery(win: BrowserWindow, name: string) {
@@ -379,16 +395,6 @@ function addRendererHeaders(value: string, headers: Record<string, any>) {
   upsertKeyValue(headers, "Access-Control-Allow-Origin", ["*"])
   upsertKeyValue(headers, "Access-Control-Allow-Headers", ["*"])
   if (isRendererUrl(value, true)) upsertKeyValue(headers, documentPolicyHeader, [jsCallStacksDocumentPolicy])
-}
-
-function isRendererUrl(value?: string, html = false) {
-  if (!value || !URL.canParse(value)) return false
-  const url = new URL(value)
-  if (html && !url.pathname.endsWith(".html")) return false
-  if (url.protocol === `${rendererProtocol}:` && url.host === rendererHost) return true
-  const devUrl = process.env.ELECTRON_RENDERER_URL
-  if (!devUrl || !URL.canParse(devUrl)) return false
-  return url.origin === new URL(devUrl).origin
 }
 
 function wireZoom(win: BrowserWindow) {

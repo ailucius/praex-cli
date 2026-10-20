@@ -29,6 +29,7 @@ import {
 import { setupAutoUpdater, showUpdaterDialog } from "./updater"
 import {
   createMainWindow,
+  guardNavigation,
   registerRendererProtocol,
   setRelaunchHandler,
   setBackgroundColor,
@@ -220,6 +221,12 @@ const main = Effect.gen(function* () {
 
   app.on("render-process-gone", (_event, webContents, details) => {
     writeLog("window", "app render process gone", { url: webContents.getURL(), details }, "error")
+  })
+
+  // 10-20: A14. Every webContents (our windows, and anything else Electron creates) stays on the
+  // renderer origin; window.open and off-origin links go to the system browser via the allowlist.
+  app.on("web-contents-created", (_event, contents) => {
+    guardNavigation(contents)
   })
 
   setRelaunchHandler(() => {
