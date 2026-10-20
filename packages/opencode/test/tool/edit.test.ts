@@ -161,8 +161,8 @@ describe("tool.edit", () => {
             ask: (input) =>
               Effect.gen(function* () {
                 asked.push(input)
-                contentAtAsk = yield* load(filepath)
-              }).pipe(Effect.orDie),
+                contentAtAsk = yield* loadRaw(filepath)
+              }),
           },
         )
 
