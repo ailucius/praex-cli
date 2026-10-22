@@ -29,7 +29,8 @@
 
   [data-component="session-progress"] {
     position: absolute;
-    inset: auto 0 0;
+    /* 10-22: right under the 48px title row, not 16px lower across the faded top of the messages */
+    inset: auto 0 calc(100% - 48px);
     height: 1px;
     overflow: hidden;
     pointer-events: none;
@@ -57,11 +58,35 @@
     animation-iteration-count: infinite;
   }
 
+  /* 10-22: same lighter violet as the tilde in dark mode */
+  :root[data-color-scheme="dark"] [data-component="session-progress-bar"] {
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in srgb, var(--icon-interactive-base) 50%, var(--text-interactive-base)) 50%,
+      transparent 100%
+    );
+  }
+
   @media (prefers-reduced-motion: reduce) {
     [data-component="session-progress-bar"] {
       animation: none;
       background: color-mix(in srgb, var(--icon-interactive-base) 35%, transparent);
     }
+
+    :root[data-color-scheme="dark"] [data-component="session-progress-bar"] {
+      background-image: none;
+    }
+  }
+
+  /* 10-22: the quiet "Interrupted" / "Cut off" label under a reply. In dark mode --text-weaker on the
+     near-black background is about 4.4:1, too faint at 12px; lift it halfway towards --text-weak. */
+  [data-slot="session-turn-stopped"] {
+    color: var(--text-weaker);
+  }
+
+  :root[data-color-scheme="dark"] [data-slot="session-turn-stopped"] {
+    color: color-mix(in srgb, var(--text-weak) 60%, var(--text-weaker));
   }
 
   [data-component="getting-started"] {

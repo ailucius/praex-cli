@@ -822,6 +822,16 @@
   color: var(--text-strong);
 }
 
+/* 10-22: a finished group reads like the finished rows around it ("Ran" was --text-strong, the brightest
+   text on the page in dark mode); hover brings it up */
+[data-component="context-tool-group-trigger"] [data-slot="context-tool-group-label"] [data-slot="tool-status-done"] {
+  color: var(--text-weak);
+}
+
+[data-component="context-tool-group-trigger"]:hover [data-slot="context-tool-group-label"] [data-slot="tool-status-done"] {
+  color: var(--text-strong);
+}
+
 [data-component="tool-part-wrapper"] [data-slot="collapsible-trigger"]:hover [data-slot="basic-tool-tool-icon"] {
   color: var(--icon-base);
 }

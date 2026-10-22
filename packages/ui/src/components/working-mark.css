@@ -28,3 +28,9 @@
     opacity: 0.9;
   }
 }
+
+/* 10-22: dark mode: --icon-interactive-base (#8949fd) on near-black fades to almost nothing at the bottom of
+   the breath; a lighter violet keeps the tilde readable through the whole cycle. */
+:root[data-color-scheme="dark"] [data-component="working-mark"] {
+  color: color-mix(in srgb, var(--icon-interactive-base) 50%, var(--text-interactive-base));
+}

@@ -271,7 +271,7 @@
   }
 }
 
-[data-component="tool-trigger"][data-status="completed"] {
+[data-component="tool-trigger"]:is([data-status="completed"], [data-status="denied"]) {
   [data-slot="basic-tool-tool-title"] {
     color: var(--text-weak);
   }
@@ -290,10 +290,6 @@
   flex-direction: column;
   gap: 0;
 
-  [data-component="tool-trigger"] {
-    opacity: 0.75;
-  }
-
   [data-slot="tool-denied-reason"] {
     padding-left: 24px;
     font-size: 12.5px;
@@ -302,3 +298,8 @@
   }
 }
 
+/* 10-22: dark mode: --text-weaker on the near-black background is about 4.4:1, too faint for these 12px
+   lines; lift them halfway towards --text-weak (still quieter than the rows). */
+:root[data-color-scheme="dark"] [data-component="tool-denied-row"] [data-slot="tool-denied-reason"] {
+  color: color-mix(in srgb, var(--text-weak) 60%, var(--text-weaker));
+}

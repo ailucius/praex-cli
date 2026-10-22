@@ -1228,7 +1228,7 @@ export function MessageTimeline(props: {
                 <div
                   data-slot="session-turn-stopped"
                   data-kind={turnDividerRow().label}
-                  class="flex items-center gap-1.5 text-12-regular text-text-weaker select-none"
+                  class="flex items-center gap-1.5 text-12-regular select-none"
                 >
                   <span aria-hidden="true" class="size-1.5 rounded-[1px] bg-current" />
                   {language.t(turnDividerRow().label === "cutoff" ? "ui.message.cutOff" : "ui.message.interrupted")}
