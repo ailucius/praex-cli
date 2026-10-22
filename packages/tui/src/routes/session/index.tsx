@@ -2068,6 +2068,8 @@ function InlineTool(props: {
 
   const denied = createMemo(
     () =>
+      // The server marks calls a permission rule denied (the chat folder deny has no "specified a rule" text).
+      (props.part.state.status === "error" && props.part.state.metadata?.denied === true) ||
       error()?.includes("QuestionRejectedError") ||
       error()?.includes("rejected permission") ||
       error()?.includes("specified a rule") ||

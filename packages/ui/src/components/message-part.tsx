@@ -58,7 +58,7 @@ import { patchFiles } from "./apply-patch-file"
 import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
 import { attached, inline, kind } from "./message-file"
-import { readPartText, reasoningState, thoughtSeconds } from "./message-part-text"
+import { deniedLabel, readPartText, reasoningState, thoughtSeconds } from "./message-part-text"
 
 async function writeClipboard(text: string): Promise<boolean> {
   const body = typeof document === "undefined" ? undefined : document.body
@@ -1401,6 +1401,14 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
     return taskId()
   })
 
+  // A call a permission rule denied is not a failure: a calm muted line, not the red card.
+  const denied = createMemo(() => {
+    const state = part().state
+    if (state.status !== "error") return
+    const label = deniedLabel(part().tool, state.error, partMetadata())
+    return label ? i18n.t(`ui.messagePart.tool.${label}`) : undefined
+  })
+
   const render = createMemo(() => ToolRegistry.render(part().tool) ?? GenericTool)
   const controlledOpen = () => (props.onToolOpenChange ? (props.toolOpen ?? props.defaultOpen) : undefined)
   const handleToolOpenChange = (open: boolean) => props.onToolOpenChange?.(open)
@@ -1409,6 +1417,17 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
     <Show when={!hideQuestion()}>
       <div data-component="tool-part-wrapper" data-timeline-part-id={part().id}>
         <Switch>
+          <Match when={denied()}>
+            {(text) => (
+              <div
+                data-component="tool-denied"
+                class="text-13-regular text-text-weak cursor-default"
+                title={typeof input().filePath === "string" ? String(input().filePath) : undefined}
+              >
+                {text()}
+              </div>
+            )}
+          </Match>
           <Match when={part().state.status === "error" && (part().state as any).error}>
             {(error) => {
               const cleaned = error().replace("Error: ", "")

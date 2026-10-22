@@ -83,8 +83,13 @@ export class CorrectedError extends Schema.TaggedErrorClass<CorrectedError>()("P
 
 export class DeniedError extends Schema.TaggedErrorClass<DeniedError>()("PermissionDeniedError", {
   ruleset: Schema.Any,
+  // Set when a chat workspace agent reached outside its own folder: the absolute folder it may use.
+  // The message then tells the model where to save instead of dumping the rules.
+  workspace: Schema.optional(Schema.String),
 }) {
   override get message() {
+    if (this.workspace)
+      return `That path is outside this chat's workspace folder, so this tool call did not run. Files in this chat are saved in its workspace folder ${this.workspace}. Use a relative path such as notes.md.`
     return `The user has specified a rule which prevents you from using this specific tool call. Here are some of the relevant rules ${JSON.stringify(this.ruleset)}`
   }
 }

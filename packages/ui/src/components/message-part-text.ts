@@ -19,3 +19,19 @@ export function reasoningState(
   if (typeof start !== "number" || end < start) return { thinking: false, ms: 0 }
   return { thinking: false, ms: end - start }
 }
+
+// Tools whose denied call means a file was not saved.
+const SAVE_TOOLS = new Set(["write", "edit", "apply_patch"])
+
+// A tool call a permission rule denied is not a failure and gets a calm label instead of the red
+// error card. The server marks it with metadata.denied (plus metadata.workspace when a chat was
+// kept to its own folder); older parts are recognised by the generic denial text.
+export function deniedLabel(
+  tool: string,
+  error: string,
+  metadata: Record<string, unknown>,
+): "notSaved" | "outsideFolder" | "denied" | undefined {
+  if (metadata.denied !== true && !error.includes("specified a rule")) return
+  if (typeof metadata.workspace !== "string") return "denied"
+  return SAVE_TOOLS.has(tool) ? "notSaved" : "outsideFolder"
+}

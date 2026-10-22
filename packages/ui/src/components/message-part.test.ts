@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { readPartText, reasoningState, thoughtSeconds } from "./message-part-text"
+import { deniedLabel, readPartText, reasoningState, thoughtSeconds } from "./message-part-text"
 
 describe("readPartText", () => {
   test("returns empty string when accum is undefined and part text is undefined", () => {
@@ -58,5 +58,29 @@ describe("reasoningState", () => {
 
   test("bad clocks read as done, not as a negative duration", () => {
     expect(reasoningState({ time: { start: 9_000, end: 1_000 } })).toEqual({ thinking: false, ms: 0 })
+  })
+})
+
+describe("deniedLabel", () => {
+  const generic =
+    'The user has specified a rule which prevents you from using this specific tool call. Here are some of the relevant rules [{"permission":"edit","pattern":"*.env","action":"deny"}]'
+
+  test("a write the chat folder rule denied reads as not saved", () => {
+    expect(deniedLabel("write", "That path is outside", { denied: true, workspace: "/w" })).toBe("notSaved")
+    expect(deniedLabel("apply_patch", "That path is outside", { denied: true, workspace: "/w" })).toBe("notSaved")
+  })
+
+  test("a shell call the chat folder rule denied reads as outside the folder", () => {
+    expect(deniedLabel("bash", "That path is outside", { denied: true, workspace: "/w" })).toBe("outsideFolder")
+  })
+
+  test("other rule denials, marked or older unmarked parts, get the generic label", () => {
+    expect(deniedLabel("edit", generic, { denied: true })).toBe("denied")
+    expect(deniedLabel("edit", generic, {})).toBe("denied")
+  })
+
+  test("a real failure stays a failure", () => {
+    expect(deniedLabel("write", "EACCES: permission denied, open '/x'", {})).toBeUndefined()
+    expect(deniedLabel("bash", "Tool execution aborted", { interrupted: true })).toBeUndefined()
   })
 })

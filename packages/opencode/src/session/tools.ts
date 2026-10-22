@@ -4,6 +4,7 @@ import { Provider } from "@/provider/provider"
 import { ProviderTransform } from "@/provider/transform"
 import { MCP } from "@/mcp"
 import { Permission } from "@/permission"
+import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { Tool } from "@/tool/tool"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { ToolRegistry } from "@/tool/registry"
@@ -38,6 +39,23 @@ export const coworkInstance = Effect.fn("SessionTools.coworkInstance")(function*
   const folder = path.join(Global.Path.chat, sessionID)
   yield* Effect.promise(() => fs.mkdir(folder, { recursive: true }))
   return { ...ctx, directory: folder, worktree: folder }
+})
+
+/**
+ * A workspace agent that reaches outside its folder (a write to an invented /tmp/... path, a shell
+ * command naming another directory) gets a denial that says where it can save, so it retries with
+ * a relative path on the next step. The rules themselves are unchanged. Runs inside the tool's
+ * instance scope, so the folder named is the thread's own.
+ */
+const workspaceDenied = Effect.fn("SessionTools.workspaceDenied")(function* (
+  agent: Pick<Agent.Info, "name">,
+  permission: string,
+  error: PermissionV1.DeniedError,
+) {
+  if (!Agent.isWorkspaceAgent(agent) || permission !== "external_directory" || error.workspace) return yield* error
+  const ctx = yield* InstanceRef
+  if (!ctx) return yield* error
+  return yield* new PermissionV1.DeniedError({ ruleset: error.ruleset, workspace: path.resolve(ctx.directory) })
 })
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
@@ -92,7 +110,10 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
           tool: { messageID: input.processor.message.id, callID: options.toolCallId },
           ruleset: Permission.merge(input.agent.permission, input.session.permission ?? []),
         })
-        .pipe(Effect.orDie),
+        .pipe(
+          Effect.catchTag("PermissionDeniedError", (error) => workspaceDenied(input.agent, req.permission, error)),
+          Effect.orDie,
+        ),
   })
 
   for (const item of yield* registry.tools({

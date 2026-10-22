@@ -7,6 +7,7 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { FetchHttpClient } from "effect/unstable/http"
 import { expect } from "bun:test"
 import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer } from "effect"
+import { existsSync } from "fs"
 import path from "path"
 import { fileURLToPath, pathToFileURL } from "url"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -760,6 +761,112 @@ it.instance("glob tool keeps instance context during prompt runs", () =>
     expect(tool.state.output).toContain(file)
     expect(tool.state.output).not.toContain("No context found for instance")
     expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
+  }),
+)
+
+it.instance("chat write outside its folder is denied with where to save, marked denied", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const session = yield* sessions.create({ title: "Chat outside folder" })
+    const outside = path.join(path.dirname(path.resolve(dir)), "praex-outside-" + session.id, "notes.md")
+
+    yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "chat",
+      noReply: true,
+      parts: [{ type: "text", text: "save a note" }],
+    })
+    yield* llm.tool("write", { filePath: outside, content: "hello" })
+    yield* llm.text("saved")
+
+    const result = yield* prompt.loop({ sessionID: session.id })
+    expect(result.info.role).toBe("assistant")
+
+    const msgs = yield* MessageV2.filterCompactedEffect(session.id)
+    const tool = msgs
+      .flatMap((msg) => msg.parts)
+      .find((part): part is ErrorToolPart => part.type === "tool" && part.tool === "write")
+    expect(tool?.state.status).toBe("error")
+    if (!tool) return
+    const expected = `Files in this chat are saved in its workspace folder ${path.resolve(dir)}. Use a relative path such as notes.md.`
+    expect(tool.state.error).toContain(expected)
+    expect(tool.state.error).not.toContain("relevant rules")
+    expect(tool.state.metadata).toEqual({ denied: true, workspace: path.resolve(dir) })
+    expect(existsSync(outside)).toBe(false)
+
+    // The next model call carries the new text as the tool result, so the model can retry.
+    const inputs = yield* llm.inputs
+    expect(inputs.length).toBe(2)
+    expect(JSON.stringify(inputs[1])).toContain(expected)
+  }),
+)
+
+unix("chat shell command naming another folder gets the same where-to-save denial", () =>
+  withSh(() =>
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({ title: "Chat shell outside folder" })
+      const outside = path.join(path.dirname(path.resolve(dir)), "praex-outside-" + session.id)
+
+      yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "chat",
+        noReply: true,
+        parts: [{ type: "text", text: "save a note" }],
+      })
+      yield* llm.tool("bash", { command: `mkdir -p ${outside}`, description: "Make a folder" })
+      yield* llm.text("done")
+
+      yield* prompt.loop({ sessionID: session.id })
+      const msgs = yield* MessageV2.filterCompactedEffect(session.id)
+      const tool = msgs
+        .flatMap((msg) => msg.parts)
+        .find((part): part is ErrorToolPart => part.type === "tool" && part.tool === "bash")
+      expect(tool?.state.status).toBe("error")
+      if (!tool) return
+      expect(tool.state.error).toContain(`Files in this chat are saved in its workspace folder ${path.resolve(dir)}.`)
+      expect(tool.state.metadata).toEqual({ denied: true, workspace: path.resolve(dir) })
+      expect(existsSync(outside)).toBe(false)
+    }),
+  ),
+)
+
+it.instance("build agent rule denial keeps the generic message and is marked denied", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const session = yield* sessions.create({
+      title: "Build denied",
+      permission: [
+        { permission: "*", pattern: "*", action: "allow" },
+        { permission: "external_directory", pattern: "*", action: "deny" },
+      ],
+    })
+    const outside = path.join(path.dirname(path.resolve(dir)), "praex-outside-" + session.id, "notes.md")
+
+    yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "save a note" }],
+    })
+    yield* llm.tool("write", { filePath: outside, content: "hello" })
+    yield* llm.text("done")
+
+    yield* prompt.loop({ sessionID: session.id })
+    const msgs = yield* MessageV2.filterCompactedEffect(session.id)
+    const tool = msgs
+      .flatMap((msg) => msg.parts)
+      .find((part): part is ErrorToolPart => part.type === "tool" && part.tool === "write")
+    expect(tool?.state.status).toBe("error")
+    if (!tool) return
+    expect(tool.state.error).toContain("specified a rule")
+    expect(tool.state.metadata).toEqual({ denied: true })
   }),
 )
 
