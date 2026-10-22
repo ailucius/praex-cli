@@ -5,6 +5,7 @@ import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } fro
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useProviders } from "@/hooks/use-providers"
 import { Persist, persisted } from "@/utils/persist"
+import { chatModel } from "@/utils/chat-model"
 
 export type ModelKey = { providerID: string; modelID: string }
 
@@ -117,6 +118,8 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       const state = visibility().get(key)
       if (state === "hide") return false
       if (state === "show") return true
+      const item = find(model)
+      if (item && !chatModel(model.providerID, item)) return false
       if (latestSet().has(key)) return true
       const date = release().get(key)
       if (!date?.isValid) return true
