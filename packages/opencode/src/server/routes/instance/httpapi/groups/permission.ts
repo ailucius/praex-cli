@@ -13,6 +13,10 @@ const ReplyPayload = Schema.Struct({
   reply: PermissionV1.Reply,
   message: Schema.optional(Schema.String),
 })
+// 10-22: "Allow always" rules saved for the project
+const SavedRule = Schema.Struct({ id: Schema.String, permission: Schema.String, pattern: Schema.String }).annotate({
+  identifier: "PermissionSavedRule",
+})
 
 export const PermissionApi = HttpApi.make("permission")
   .add(
@@ -26,6 +30,27 @@ export const PermissionApi = HttpApi.make("permission")
             identifier: "permission.list",
             summary: "List pending permissions",
             description: "Get all pending permission requests across all sessions.",
+          }),
+        ),
+        HttpApiEndpoint.get("saved", `${root}/saved`, {
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Array(SavedRule), "Allow-always rules saved for this project"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "permission.saved",
+            summary: "List saved permission rules",
+            description: "The allow-always rules saved for the current project.",
+          }),
+        ),
+        HttpApiEndpoint.delete("forget", `${root}/saved/:id`, {
+          params: { id: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Rule removed"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "permission.forget",
+            summary: "Remove a saved permission rule",
+            description: "Remove one allow-always rule saved for the current project.",
           }),
         ),
         HttpApiEndpoint.post("reply", `${root}/:requestID/reply`, {

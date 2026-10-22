@@ -26,6 +26,7 @@ import {
 import { TuiPathsProvider, TuiStartupProvider, TuiTerminalEnvironmentProvider, useTuiStartup } from "./context/runtime"
 import { DialogProvider, useDialog } from "./ui/dialog"
 import { DialogProvider as DialogProviderList, usePraexLogin } from "./component/dialog-provider"
+import { usePermissionsDialog } from "./component/dialog-permissions"
 import { SIGNED_OUT_PREFIX, usePraex } from "./component/use-praex"
 import { ErrorComponent } from "./component/error-component"
 import { PluginRouteMissing } from "./component/plugin-route-missing"
@@ -607,6 +608,7 @@ function App(props: {
   const connected = useConnected()
   const praex = usePraex()
   const praexLogin = usePraexLogin()
+  const permissionsDialog = usePermissionsDialog()
   const currentWorktreeWorkspace = createMemo(() => {
     const workspaceID = project.workspace.current()
     if (!workspaceID) return
@@ -848,6 +850,15 @@ function App(props: {
             },
           ]
         : []),
+      {
+        name: "permission.saved",
+        title: "Saved permissions (allow always) for this project",
+        slashName: "permissions",
+        run: () => {
+          void permissionsDialog()
+        },
+        category: "System",
+      },
       {
         name: "opencode.status",
         title: "View status",

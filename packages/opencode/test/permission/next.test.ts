@@ -6,6 +6,7 @@ import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import { EventV2Bridge } from "../../src/event-v2-bridge"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Database } from "@opencode-ai/core/database/database"
+import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { Permission } from "../../src/permission"
 import { PermissionDiff } from "../../src/permission/diff"
 import { InstanceBootstrap } from "../../src/project/bootstrap-service"
@@ -17,7 +18,7 @@ import { MessageID, SessionID } from "../../src/session/schema"
 const events = EventV2Bridge.defaultLayer
 const noopBootstrap = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
 const env = Layer.mergeAll(
-  Permission.layer.pipe(Layer.provide(Database.defaultLayer), Layer.provide(events)),
+  Permission.layer.pipe(Layer.provide(PermissionSaved.defaultLayer), Layer.provide(Database.defaultLayer), Layer.provide(events)),
   events,
   CrossSpawnSpawner.defaultLayer,
   InstanceStore.defaultLayer.pipe(Layer.provide(noopBootstrap)),

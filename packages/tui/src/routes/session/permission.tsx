@@ -176,12 +176,23 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
           title="Always allow"
           body={
             <Switch>
+              {/* 10-22: saved per project (edits for this run only); /permissions lists and removes them */}
               <Match when={props.request.always.length === 1 && props.request.always[0] === "*"}>
-                <TextBody title={"This will allow " + props.request.permission + " until Praex is restarted."} />
+                <TextBody
+                  title={
+                    props.request.permission === "edit"
+                      ? "This will allow edits until Praex is restarted."
+                      : "This will allow " + props.request.permission + " in this project from now on. /permissions removes it."
+                  }
+                />
               </Match>
               <Match when={true}>
                 <box paddingLeft={1} gap={1}>
-                  <text fg={theme.textMuted}>This will allow the following patterns until Praex is restarted</text>
+                  <text fg={theme.textMuted}>
+                    {props.request.permission === "edit"
+                      ? "This will allow the following patterns until Praex is restarted"
+                      : "This will allow the following in this project from now on (/permissions removes them)"}
+                  </text>
                   <box>
                     <For each={props.request.always}>
                       {(pattern) => (

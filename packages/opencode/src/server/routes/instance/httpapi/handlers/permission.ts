@@ -36,6 +36,15 @@ export const permissionHandlers = HttpApiBuilder.group(InstanceHttpApi, "permiss
       return true
     })
 
-    return handlers.handle("list", list).handle("reply", reply)
+    const saved = Effect.fn("PermissionHttpApi.saved")(function* () {
+      return [...(yield* svc.saved())]
+    })
+
+    const forget = Effect.fn("PermissionHttpApi.forget")(function* (ctx: { params: { id: string } }) {
+      yield* svc.forget(ctx.params.id)
+      return true
+    })
+
+    return handlers.handle("list", list).handle("saved", saved).handle("forget", forget).handle("reply", reply)
   }),
 )

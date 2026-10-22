@@ -523,8 +523,15 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       // write.ts + apply_patch.ts ask as "edit"; shell.ts asks as "bash" (ShellID.ToolID)
       const SENSITIVE = ["edit", "bash", "task", "webfetch", "websearch"]
       const GUARD = { permission: "destructive", pattern: "*", action: "ask" as const }
+      // 10-22: read-only shell commands (ls, cat, git status, grep ...) run without asking in manual mode,
+      // like Claude Code (packages/opencode/src/permission/readonly.ts); the guard still runs after it
+      const READONLY = { permission: "readonly", pattern: "*", action: "allow" as const }
       const RULES = {
-        manual: [...SENSITIVE.map((permission) => ({ permission, pattern: "*", action: "ask" as const })), GUARD],
+        manual: [
+          ...SENSITIVE.map((permission) => ({ permission, pattern: "*", action: "ask" as const })),
+          READONLY,
+          GUARD,
+        ],
         auto: [{ permission: "*", pattern: "*", action: "allow" as const }, GUARD],
       }
       const [store, setStore] = createStore({
