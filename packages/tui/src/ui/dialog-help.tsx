@@ -109,7 +109,7 @@ export function DialogHelp() {
 
           <Section title="Account and models">
             <Row k="praex login" v="Sign in with Google for the hosted models. No card, no key." width={14} />
-            <Row k="Velox II" v="Free with a Praex account." width={14} />
+            <Row k="Velox III" v="Free with a Praex account." width={14} />
             <Row k="Faber II" v="Praex Pro." width={14} />
             <Row k="Lucia II" v="Praex Max." width={14} />
             <Row k="praex update" v="Update the CLI (patch updates also install themselves)." width={14} />

@@ -532,6 +532,19 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         cycle() {
           setStore("current", store.current === "manual" ? "auto" : "manual")
         },
+        // 10-22: resolves once the session carries the current mode's rules (true), or false when the update
+        // failed. The prompt awaits it before a session's first message: the route change that runs sync()
+        // happens after the send, so a new session's first edits used to run with the agent's blanket allow.
+        async ensure(sessionID: string) {
+          const mode = store.current
+          if (store.synced[sessionID] === mode) return true
+          const result: unknown = await sdk.client.session
+            .update({ sessionID, permission: RULES[mode] })
+            .catch(() => ({ error: true }))
+          const ok = !(result && typeof result === "object" && "error" in result && (result as { error?: unknown }).error)
+          setStore("synced", sessionID, ok ? mode : undefined)
+          return ok
+        },
         sync(sessionID: string) {
           const mode = store.current
           if (store.synced[sessionID] === mode) return

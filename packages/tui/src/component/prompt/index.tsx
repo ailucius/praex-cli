@@ -1102,6 +1102,14 @@ export function Prompt(props: PromptProps) {
       sessionID = res.data.id
     }
 
+    // 10-22: the permission mode must be on the session before its message runs (see local.permission.ensure).
+    // Fail closed: if it cannot be set, nothing is sent rather than running unasked in manual mode.
+    if (!(await local.permission.ensure(sessionID))) {
+      if (finishMoveProgress) move.finishSubmit()
+      toast.show({ message: "Couldn't turn on approvals for this session. Try again.", variant: "error" })
+      return true
+    }
+
     const inputText = expandTrackedPastedText(
       store.prompt.input,
       input.extmarks.getAllForTypeId(promptPartTypeId).flatMap((extmark) => {

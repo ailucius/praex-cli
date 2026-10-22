@@ -454,7 +454,7 @@ export const dict = {
   "home.welcome.signIn": "Sign in with Google",
   "home.welcome.skip": "Continue without signing in",
   "praex.signin.title": "Sign in to use Praex models",
-  "praex.signin.description": "Velox II is free every day. Sign in with Google to continue where you left off.",
+  "praex.signin.description": "Velox III is free every day. Sign in with Google to continue where you left off.",
   "praex.signin.action": "Sign in to Praex",
   "home.empty.title": "Keine letzten Projekte",
   "home.empty.description": "Starten Sie, indem Sie ein lokales Projekt öffnen",

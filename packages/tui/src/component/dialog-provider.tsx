@@ -60,7 +60,7 @@ export function providerOptions(list: { id: string; name: string }[]): ProviderO
         value: provider.id,
         providerID: provider.id,
         description: {
-          "praex-cloud": "(Recommended · Velox II is free)",
+          "praex-cloud": "(Recommended · Velox III is free)",
           anthropic: "(API key)",
           openai: "(ChatGPT Plus/Pro or API key)",
         }[provider.id],

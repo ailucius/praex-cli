@@ -419,7 +419,7 @@ export const ProvidersLoginCommand = effectCmd({
       ...pluginProviders.map((x) => ({
         label: x.id === "praex-cloud" ? "Praex" : x.name,
         value: x.id,
-        hint: x.id === "praex-cloud" ? "recommended · Velox II free · Google sign-in" : "plugin",
+        hint: x.id === "praex-cloud" ? "recommended · Velox III free · Google sign-in" : "plugin",
       })),
     ]
 
@@ -507,7 +507,7 @@ export const ProvidersLoginCommand = effectCmd({
 // `claude login` signs into Anthropic. Other providers keep the `praex auth` picker.
 export const LoginCommand = effectCmd({
   command: "login",
-  describe: "sign in to Praex · Velox II free with your Google account",
+  describe: "sign in to Praex · Velox III free with your Google account",
   builder: (yargs: Argv) =>
     yargs.option("method", {
       alias: ["m"],

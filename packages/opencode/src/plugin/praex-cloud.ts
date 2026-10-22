@@ -195,9 +195,9 @@ const TIER_LIMITS = { context: 32768, output: 8192 }
 export type HostedModel = { name: string; plan?: string; reasoning?: boolean; limit: { context: number; output: number } }
 export type HostedLineup = Record<string, HostedModel>
 // Offline / first-run fallback only; the live gateway list always wins. Mirrors the gateway
-// lineup as of 2026-10-19: Velox II (free), Faber II (Pro, on demand), Lucia II (Max).
+// lineup as of 2026-10-22: Velox III (free, id velox-ii-baked), Faber II (Pro, on demand), Lucia II (Max).
 export const BAKED_LINEUP: HostedLineup = {
-  "velox-ii-baked": { name: "Velox II", plan: "free", limit: { ...TIER_LIMITS } },
+  "velox-ii-baked": { name: "Velox III", plan: "free", limit: { context: 131072, output: TIER_LIMITS.output } }, // 10-22: Velox III fleet, 128k
   "faber-ii": { name: "Faber II · Pro", plan: "pro", limit: { ...TIER_LIMITS } }, // on demand, paying Pro only
   "lucia-ii": { name: "Lucia II · Max", plan: "max", limit: { ...TIER_LIMITS } },
 }

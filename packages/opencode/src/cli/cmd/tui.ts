@@ -71,7 +71,7 @@ export function resolveThreadDirectory(project?: string, envPWD = process.env.PW
 
 export const TuiThreadCommand = cmd({
   command: "$0 [project]",
-  describe: "start Praex in the terminal (your own frontier models)",
+  describe: "start Praex in the terminal",
   builder: (yargs) =>
     withNetworkOptions(yargs)
       .positional("project", {
@@ -152,7 +152,7 @@ export const TuiThreadCommand = cmd({
           if (!auth || typeof auth !== "object" || Object.keys(auth).length === 0) {
             console.log()
             console.log("  Welcome to Praex.")
-            console.log("  Velox II is free. Sign in with your Google account to start.")
+            console.log("  Velox III is free. Sign in with your Google account to start.")
             console.log("  Using your own API keys instead? Skip, then run `praex auth login` any time.")
             console.log()
             const readline = await import("node:readline/promises")
