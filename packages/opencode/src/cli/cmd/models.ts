@@ -5,6 +5,19 @@ import { effectCmd, fail } from "../effect-cmd"
 import { UI } from "../ui"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 
+// One model per line, id first so `awk '{print $1}'` still gets the id. The display name follows in
+// a column aligned within the provider (dimmed on a terminal); a model whose name is only its id
+// prints the id alone.
+export function modelLines(providerID: string, models: [string, { name?: string }][], color = false) {
+  const width = Math.max(0, ...models.map(([modelID]) => providerID.length + 1 + modelID.length))
+  return models.map(([modelID, model]) => {
+    const id = `${providerID}/${modelID}`
+    const name = typeof model.name === "string" ? model.name.trim() : ""
+    if (!name || name === modelID || name === id) return id
+    return id.padEnd(width) + "  " + (color ? UI.Style.TEXT_DIM + name + UI.Style.TEXT_NORMAL : name)
+  })
+}
+
 export const ModelsCommand = effectCmd({
   command: "models [provider]",
   describe: "list all available models",
@@ -33,17 +46,19 @@ export const ModelsCommand = effectCmd({
     const provider = yield* Provider.Service
     const providers = yield* provider.list()
 
+    const color = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR
     const print = (providerID: ProviderV2.ID, verbose?: boolean) => {
       const p = providers[providerID]
       const sorted = Object.entries(p.models).sort(([a], [b]) => a.localeCompare(b))
-      for (const [modelID, model] of sorted) {
-        process.stdout.write(`${providerID}/${modelID}`)
+      const lines = modelLines(providerID, sorted, color)
+      sorted.forEach(([, model], i) => {
+        process.stdout.write(lines[i])
         process.stdout.write(EOL)
         if (verbose) {
           process.stdout.write(JSON.stringify(model, null, 2))
           process.stdout.write(EOL)
         }
-      }
+      })
     }
 
     if (args.provider) {

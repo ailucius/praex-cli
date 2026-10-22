@@ -50,14 +50,15 @@ describe("opencode read-only commands (smoke)", () => {
   )
 
   // `models` lists models from configured providers. Our test/test-model
-  // should appear because it's wired into the test provider config.
+  // should appear because it's wired into the test provider config, id first
+  // and its display name after it on the same line.
   cliIt.live(
-    "models: exits 0 and lists the test model",
+    "models: exits 0 and lists the test model with its name",
     ({ opencode }) =>
       Effect.gen(function* () {
         const r = yield* opencode.spawn(["models"])
         opencode.expectExit(r, 0, "models")
-        expect(r.stdout).toContain("test/test-model")
+        expect(r.stdout).toMatch(/^test\/test-model\s+Test Model$/m)
       }),
     60_000,
   )
