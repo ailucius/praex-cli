@@ -3,6 +3,7 @@ import type { BuiltinTuiPlugin } from "../builtins"
 import { createMemo, For, Show } from "solid-js"
 import { TextAttributes } from "@opentui/core"
 import { useCommandShortcut } from "../../keymap"
+import { freeModelName } from "../../component/use-praex"
 
 const id = "internal:home-getting-started"
 
@@ -20,6 +21,9 @@ function View(props: { api: TuiPluginApi; first: boolean; signedIn: boolean }) {
   const theme = () => props.api.theme.current
   const commands = useCommandShortcut("command.palette.show")
   const connect = useCommandShortcut("provider.connect")
+  // 10-22: named Velox II (retired) and sent people through /connect; the free model's name now comes from
+  // the live lineup and /login is the sign-in
+  const free = createMemo(() => freeModelName(props.api.state.provider.find((item) => item.id === "praex-cloud")?.models))
 
   return (
     <box width="100%" maxWidth={90} flexDirection="column" gap={1} paddingBottom={1} flexShrink={1}>
@@ -28,8 +32,8 @@ function View(props: { api: TuiPluginApi; first: boolean; signedIn: boolean }) {
           <text fg={theme().text} wrapMode="word">
             <span style={{ fg: theme().warning }}>● </span>Not signed in.{" "}
             <span style={{ fg: theme().textMuted }}>
-              Run <span style={{ fg: theme().text }}>{connect() || "/connect"}</span> and pick Praex to use Velox II
-              for free, or add your own provider keys there.
+              Type <span style={{ fg: theme().text }}>/login</span> to use {free()} for free, or{" "}
+              <span style={{ fg: theme().text }}>{connect() || "/connect"}</span> to add your own provider keys.
             </span>
           </text>
         </box>

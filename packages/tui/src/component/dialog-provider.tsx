@@ -230,11 +230,55 @@ export function DialogProvider() {
   return <DialogSelect title="Connect a provider" options={options()} />
 }
 
+// 10-22: /login signs in to the Praex account directly: the Google sign-in that /connect offers under
+// Praex, without the provider list. Over SSH or with no display it uses the paste-code method, like
+// `praex login`. Afterwards it says who is signed in instead of opening the model picker.
+export function usePraexLogin() {
+  const sync = useSync()
+  const dialog = useDialog()
+  const sdk = useSDK()
+  const toast = useToast()
+  return async () => {
+    const methods = sync.data.provider_auth["praex-cloud"] ?? []
+    const headless =
+      !!process.env.SSH_CONNECTION ||
+      (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY)
+    const code = methods.findIndex((method) => method.type === "oauth" && /code/i.test(method.label))
+    const index = headless && code !== -1 ? code : 0
+    const method = methods[index]
+    if (!method || method.type !== "oauth") {
+      toast.show({ variant: "error", message: "Praex sign-in is not available in this build. Try /connect." })
+      return
+    }
+    const result = await sdk.client.provider.oauth.authorize({ providerID: "praex-cloud", method: index })
+    if (result.error || !result.data) {
+      toast.show({ variant: "error", message: result.error ? errorMessage(result.error) : "Couldn't start sign-in." })
+      dialog.clear()
+      return
+    }
+    const onDone = () => {
+      toast.show({ variant: "success", message: "Signed in to Praex.", duration: 3000 })
+      dialog.clear()
+    }
+    const authorization = result.data
+    if (authorization.method === "code")
+      dialog.replace(() => (
+        <CodeMethod providerID="praex-cloud" title={method.label} index={index} authorization={authorization} onDone={onDone} />
+      ))
+    if (authorization.method === "auto")
+      dialog.replace(() => (
+        <AutoMethod providerID="praex-cloud" title={method.label} index={index} authorization={authorization} onDone={onDone} />
+      ))
+  }
+}
+
 interface AutoMethodProps {
   index: number
   providerID: string
   title: string
   authorization: ProviderAuthAuthorization
+  /** After a successful sign-in; the default opens the model picker for the provider. */
+  onDone?: () => void
 }
 function AutoMethod(props: AutoMethodProps) {
   const { theme } = useTheme()
@@ -272,7 +316,7 @@ function AutoMethod(props: AutoMethodProps) {
         variant: "error",
         message:
           "name" in result.error && result.error.name === "ProviderAuthOauthCallbackFailed"
-            ? "Sign-in did not finish. Try /connect again."
+            ? `Sign-in did not finish. Try ${props.onDone ? "/login" : "/connect"} again.`
             : errorMessage(result.error),
       })
       dialog.clear()
@@ -280,6 +324,7 @@ function AutoMethod(props: AutoMethodProps) {
     }
     await sdk.client.instance.dispose()
     await sync.bootstrap()
+    if (props.onDone) return props.onDone()
     dialog.replace(() => <DialogModel providerID={props.providerID} />)
   })
 
@@ -310,6 +355,7 @@ interface CodeMethodProps {
   title: string
   providerID: string
   authorization: ProviderAuthAuthorization
+  onDone?: () => void
 }
 function CodeMethod(props: CodeMethodProps) {
   const { theme } = useTheme()
@@ -331,6 +377,7 @@ function CodeMethod(props: CodeMethodProps) {
         if (!error) {
           await sdk.client.instance.dispose()
           await sync.bootstrap()
+          if (props.onDone) return props.onDone()
           dialog.replace(() => <DialogModel providerID={props.providerID} />)
           return
         }

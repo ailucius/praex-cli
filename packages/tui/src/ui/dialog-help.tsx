@@ -108,7 +108,7 @@ export function DialogHelp() {
           </Section>
 
           <Section title="Account and models">
-            <Row k="praex login" v="Sign in with Google for the hosted models. No card, no key." width={14} />
+            <Row k="/login" v="Sign in with Google for the hosted models. No card, no key." width={14} />
             <Row k="Velox III" v="Free with a Praex account." width={14} />
             <Row k="Faber II" v="Praex Pro." width={14} />
             <Row k="Lucia II" v="Praex Max." width={14} />

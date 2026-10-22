@@ -8,6 +8,7 @@ import {
   type KeyEvent,
   type Renderable,
 } from "@opentui/core"
+import { usePraex } from "../use-praex"
 import type { CommandContext } from "@opentui/keymap"
 import { createEffect, createMemo, onMount, createSignal, onCleanup, on, For, Show, Switch, Match } from "solid-js"
 import "opentui-spinner/solid"
@@ -229,6 +230,7 @@ export function Prompt(props: PromptProps) {
   const [cursorVersion, setCursorVersion] = createSignal(0)
   // The hosted lineup's display names already carry the tier ("Velox II · free"), so the
   // provider name would only repeat "Praex" after it; other providers keep their label.
+  const praex = usePraex()
   const currentProviderLabel = createMemo(() =>
     local.model.current()?.providerID === "praex-cloud" ? "" : local.model.parsed().provider,
   )
@@ -1627,7 +1629,12 @@ export function Prompt(props: PromptProps) {
                           >
                             {local.model.parsed().model}
                           </text>
-                          <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>{currentProviderLabel()}</text>
+                          <Show when={currentProviderLabel()}>
+                            <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>{currentProviderLabel()}</text>
+                          </Show>
+                          <Show when={local.model.current()?.providerID === "praex-cloud" && !praex.signedIn()}>
+                            <text fg={fadeColor(theme.warning, modelMetaAlpha())}>· not signed in</text>
+                          </Show>
                           <Show when={showVariant()}>
                             <text fg={fadeColor(theme.textMuted, variantMetaAlpha())}>·</text>
                             <text>

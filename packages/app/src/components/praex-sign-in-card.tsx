@@ -10,8 +10,8 @@ export const PRAEX_PROVIDER_ID = "praex-cloud"
 /** The gateway's 401 text ("Sign in required. In the terminal run `praex login`, or sign in at https://praex.ai/chat …"). */
 export function isPraexSignInError(text: string | undefined) {
   if (!text) return false
-  // "praex auth login": the CLI's own answer when Praex is picked while signed out (no request is sent)
-  return /sign in required|praex (?:auth )?login|sign in at https:\/\/praex\.ai/i.test(text)
+  // "Sign in to Praex to use …": the CLI's own answer when Praex is picked while signed out (no request is sent)
+  return /sign in required|sign in to praex|praex (?:auth )?login|sign in at https:\/\/praex\.ai/i.test(text)
 }
 
 export function openPraexSignIn(dialog: ReturnType<typeof useDialog>) {

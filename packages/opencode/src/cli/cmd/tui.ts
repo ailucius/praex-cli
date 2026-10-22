@@ -150,10 +150,12 @@ export const TuiThreadCommand = cmd({
             .json()
             .catch(() => ({}))
           if (!auth || typeof auth !== "object" || Object.keys(auth).length === 0) {
+            // 10-22: the free model's name comes from the lineup; inside the TUI the commands are /login and /connect
+            const { cachedFreeModelName } = await import("@/plugin/praex-cloud")
             console.log()
             console.log("  Welcome to Praex.")
-            console.log("  Velox III is free. Sign in with your Google account to start.")
-            console.log("  Using your own API keys instead? Skip, then run `praex auth login` any time.")
+            console.log(`  ${await cachedFreeModelName()} is free. Sign in with your Google account to start.`)
+            console.log("  Using your own API keys instead? Skip, then type /connect in Praex any time.")
             console.log()
             const readline = await import("node:readline/promises")
             const rl = readline.createInterface({ input: process.stdin, output: process.stdout })

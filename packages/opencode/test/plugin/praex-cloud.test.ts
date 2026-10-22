@@ -13,8 +13,9 @@ import {
   parseLineup,
   pinGateway,
   PraexCloudAuthPlugin,
-  SIGNED_OUT_MESSAGE,
+  isSignedOutMessage,
   signedOutFetch,
+  signedOutMessage,
   trustedGateway,
 } from "../../src/plugin/praex-cloud"
 
@@ -186,7 +187,16 @@ describe("praex-cloud hosted lineup", () => {
   test("signed out: the request is answered locally with the sign-in hint, never sent", async () => {
     const res = await signedOutFetch()
     expect(res.status).toBe(401)
-    expect(((await res.json()) as any).error.message).toBe(SIGNED_OUT_MESSAGE)
+    const body = (await res.json()) as any
+    expect(body.error.message).toBe(signedOutMessage())
+    expect(body.error.code).toBe("signed_out")
+  })
+
+  test("10-22: the signed-out text names the free model and no client-specific command", () => {
+    expect(signedOutMessage("Velox IV")).toBe("Sign in to Praex to use Velox IV for free, or pick another model.")
+    expect(signedOutMessage()).not.toContain("praex login")
+    expect(isSignedOutMessage(signedOutMessage())).toBe(true)
+    expect(isSignedOutMessage("Rate limited")).toBe(false)
   })
 
   test("gateway URL: https only; http just for loopback from the env var", () => {
@@ -272,7 +282,7 @@ describe("praex-cloud hosted lineup", () => {
       expect(opts.signedIn).toBe(false)
       const res: Response = await opts.fetch(`http://127.0.0.1:${server.port}/v1/chat/completions`, { method: "POST", body: "{}" })
       expect(res.status).toBe(401)
-      expect(((await res.json()) as any).error.message).toBe(SIGNED_OUT_MESSAGE)
+      expect(((await res.json()) as any).error.message).toBe(signedOutMessage())
       expect(seen.filter((p) => p !== "/v1/models")).toEqual([])
     } finally {
       if (prev === undefined) delete process.env.PRAEX_GATEWAY_URL

@@ -24,6 +24,7 @@ import { createOpencodeClient, type OpencodeClient, type ToolPart } from "@openc
 import { FormatError, FormatUnknownError } from "../error"
 import { INTERACTIVE_INPUT_ERROR, resolveInteractiveStdin } from "./run/runtime.stdin"
 import { StartupWatch } from "./run/startup-watch"
+import { isSignedOutMessage } from "@/plugin/praex-cloud"
 
 type ModelInput = Parameters<OpencodeClient["session"]["prompt"]>[0]["model"]
 
@@ -781,7 +782,8 @@ export const RunCommand = effectCmd({
               }
               error = error ? error + EOL + err : err
               if (emit("error", { error: props.error })) continue
-              UI.error(err)
+              // 10-22: the signed-out text leaves the how to the client; in a shell it is `praex login`.
+              UI.error(isSignedOutMessage(err) ? `${err} Run \`praex login\` to sign in.` : err)
             }
 
             if (

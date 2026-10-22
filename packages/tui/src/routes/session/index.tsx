@@ -14,6 +14,7 @@ import {
   untrack,
   useContext,
 } from "solid-js"
+import { SIGNED_OUT_PREFIX, usePraex } from "../../component/use-praex"
 import { Dynamic } from "solid-js/web"
 import path from "node:path"
 import { mkdir, writeFile } from "node:fs/promises"
@@ -1593,6 +1594,7 @@ function CompactionNotice(props: { message: AssistantMessage; parts: Part[] }) {
 function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; last: boolean }) {
   const ctx = use()
   const { theme } = useTheme()
+  const praex = usePraex()
   const sync = useSync()
   const messages = createMemo(() => sync.data.message[props.message.sessionID] ?? [])
   const model = createMemo(() => Model.name(ctx.providers(), props.message.providerID, props.message.modelID))
@@ -1778,7 +1780,12 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
             customBorderChars={HairlineGutter}
             borderColor={tint(theme.borderSubtle, theme.error, 0.7)}
           >
-            <text fg={theme.textMuted}>{props.message.error?.data.message}</text>
+            <text fg={theme.textMuted}>
+              {/* 10-22: the signed-out text leaves the how to the client; here it is /login */}
+              {String(props.message.error?.data.message ?? "").startsWith(SIGNED_OUT_PREFIX)
+                ? `Not signed in to Praex. Type /login to use ${praex.freeName()} for free, or pick another model with /models.`
+                : props.message.error?.data.message}
+            </text>
           </box>
         </Show>
         <Show when={summary()}>

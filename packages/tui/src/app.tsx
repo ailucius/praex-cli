@@ -25,7 +25,8 @@ import {
 } from "solid-js"
 import { TuiPathsProvider, TuiStartupProvider, TuiTerminalEnvironmentProvider, useTuiStartup } from "./context/runtime"
 import { DialogProvider, useDialog } from "./ui/dialog"
-import { DialogProvider as DialogProviderList } from "./component/dialog-provider"
+import { DialogProvider as DialogProviderList, usePraexLogin } from "./component/dialog-provider"
+import { SIGNED_OUT_PREFIX, usePraex } from "./component/use-praex"
 import { ErrorComponent } from "./component/error-component"
 import { PluginRouteMissing } from "./component/plugin-route-missing"
 import { ProjectProvider, useProject } from "./context/project"
@@ -601,6 +602,8 @@ function App(props: {
   )
 
   const connected = useConnected()
+  const praex = usePraex()
+  const praexLogin = usePraexLogin()
   const currentWorktreeWorkspace = createMemo(() => {
     const workspaceID = project.workspace.current()
     if (!workspaceID) return
@@ -803,6 +806,18 @@ function App(props: {
             duration: 2000,
           })
         },
+      },
+      {
+        // 10-22: the TUI had no /login; the signed-out copy pointed at `praex login`, a shell command.
+        name: "praex.login",
+        title: praex.signedIn() ? "Sign in to Praex again (Google)" : `Sign in to Praex (Google, ${praex.freeName()} is free)`,
+        suggested: !praex.signedIn(),
+        slashName: "login",
+        slashAliases: ["signin"],
+        run: () => {
+          void praexLogin()
+        },
+        category: "Provider",
       },
       {
         name: "provider.connect",
@@ -1129,7 +1144,9 @@ function App(props: {
     if (workspace !== project.workspace.current()) return
     const error = evt.properties.error
     if (error && typeof error === "object" && error.name === "MessageAbortedError") return
-    const message = errorMessage(error)
+    const raw = errorMessage(error)
+    // 10-22: the server's signed-out text leaves the how to the client
+    const message = raw.startsWith(SIGNED_OUT_PREFIX) ? `Not signed in to Praex. Type /login to use ${praex.freeName()} for free.` : raw
 
     toast.show({
       variant: "error",

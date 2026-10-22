@@ -17,6 +17,7 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { abbreviateHome } from "../runtime"
 import { useTuiPaths } from "../context/runtime"
 import { truncatePath } from "../util/status-line"
+import { usePraex } from "../component/use-praex"
 
 let once = false
 const placeholder = {
@@ -44,6 +45,7 @@ function HomeHeader() {
   const dimensions = useTerminalDimensions()
   const destination = useHomeSessionDestination()
   const fallback = useDirectory()
+  const praex = usePraex()
   const version = /^\d/.test(InstallationVersion) ? `v${InstallationVersion}` : InstallationVersion
   const directory = createMemo(() => {
     const selected = destination?.destination()
@@ -87,6 +89,10 @@ function HomeHeader() {
             <span style={{ fg: theme.textMuted }}>
               {local.model.current()?.providerID === "praex-cloud" ? "" : ` · ${local.model.parsed().provider}`}
             </span>
+            {/* 10-22: the hosted model read as ready to use while signed out */}
+            <Show when={local.model.current()?.providerID === "praex-cloud" && !praex.signedIn()}>
+              <span style={{ fg: theme.warning }}> · not signed in, type /login</span>
+            </Show>
           </text>
         </Show>
         <text fg={theme.textMuted} wrapMode="none">

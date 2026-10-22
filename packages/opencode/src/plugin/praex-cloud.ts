@@ -397,12 +397,27 @@ export async function praexAccessToken(authFile = path.join(Global.Path.data, "a
 
 // What a signed out Praex request gets instead of a trip to the gateway: the prompt never leaves
 // the machine. Same body shape as the gateway's own 401, so it is shown and not retried.
-export const SIGNED_OUT_MESSAGE = "Sign in with `praex login`, or pick another model."
+// 10-22: it named a shell command (`praex login`) that the TUI and the desktop app do not have, and no
+// model. It now names the free model from the live lineup and leaves the how to each client: the TUI
+// says /login, `praex run` adds `praex login`, the desktop app shows its sign-in card.
+export const SIGNED_OUT_PREFIX = "Sign in to Praex"
+let freeName = BAKED_LINEUP[freeModelID(BAKED_LINEUP)].name
+export function signedOutMessage(name = freeName) {
+  return `${SIGNED_OUT_PREFIX} to use ${name} for free, or pick another model.`
+}
+// The free model's name before any config has loaded (the first-run welcome): the cached lineup, else the baked one.
+export async function cachedFreeModelName(file = path.join(Global.Path.cache, "praex-cloud-models.json")) {
+  const models = (await readCache(file))?.models ?? BAKED_LINEUP
+  return (models[freeModelID(models)]?.name ?? freeName).split(" · ")[0]
+}
+export function isSignedOutMessage(text: string | undefined) {
+  return !!text && text.startsWith(SIGNED_OUT_PREFIX)
+}
 export async function signedOutFetch(): Promise<Response> {
-  return new Response(JSON.stringify({ error: { message: SIGNED_OUT_MESSAGE, type: "praex_gateway" } }), {
-    status: 401,
-    headers: { "content-type": "application/json" },
-  })
+  return new Response(
+    JSON.stringify({ error: { message: signedOutMessage(), type: "praex_gateway", code: "signed_out" } }),
+    { status: 401, headers: { "content-type": "application/json" } },
+  )
 }
 
 // The provider block the CLI actually uses: the user's endpoint/name survive, the model list
@@ -471,6 +486,7 @@ export async function PraexCloudAuthPlugin(input: PluginInput): Promise<Hooks> {
       const user = pinned.block
       gatewayOrigin = new URL(hostedBaseURL(user)).origin
       lineup = await hostedLineup(hostedBaseURL(user))
+      freeName = lineup[freeModelID(lineup)]?.name.split(" · ")[0] ?? freeName
       cfg.provider["praex-cloud"] = hostedProvider(user, lineup) as any
       // Praex is the default when signed in, or when no other provider is set up (a GEMINI_API_KEY in
       // the shell, say); a model the user set themselves always wins.
