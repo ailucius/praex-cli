@@ -1,12 +1,13 @@
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import type { RGBA } from "@opentui/core"
 import type { AssistantMessage, Part, UserMessage } from "@opencode-ai/sdk/v2"
-import { tint, useTheme } from "../../context/theme"
+import { useTheme } from "../../context/theme"
 import { useSync } from "../../context/sync"
 import { useKV } from "../../context/kv"
 import { useDialog } from "../../ui/dialog"
 import { DialogAlert } from "../../ui/dialog-alert"
 import { statusItems, type StatusItem } from "../../context/status-items"
+import { TIDE_GLYPH, tideColor } from "../spinner"
 import {
   formatElapsed,
   formatSteps,
@@ -17,7 +18,7 @@ import {
   toolInput,
 } from "../../util/status-line"
 
-export const BRAND_GLYPH = "∿"
+export const BRAND_GLYPH = TIDE_GLYPH
 
 type Theme = ReturnType<typeof useTheme>["theme"]
 
@@ -81,7 +82,7 @@ export function WorkingLine(props: { sessionID: string; interrupt: number; inter
   const animate = createMemo(() => kv.get("animations_enabled", true))
   const [now, setNow] = createSignal(Date.now())
   onMount(() => {
-    const timer = setInterval(() => setNow(Date.now()), animate() ? 120 : 1000)
+    const timer = setInterval(() => setNow(Date.now()), animate() ? 90 : 1000)
     onCleanup(() => clearInterval(timer))
   })
 
@@ -140,11 +141,8 @@ export function WorkingLine(props: { sessionID: string; interrupt: number; inter
     return turnTokens(messages(), sync.data.part, id)
   })
 
-  const glyphColor = createMemo(() => {
-    if (!animate()) return theme.primary
-    const phase = (Math.sin(now() / 420) + 1) / 2
-    return tint(theme.textMuted, theme.primary, 0.35 + phase * 0.65)
-  })
+  // The same breathing tilde as a running row (component/spinner), on the same clock.
+  const glyphColor = createMemo(() => (animate() ? tideColor(theme, theme.primary, now()) : theme.primary))
 
   const retry = createMemo(() => {
     const value = status()

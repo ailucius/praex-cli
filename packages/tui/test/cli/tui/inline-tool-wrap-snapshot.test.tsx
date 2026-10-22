@@ -184,7 +184,7 @@ function StickyScrollFixture(props: { separated: boolean; scroll: (scroll: Scrol
 
 function FailedPendingToolFixture() {
   return (
-    <InlineToolRow icon="%" complete={false} pending="Preparing patch..." failed={true} failure="Patch failed">
+    <InlineToolRow icon="%" complete={false} pending="Preparing a patch" failed={true} failure="Patch failed">
       Patch
     </InlineToolRow>
   )
@@ -192,7 +192,7 @@ function FailedPendingToolFixture() {
 
 function FailedCompleteToolFixture() {
   return (
-    <InlineToolRow icon="→" complete={true} pending="Reading file..." failed={true} failure="Read failed">
+    <InlineToolRow icon="→" complete={true} pending="Reading a file" failed={true} failure="Read failed">
       Read src/index.ts
     </InlineToolRow>
   )
@@ -219,7 +219,7 @@ describe("TUI inline tool wrapping", () => {
   test("replaces pending copy when a tool fails before completion", async () => {
     const frame = await renderFrame(() => <FailedPendingToolFixture />, { width: 72, height: 3 })
     expect(frame).toContain("Patch failed")
-    expect(frame).not.toContain("Preparing patch")
+    expect(frame).not.toContain("Preparing a patch")
   })
 
   test("preserves useful completed copy when a tool fails", async () => {

@@ -41,6 +41,8 @@ import { useLocal } from "../../context/local"
 import { Locale } from "../../util/locale"
 import { formatSteps, formatTook, subagentProgress, toolInput } from "../../util/status-line"
 import { queuedMessageIDs } from "../../util/queue"
+import { groupWork, type WorkGroup } from "../../util/work-groups"
+import { createStore } from "solid-js/store"
 import { webSearchProviderLabel } from "../../util/tool-display"
 import { useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
 import { useSDK } from "../../context/sdk"
@@ -163,6 +165,11 @@ const context = createContext<{
   showTimestamps: () => boolean
   showDetails: () => boolean
   showGenericToolOutput: () => boolean
+  // Folded runs of routine work (see util/work-groups): the group a step belongs to, whether
+  // the user opened it, and the toggle.
+  workGroup: (messageID: string) => WorkGroup | undefined
+  groupOpen: (groupID: string) => boolean
+  toggleGroup: (groupID: string) => void
   userMessageIDs: () => ReadonlySet<string>
   diffWrapMode: () => "word" | "none"
   providers: () => ReadonlyMap<string, Provider>
@@ -269,6 +276,12 @@ export function Session() {
   const [diffWrapMode] = kv.signal<"word" | "none">("diff_wrap_mode", "word")
   const [_animationsEnabled, _setAnimationsEnabled] = kv.signal("animations_enabled", true)
   const [showGenericToolOutput, setShowGenericToolOutput] = kv.signal("generic_tool_output_visibility", false)
+  const [openGroups, setOpenGroups] = createStore<Record<string, boolean>>({})
+  const workGroups = createMemo(() => {
+    if (!showDetails()) return new Map<string, WorkGroup>()
+    const idle = (sync.data.session_status?.[route.sessionID]?.type ?? "idle") === "idle"
+    return groupWork(messages(), sync.data.part, idle)
+  })
 
   const wide = createMemo(() => dimensions().width > 120)
   const sidebarVisible = createMemo(() => {
@@ -1171,6 +1184,9 @@ export function Session() {
           showTimestamps,
           showDetails,
           showGenericToolOutput,
+          workGroup: (messageID: string) => workGroups().get(messageID),
+          groupOpen: (groupID: string) => openGroups[groupID] === true,
+          toggleGroup: (groupID: string) => setOpenGroups(groupID, (value) => !value),
           userMessageIDs,
           diffWrapMode,
           providers,
@@ -1585,14 +1601,27 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
     return props.message.finish && !["tool-calls", "unknown"].includes(props.message.finish)
   })
 
+  // The turn's first step: the first assistant message after the previous finished turn. A
+  // message sent mid-turn changes the steps' parent, so the parent alone would restart the clock.
+  const firstStep = createMemo(() => {
+    const previous = messages().findLast(
+      (x) =>
+        x.role === "assistant" &&
+        x.id < props.message.id &&
+        !!x.time.completed &&
+        !!x.finish &&
+        !["tool-calls", "unknown"].includes(x.finish),
+    )?.id
+    return messages().find((x) => x.role === "assistant" && x.id > (previous ?? "") && x.id <= props.message.id)
+  })
+
   const duration = createMemo(() => {
     if (!final()) return 0
     if (!props.message.time.completed) return 0
     // Measured from the turn's first step, so a prompt that waited in the queue is not
     // charged for the wait.
-    const first = messages().find((x) => x.role === "assistant" && x.parentID === props.message.parentID)
     const user = messages().find((x) => x.role === "user" && x.id === props.message.parentID)
-    const start = first?.time.created ?? user?.time?.created
+    const start = firstStep()?.time.created ?? user?.time?.created
     if (!start) return 0
     return props.message.time.completed - start
   })
@@ -1616,10 +1645,9 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
     const name = model().split(" · ")[0]
     const agent =
       props.message.mode && props.message.mode !== "build" ? `${Locale.titlecase(props.message.mode)} · ` : ""
-    const first = messages().find((x) => x.role === "assistant" && x.parentID === props.message.parentID)
     const took = (() => {
       const end = props.message.time.completed ?? (aborted || failed ? Date.now() : undefined)
-      const start = first?.time.created ?? props.message.time.created
+      const start = firstStep()?.time.created ?? props.message.time.created
       if (!end || !start) return
       return formatTook(end - start)
     })()
@@ -1640,6 +1668,20 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
     }
   })
 
+  // The subagent keys are offered while a task in this step works; a finished task row is
+  // still clickable and ctrl+x down still opens it, without a hint line under every turn.
+  const taskActive = createMemo(() =>
+    props.parts.some(
+      (x) =>
+        x.type === "tool" &&
+        x.tool === "task" &&
+        (x.state.status === "running" ||
+          x.state.status === "pending" ||
+          (x.state.metadata?.background === true &&
+            typeof x.state.metadata?.sessionId === "string" &&
+            (sync.data.session_status?.[x.state.metadata.sessionId]?.type ?? "idle") !== "idle")),
+    ),
+  )
   const childShortcut = useCommandShortcut("session.child.first")
   const backgroundShortcut = useCommandShortcut("session.background")
   const historyShortcut = useCommandShortcut("prompt.history.previous")
@@ -1656,81 +1698,101 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
     )
   })
 
+  // Folded routine work (util/work-groups): the run's first step shows one line for all of it.
+  const groupID = createMemo(() => ctx.workGroup(props.message.id)?.id)
+  const groupSummary = createMemo(() => ctx.workGroup(props.message.id)?.summary ?? "")
+  const folded = createMemo(() => !!groupID() && !ctx.groupOpen(groupID()!))
+
   return (
     <>
-      <For each={props.parts}>
-        {(part, index) => {
-          const component = createMemo(() => PART_MAPPING[part.type as keyof typeof PART_MAPPING])
-          return (
-            <Show when={component()}>
-              <Dynamic
-                last={index() === props.parts.length - 1}
-                component={component()}
-                part={part as any}
-                message={props.message}
-              />
-            </Show>
-          )
-        }}
-      </For>
-      <Show when={props.parts.some((x) => x.type === "tool" && x.tool === "task")}>
-        <box paddingTop={1} paddingLeft={3}>
-          <text fg={theme.text}>
-            {childShortcut()}
-            <span style={{ fg: theme.textMuted }}> view subagents</span>
-            <Show
-              when={props.parts.some(
-                (x) =>
-                  x.type === "tool" &&
-                  x.tool === "task" &&
-                  x.state.status === "running" &&
-                  x.state.metadata?.background !== true,
-              )}
-            >
-              <span style={{ fg: theme.textMuted }}> · </span>
-              {backgroundShortcut()}
-              <span style={{ fg: theme.textMuted }}> send to background</span>
-            </Show>
-          </text>
-        </box>
-      </Show>
-      <Show when={empty()}>
-        <box paddingLeft={3} marginTop={1}>
-          <text fg={theme.textMuted}>
-            {historyShortcut()
-              ? `No reply. Press ${historyShortcut()} then enter to retry.`
-              : "No reply. Send your message again to retry."}
-          </text>
-        </box>
-      </Show>
-      <Show when={props.message.error && props.message.error.name !== "MessageAbortedError"}>
-        <box
-          id={`assistant-error-${props.message.id}`}
-          marginLeft={3}
-          marginTop={1}
-          border={["left"]}
-          paddingLeft={1}
-          customBorderChars={HairlineGutter}
-          borderColor={tint(theme.borderSubtle, theme.error, 0.7)}
+      <Show when={groupID() === props.message.id}>
+        <InlineToolRow
+          id={`tool-inline-group-${props.message.id}`}
+          icon={folded() ? "▸" : "▾"}
+          color={theme.textMuted}
+          complete={true}
+          pending=""
+          separateAfter={(id) => id !== undefined && ctx.userMessageIDs().has(id)}
+          onMouseUp={() => ctx.toggleGroup(groupID()!)}
         >
-          <text fg={theme.textMuted}>{props.message.error?.data.message}</text>
-        </box>
+          {groupSummary()}
+        </InlineToolRow>
       </Show>
-      <Show when={summary()}>
-        {(line) => (
-          <box id={`assistant-summary-${props.message.id}`} paddingLeft={3}>
-            <text marginTop={1} wrapMode="none">
-              <span style={{ fg: line().color }}>{line().glyph} </span>
-              <span style={{ fg: theme.textMuted }}>{line().text}</span>
-              <Show when={props.last && backgroundAgents() > 0}>
-                <span style={{ fg: theme.textMuted }}>
-                  {" "}
-                  · {backgroundAgents()} background {backgroundAgents() === 1 ? "agent" : "agents"} still running
-                </span>
+      <Show when={!folded()}>
+        <For each={props.parts}>
+          {(part, index) => {
+            const component = createMemo(() => PART_MAPPING[part.type as keyof typeof PART_MAPPING])
+            return (
+              <Show when={component()}>
+                <Dynamic
+                  last={index() === props.parts.length - 1}
+                  component={component()}
+                  part={part as any}
+                  message={props.message}
+                />
+              </Show>
+            )
+          }}
+        </For>
+        <Show when={taskActive()}>
+          <box paddingTop={1} paddingLeft={3}>
+            <text fg={theme.text}>
+              {childShortcut()}
+              <span style={{ fg: theme.textMuted }}> view subagents</span>
+              <Show
+                when={props.parts.some(
+                  (x) =>
+                    x.type === "tool" &&
+                    x.tool === "task" &&
+                    x.state.status === "running" &&
+                    x.state.metadata?.background !== true,
+                )}
+              >
+                <span style={{ fg: theme.textMuted }}> · </span>
+                {backgroundShortcut()}
+                <span style={{ fg: theme.textMuted }}> send to background</span>
               </Show>
             </text>
           </box>
-        )}
+        </Show>
+        <Show when={empty()}>
+          <box paddingLeft={3} marginTop={1}>
+            <text fg={theme.textMuted}>
+              {historyShortcut()
+                ? `No reply. Press ${historyShortcut()} then enter to retry.`
+                : "No reply. Send your message again to retry."}
+            </text>
+          </box>
+        </Show>
+        <Show when={props.message.error && props.message.error.name !== "MessageAbortedError"}>
+          <box
+            id={`assistant-error-${props.message.id}`}
+            marginLeft={3}
+            marginTop={1}
+            border={["left"]}
+            paddingLeft={1}
+            customBorderChars={HairlineGutter}
+            borderColor={tint(theme.borderSubtle, theme.error, 0.7)}
+          >
+            <text fg={theme.textMuted}>{props.message.error?.data.message}</text>
+          </box>
+        </Show>
+        <Show when={summary()}>
+          {(line) => (
+            <box id={`assistant-summary-${props.message.id}`} paddingLeft={3}>
+              <text marginTop={1} wrapMode="none">
+                <span style={{ fg: line().color }}>{line().glyph} </span>
+                <span style={{ fg: theme.textMuted }}>{line().text}</span>
+                <Show when={props.last && backgroundAgents() > 0}>
+                  <span style={{ fg: theme.textMuted }}>
+                    {" "}
+                    · {backgroundAgents()} background {backgroundAgents() === 1 ? "agent" : "agents"} still running
+                  </span>
+                </Show>
+              </text>
+            </box>
+          )}
+        </Show>
       </Show>
     </>
   )
@@ -2066,7 +2128,7 @@ function GenericTool(props: ToolProps) {
     <Show
       when={props.output && ctx.showGenericToolOutput()}
       fallback={
-        <InlineTool icon="⚙" pending="Writing command..." complete={true} part={props.part}>
+        <InlineTool icon="⚙" pending="Writing a command" complete={true} part={props.part}>
           {props.tool} {input(props.input)}
         </InlineTool>
       }
@@ -2129,13 +2191,15 @@ function InlineTool(props: {
 
   const failed = createMemo(() => Boolean(error() && !denied()))
   const clickable = createMemo(() => Boolean(props.onClick || failed()))
+  // Only what is working right now is at full strength: a finished row steps back to muted.
+  const active = createMemo(() => props.part.state.status === "running" || props.part.state.status === "pending")
   const fg = createMemo(() => {
     if (props.color) return props.color
     if (permission()) return theme.warning
     if (failed()) return theme.error
     if (hover() && props.onClick) return theme.text
-    if (props.complete) return theme.textMuted
-    return theme.text
+    if (active()) return theme.text
+    return theme.textMuted
   })
 
   return (
@@ -2152,7 +2216,7 @@ function InlineTool(props: {
       complete={props.complete}
       pending={props.pending}
       failure={props.failure}
-      spinner={props.spinner}
+      spinner={props.spinner ?? (props.part.state.status === "running" && !permission())}
       subagent={props.subagent}
       separateAfter={(id) => id !== undefined && ctx.userMessageIDs().has(id)}
       onMouseOver={() => clickable() && setHover(true)}
@@ -2221,13 +2285,8 @@ export function InlineToolRow(props: {
         <Match when={true}>
           <Show
             fallback={
-              <text
-                paddingLeft={3}
-                fg={props.color}
-                attributes={props.denied ? TextAttributes.STRIKETHROUGH : undefined}
-              >
-                ~ {props.pending}
-              </text>
+              // The model is still writing this call: the tide, then what it is about to do.
+              <Spinner color={props.color}>{props.pending}</Spinner>
             }
             when={props.complete || props.failed}
           >
@@ -2289,7 +2348,7 @@ function BlockTool(props: {
           when={props.spinner}
           fallback={<text fg={hover() ? theme.text : theme.textMuted}>{props.title}</text>}
         >
-          <Spinner color={theme.textMuted}>{props.title.replace(/^# /, "")}</Spinner>
+          <Spinner color={theme.text}>{props.title.replace(/^# /, "")}</Spinner>
         </Show>
       </box>
       <box
@@ -2376,7 +2435,7 @@ function Shell(props: ToolProps) {
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool icon="$" pending="Writing command..." complete={stringValue(props.input.command)} part={props.part}>
+        <InlineTool icon="$" pending="Writing a command" complete={stringValue(props.input.command)} part={props.part}>
           {stringValue(props.input.command)}
         </InlineTool>
       </Match>
@@ -2408,12 +2467,7 @@ function Write(props: ToolProps) {
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool
-          icon="←"
-          pending="Preparing write..."
-          complete={stringValue(props.input.filePath)}
-          part={props.part}
-        >
+        <InlineTool icon="←" pending="Preparing a file" complete={stringValue(props.input.filePath)} part={props.part}>
           Write {pathFormatter.format(stringValue(props.input.filePath))}
         </InlineTool>
       </Match>
@@ -2424,7 +2478,7 @@ function Write(props: ToolProps) {
 function Glob(props: ToolProps) {
   const pathFormatter = usePathFormatter()
   return (
-    <InlineTool icon="✱" pending="Finding files..." complete={stringValue(props.input.pattern)} part={props.part}>
+    <InlineTool icon="✱" pending="Finding files" complete={stringValue(props.input.pattern)} part={props.part}>
       Glob "{stringValue(props.input.pattern)}"{" "}
       <Show when={stringValue(props.input.path)}>in {pathFormatter.format(stringValue(props.input.path))} </Show>
       <Show when={numberValue(props.metadata.count)}>
@@ -2449,7 +2503,7 @@ function Read(props: ToolProps) {
     <>
       <InlineTool
         icon="→"
-        pending="Reading file..."
+        pending="Reading a file"
         complete={stringValue(props.input.filePath)}
         spinner={isRunning()}
         part={props.part}
@@ -2472,7 +2526,7 @@ function Read(props: ToolProps) {
 function Grep(props: ToolProps) {
   const pathFormatter = usePathFormatter()
   return (
-    <InlineTool icon="✱" pending="Searching content..." complete={stringValue(props.input.pattern)} part={props.part}>
+    <InlineTool icon="✱" pending="Searching the code" complete={stringValue(props.input.pattern)} part={props.part}>
       Grep "{stringValue(props.input.pattern)}"{" "}
       <Show when={stringValue(props.input.path)}>in {pathFormatter.format(stringValue(props.input.path))} </Show>
       <Show when={numberValue(props.metadata.matches)}>
@@ -2484,7 +2538,7 @@ function Grep(props: ToolProps) {
 
 function WebFetch(props: ToolProps) {
   return (
-    <InlineTool icon="%" pending="Fetching from the web..." complete={stringValue(props.input.url)} part={props.part}>
+    <InlineTool icon="%" pending="Fetching a page" complete={stringValue(props.input.url)} part={props.part}>
       WebFetch {stringValue(props.input.url)}
     </InlineTool>
   )
@@ -2492,7 +2546,7 @@ function WebFetch(props: ToolProps) {
 
 function WebSearch(props: ToolProps) {
   return (
-    <InlineTool icon="◈" pending="Searching web..." complete={stringValue(props.input.query)} part={props.part}>
+    <InlineTool icon="◈" pending="Searching the web" complete={stringValue(props.input.query)} part={props.part}>
       {webSearchProviderLabel(props.metadata.provider)} "{stringValue(props.input.query)}"{" "}
       <Show when={numberValue(props.metadata.numResults)}>({numberValue(props.metadata.numResults)} results)</Show>
     </InlineTool>
@@ -2566,10 +2620,11 @@ function Task(props: ToolProps) {
   return (
     <InlineTool
       icon={props.part.state.status === "completed" ? "✓" : "│"}
+      iconColor={props.part.state.status === "completed" ? tint(theme.textMuted, theme.success, 0.55) : undefined}
       subagent={true}
       color={retry() ? theme.error : undefined}
       spinner={isRunning() || writing()}
-      complete={stringValue(props.input.description)}
+      complete={true}
       pending="Delegating to a subagent"
       failure={`${title()} · failed`}
       part={props.part}
@@ -2581,7 +2636,11 @@ function Task(props: ToolProps) {
         if (status) void DialogAlert.show(dialog, "Retry error", status.message)
       }}
     >
-      {detail() ? `${title()}\n↳ ${detail()}` : title()}
+      {title()}
+      <Show when={detail()}>
+        {"\n"}
+        <span style={{ fg: retry() ? theme.error : theme.textMuted }}>↳ {detail()}</span>
+      </Show>
     </InlineTool>
   )
 }
@@ -2652,7 +2711,7 @@ function Edit(props: ToolProps) {
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool icon="←" pending="Preparing edit..." complete={stringValue(props.input.filePath)} part={props.part}>
+        <InlineTool icon="←" pending="Preparing an edit" complete={stringValue(props.input.filePath)} part={props.part}>
           Edit {pathFormatter.format(stringValue(props.input.filePath))} {input({ replaceAll: props.input.replaceAll })}
         </InlineTool>
       </Match>
@@ -2728,7 +2787,7 @@ function ApplyPatch(props: ToolProps) {
         </For>
       </Match>
       <Match when={true}>
-        <InlineTool icon="%" pending="Preparing patch..." failure="Patch failed" complete={false} part={props.part}>
+        <InlineTool icon="%" pending="Preparing a patch" failure="Patch failed" complete={false} part={props.part}>
           Patch
         </InlineTool>
       </Match>
@@ -2750,7 +2809,7 @@ function TodoWrite(props: ToolProps) {
       <Match when={true}>
         <InlineTool
           icon="⚙"
-          pending="Updating todos..."
+          pending="Updating the plan"
           failure="Todo update failed"
           complete={false}
           part={props.part}
@@ -2790,7 +2849,7 @@ function Question(props: ToolProps) {
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool icon="→" pending="Asking questions..." complete={count()} part={props.part}>
+        <InlineTool icon="→" pending="Asking a question" complete={count()} part={props.part}>
           Asked {count()} question{count() !== 1 ? "s" : ""}
         </InlineTool>
       </Match>
@@ -2800,7 +2859,7 @@ function Question(props: ToolProps) {
 
 function Skill(props: ToolProps) {
   return (
-    <InlineTool icon="→" pending="Loading skill..." complete={stringValue(props.input.name)} part={props.part}>
+    <InlineTool icon="→" pending="Loading a skill" complete={stringValue(props.input.name)} part={props.part}>
       Skill "{stringValue(props.input.name)}"
     </InlineTool>
   )
