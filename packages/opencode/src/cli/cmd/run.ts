@@ -261,8 +261,11 @@ export const RunCommand = effectCmd({
         throw error
       }
 
+      // 10-22: arguments are quoted only for --command, where a command template splits its arguments
+      // ($1, $2). A plain prompt (`praex run "fix the tests"`) used to reach the model wrapped in literal
+      // quotes, as if the user had quoted someone else's text.
       let message = [...args.message, ...(args["--"] || [])]
-        .map((arg) => (arg.includes(" ") ? `"${arg.replace(/"/g, '\\"')}"` : arg))
+        .map((arg) => (args.command && arg.includes(" ") ? `"${arg.replace(/"/g, '\\"')}"` : arg))
         .join(" ")
 
       if (args.interactive && args.command) {
