@@ -23,6 +23,7 @@ import { Filesystem } from "@/util/filesystem"
 import { createOpencodeClient, type OpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2"
 import { FormatError, FormatUnknownError } from "../error"
 import { INTERACTIVE_INPUT_ERROR, resolveInteractiveStdin } from "./run/runtime.stdin"
+import { StartupWatch } from "./run/startup-watch"
 
 type ModelInput = Parameters<OpencodeClient["session"]["prompt"]>[0]["model"]
 
@@ -33,6 +34,40 @@ function pick(value: string | undefined): ModelInput | undefined {
     providerID,
     modelID: rest.join("/"),
   } as ModelInput
+}
+
+// 10-22: stdin that is a pipe nobody closes (a parent process that keeps it open) made `praex run` wait
+// for it forever before doing anything. With a prompt on the command line stdin is extra input: it is
+// read when it starts within a few seconds and skipped with a note when nothing comes. Without one it
+// is the prompt, so the run waits for it and says so.
+const STDIN_WAIT_MS = 3000
+async function readPipedStdin(hasPrompt: boolean): Promise<string | undefined> {
+  const reader = Bun.stdin.stream().getReader()
+  const decoder = new TextDecoder()
+  const firstRead = reader.read()
+  firstRead.catch(() => {})
+  const hint = setTimeout(() => {
+    if (!hasPrompt) UI.println(UI.Style.TEXT_DIM + "Waiting for the prompt on stdin (end it with ctrl+d)" + UI.Style.TEXT_NORMAL)
+  }, STDIN_WAIT_MS)
+  const first = hasPrompt
+    ? await Promise.race([firstRead, Bun.sleep(STDIN_WAIT_MS).then(() => undefined)])
+    : await firstRead
+  clearTimeout(hint)
+  if (!first) {
+    UI.println(
+      UI.Style.TEXT_DIM +
+        `Nothing on stdin after ${STDIN_WAIT_MS / 1000} s, continuing without it (use < /dev/null to skip the wait)` +
+        UI.Style.TEXT_NORMAL,
+    )
+    return undefined
+  }
+  const chunks = [first.done ? "" : decoder.decode(first.value, { stream: true })]
+  while (!first.done) {
+    const next = await reader.read()
+    if (next.done) break
+    chunks.push(decoder.decode(next.value, { stream: true }))
+  }
+  return chunks.join("") + decoder.decode()
 }
 
 function resolveRunInput(value?: string, piped?: string): string | undefined {
@@ -125,6 +160,10 @@ export const RunCommand = effectCmd({
   // --attach connects to a remote server (no local instance needed); the
   // default path runs an in-process server and needs the project instance.
   instance: (args) => !args.attach,
+  // A local one-shot run must reach its session within the startup deadline (run/startup-watch).
+  before: (args) => {
+    if (!args.attach && !args.interactive) StartupWatch.start()
+  },
   // For --dir without --attach, load instance for the resolved target dir.
   // The handler also chdirs (preserving the legacy order: chdir → file resolution).
   directory: (args) => (args.dir && !args.attach ? path.resolve(process.cwd(), args.dir) : process.cwd()),
@@ -246,6 +285,7 @@ export const RunCommand = effectCmd({
     const agentSvc = yield* Agent.Service
     const flags = yield* RuntimeFlags.Service
     const localInstance = yield* InstanceRef
+    StartupWatch.step("starting the run")
     yield* Effect.promise(async () => {
       const rawMessage = [...args.message, ...(args["--"] || [])].join(" ")
       const thinking = args.interactive ? (args.thinking ?? true) : (args.thinking ?? false)
@@ -351,7 +391,13 @@ export const RunCommand = effectCmd({
         }
       }
 
-      const piped = process.stdin.isTTY ? undefined : await Bun.stdin.text()
+      const hasPrompt = message.trim().length > 0 || !!args.command
+      // the wait for a prompt on stdin is the user's, not startup
+      const watched = StartupWatch.running()
+      if (!hasPrompt) StartupWatch.stop()
+      StartupWatch.step("reading stdin")
+      const piped = process.stdin.isTTY ? undefined : await readPipedStdin(hasPrompt)
+      if (watched && !StartupWatch.running()) StartupWatch.start()
       message = resolveRunInput(message, piped) ?? ""
       const initialInput = resolveRunInput(rawMessage, piped)
 
@@ -606,6 +652,7 @@ export const RunCommand = effectCmd({
       async function execute(sdk: OpencodeClient) {
         // Check --model before a session exists: a typo gets one clean line instead of a stack
         // trace and an empty session. The same list gives the header its display name.
+        StartupWatch.step("loading providers and models")
         const providers = await sdk.config
           .providers()
           .then((x) => x.data?.providers)
@@ -616,7 +663,9 @@ export const RunCommand = effectCmd({
         if (args.model && providers && !names.has(args.model))
           die(`Model not found: ${args.model}. Run \`praex models\` to see the list.`)
 
+        StartupWatch.step("creating the session")
         const sess = await session(sdk)
+        StartupWatch.stop()
         if (!sess?.id) {
           UI.error("Session not found")
           process.exit(1)

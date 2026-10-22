@@ -32,11 +32,25 @@ function configIssues(input: Record<string, unknown>): ConfigIssue[] {
     : []
 }
 
+// 10-22: another Praex process writing to the database for longer than the busy timeout read as
+// "Unexpected error" and a raw SQL statement.
+function databaseBusy(input: unknown, depth = 0): boolean {
+  if (depth > 8 || !isRecord(input)) return false
+  if (input.code === "SQLITE_BUSY" || input.code === "SQLITE_LOCKED") return true
+  if (typeof input.message === "string" && /database is locked/i.test(input.message)) return true
+  // an Effect Cause keeps its failures in `reasons` (each with an error or a defect)
+  const nested = [input.cause, input.reason, input.error, input.defect, ...(Array.isArray(input.reasons) ? input.reasons : [])]
+  return nested.some((item) => databaseBusy(item, depth + 1))
+}
+
 export function FormatError(input: unknown): string | undefined {
   if (input instanceof Error && isRecord(input.cause) && "body" in input.cause) {
     const formatted = FormatError(input.cause.body)
     if (formatted) return formatted
   }
+
+  if (databaseBusy(input))
+    return "The Praex database is busy: another Praex process (a TUI, the desktop app or another run) is writing to it. Try again in a moment."
 
   // CliError: domain failure surfaced from an effectCmd handler via fail("...")
   if (isTaggedError(input, "CliError")) {

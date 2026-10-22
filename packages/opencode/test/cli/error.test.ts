@@ -92,4 +92,14 @@ describe("cli.error", () => {
   test("formats cancelled UI errors as empty output", () => {
     expect(FormatError(new UI.CancelledError())).toBe("")
   })
+
+  test("10-22: a database another process is writing to gets a plain message, not the SQL", () => {
+    const busy = {
+      _tag: "EffectDrizzleQueryError",
+      message: 'Failed query: insert into "project" ...',
+      cause: { reasons: [{ defect: { code: "SQLITE_BUSY", message: "database is locked" } }] },
+    }
+    expect(FormatError(busy)).toContain("The Praex database is busy")
+    expect(FormatError({ message: "Failed query: select 1", cause: { reasons: [] } })).toBeUndefined()
+  })
 })

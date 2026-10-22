@@ -43,6 +43,9 @@ export const layer = Layer.effect(
         (s) => s.init().pipe(Effect.catchCause((cause) => Effect.logWarning("init failed", { cause }))),
         { concurrency: "unbounded", discard: true },
       ).pipe(Effect.withSpan("InstanceBootstrap.init"))
+      // 10-22: several services log a bare "init"; this line says the whole bootstrap finished, so a
+      // stall shows in the log as before or after it.
+      yield* Effect.logInfo("bootstrapped", { directory: ctx.directory })
     }).pipe(Effect.withSpan("InstanceBootstrap"))
 
     return Service.of({ run })
