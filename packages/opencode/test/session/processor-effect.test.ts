@@ -836,6 +836,69 @@ it.live("session.processor effect tests mark pending tools as aborted on cleanup
   ),
 )
 
+it.live("session.processor effect tests publish the head of a tool call's input while it streams", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const database = yield* Database.Service
+        const { processors, session, provider } = yield* boot()
+
+        // Half of these arguments stream, then the model hangs mid-call.
+        yield* llm.toolHang("task", { description: "Audit folder", prompt: "Read every file. ".repeat(10) })
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "delegate")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const run = yield* handle
+          .process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+            } satisfies SessionV1.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "delegate" }],
+            tools: {},
+          })
+          .pipe(Effect.forkChild)
+
+        yield* llm.wait(1)
+        const call = yield* waitFor(
+          MessageV2.parts(msg.id).pipe(
+            Effect.map((parts) =>
+              parts.find(
+                (part): part is SessionV1.ToolPart =>
+                  part.type === "tool" && part.state.status === "pending" && part.state.raw.includes("Audit folder"),
+              ),
+            ),
+            Effect.provideService(Database.Service, database),
+          ),
+          "timed out waiting for the streamed tool input",
+        )
+        yield* Fiber.interrupt(run)
+
+        expect(call.tool).toBe("task")
+        if (call.state.status !== "pending") return
+        expect(call.state.input).toEqual({})
+        expect(call.state.raw.startsWith('{"description":"Audit folder"')).toBe(true)
+      }),
+    { config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("session.processor effect tests record aborted errors and idle state", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

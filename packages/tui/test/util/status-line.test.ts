@@ -7,7 +7,11 @@ import {
   pickVerb,
   toolActivity,
   truncatePath,
+  formatSteps,
+  subagentProgress,
+  toolInput,
 } from "../../src/util/status-line"
+import type { Part, ToolPart } from "@opencode-ai/sdk/v2"
 
 describe("truncatePath", () => {
   test("leaves a path that fits alone", () => {
@@ -77,5 +81,45 @@ describe("verbs and activity", () => {
     expect(toolActivity("bash", { command: "git status" })).toBe("Running git status")
     expect(toolActivity("webfetch", { url: "https://praex.ai/docs" })).toBe("Fetching praex.ai")
     expect(toolActivity("unknown_tool", {})).toBeUndefined()
+  })
+})
+
+describe("subagent progress", () => {
+  const tool = (tool: string, state: Record<string, unknown>) => ({ type: "tool", tool, state }) as unknown as Part
+  test("counts steps and names the newest action", () => {
+    const parts = [
+      tool("bash", { status: "completed", input: { command: "git status", description: "Show status" } }),
+      tool("read", { status: "running", input: { filePath: "/r/web.py" } }),
+    ]
+    expect(subagentProgress(parts)).toEqual({ steps: 2, action: "Reading web.py" })
+    expect(formatSteps(1)).toBe("1 step")
+    expect(formatSteps(8)).toBe("8 steps")
+  })
+
+  test("reads a tool call that is still being written", () => {
+    const pending = tool("read", { status: "pending", input: {}, raw: '{"filePath":"/r/util.py","off' })
+    expect(subagentProgress([pending])).toEqual({ steps: 1, action: "Reading util.py" })
+    const early = tool("read", { status: "pending", input: {}, raw: '{"filePath":"/r/ut' })
+    expect(subagentProgress([pending, early])).toEqual({ steps: 2, action: "Reading util.py" })
+    expect(
+      toolActivity(
+        "task",
+        toolInput(
+          tool("task", { status: "pending", input: {}, raw: '{"description":"Audit","prompt":"Re' }) as ToolPart,
+        ),
+      ),
+    ).toBe("Delegating: Audit")
+  })
+
+  test("says when the subagent is thinking or writing its report", () => {
+    const thinking = { type: "reasoning", text: "hmm", time: { start: 1 } } as unknown as Part
+    const report = { type: "text", text: "Found 3 issues" } as unknown as Part
+    expect(subagentProgress([thinking]).action).toBe("Thinking")
+    expect(subagentProgress([report]).action).toBe("Planning")
+    expect(subagentProgress([tool("glob", { status: "completed", input: {} }), report])).toEqual({
+      steps: 1,
+      action: "Writing the report",
+    })
+    expect(subagentProgress([])).toEqual({ steps: 0, action: undefined })
   })
 })

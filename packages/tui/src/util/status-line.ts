@@ -1,6 +1,9 @@
 // Pure helpers for the working line, the finished line and the footer. Kept free of
 // Solid/opentui so they can be unit tested and reused by the home header.
 
+import type { Part } from "@opencode-ai/sdk/v2"
+import { partialToolInput } from "./partial-json"
+
 // Path for a one-line slot: keeps the head ("~" or "/tmp") and as many trailing segments
 // as fit, so "~/dev/very/long/tree/project:main" becomes "~/…/tree/project:main".
 // Falls back to a plain middle cut when even the last segment does not fit.
@@ -136,7 +139,7 @@ export function toolActivity(tool: string, input: Record<string, unknown> = {}):
       return "Searching the web"
     case "task": {
       const description = text(input.description)
-      return description ? `Delegating: ${short(description, 40)}` : "Delegating to an agent"
+      return description ? `Delegating: ${short(description, 40)}` : "Delegating to a subagent"
     }
     case "todowrite":
       return "Updating the plan"
@@ -146,4 +149,40 @@ export function toolActivity(tool: string, input: Record<string, unknown> = {}):
       return "Checking diagnostics"
   }
   return undefined
+}
+
+// "1 step", "8 steps": the actions a subagent has taken (its tool calls).
+export function formatSteps(count: number) {
+  return `${count} ${count === 1 ? "step" : "steps"}`
+}
+
+// A tool part's input, including what has streamed so far while the call is still pending.
+export function toolInput(part: Extract<Part, { type: "tool" }>): Record<string, unknown> {
+  if (part.state.status === "pending") return partialToolInput(part.state.raw)
+  return (part.state.input ?? {}) as Record<string, unknown>
+}
+
+// What a subagent is doing, read from its session's parts in order: how many actions it has
+// taken and the newest one, phrased like the working line ("Reading web.py").
+export function subagentProgress(parts: readonly Part[]): { steps: number; action?: string } {
+  let steps = 0
+  let action: string | undefined
+  for (const part of parts) {
+    if (part.type === "tool") {
+      steps++
+      const input = toolInput(part)
+      // A call still being written names its action once its first field has arrived.
+      if (part.state.status === "pending" && Object.keys(input).length === 0) continue
+      action = toolActivity(part.tool, input) ?? action
+      continue
+    }
+    if (part.type === "reasoning" && part.time?.end === undefined && part.text.trim()) {
+      action = "Thinking"
+      continue
+    }
+    // Text before any action is the subagent planning; after some, it is writing its report.
+    if (part.type === "text" && !part.synthetic && part.text.trim())
+      action = steps > 0 ? "Writing the report" : "Planning"
+  }
+  return { steps, action }
 }

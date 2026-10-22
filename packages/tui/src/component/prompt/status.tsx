@@ -7,7 +7,15 @@ import { useKV } from "../../context/kv"
 import { useDialog } from "../../ui/dialog"
 import { DialogAlert } from "../../ui/dialog-alert"
 import { statusItems, type StatusItem } from "../../context/status-items"
-import { formatElapsed, formatTokenCount, pickVerb, toolActivity } from "../../util/status-line"
+import {
+  formatElapsed,
+  formatSteps,
+  formatTokenCount,
+  pickVerb,
+  subagentProgress,
+  toolActivity,
+  toolInput,
+} from "../../util/status-line"
 
 export const BRAND_GLYPH = "∿"
 
@@ -81,17 +89,37 @@ export function WorkingLine(props: { sessionID: string; interrupt: number; inter
   const messages = createMemo(() => sync.data.message[props.sessionID] ?? [])
   const turn = createMemo(() => activeTurn(messages()))
 
-  const activity = createMemo(() => {
+  // A subagent's progress, read from its own session (synced live like any other).
+  const childSteps = (sessionID: unknown) => {
+    if (typeof sessionID !== "string") return 0
+    const parts = (sync.data.message[sessionID] ?? []).flatMap((m) => sync.data.part[m.id] ?? [])
+    return subagentProgress(parts).steps
+  }
+
+  // What the session is doing right now: a running tool's activity, else the tool call the
+  // model is still writing (its arguments stream in), else thinking, else the turn's verb.
+  // A delegated task also says how far its subagent has got ("Delegating: Audit · 8 steps").
+  const activity = createMemo((): { text: string; detail?: string } => {
     const step = messages().findLast((m): m is AssistantMessage => m.role === "assistant" && !m.time.completed)
     const parts = step ? (sync.data.part[step.id] ?? []) : []
-    const running = parts.findLast((p) => p.type === "tool" && p.state.status === "running")
-    if (running && running.type === "tool") {
-      const label = toolActivity(running.tool, (running.state.input ?? {}) as Record<string, unknown>)
-      if (label) return label
+    const tools = parts.filter((p) => p.type === "tool")
+    const running = tools.findLast((p) => p.state.status === "running")
+    if (running) {
+      const label = toolActivity(running.tool, toolInput(running))
+      if (label && running.tool === "task") {
+        const steps = childSteps(running.state.status === "running" ? running.state.metadata?.sessionId : undefined)
+        return { text: label, detail: steps > 0 ? formatSteps(steps) : undefined }
+      }
+      if (label) return { text: label }
+    }
+    const writing = tools.findLast((p) => p.state.status === "pending")
+    if (writing) {
+      const label = toolActivity(writing.tool, toolInput(writing))
+      if (label) return { text: label }
     }
     const last = parts.at(-1)
-    if (last?.type === "reasoning" && !last.time.end) return "Thinking"
-    return pickVerb(turn()?.id ?? props.sessionID)
+    if (last?.type === "reasoning" && !last.time.end) return { text: "Thinking" }
+    return { text: pickVerb(turn()?.id ?? props.sessionID) }
   })
 
   // A queued prompt's clock starts when its turn starts, not when it was typed.
@@ -143,7 +171,10 @@ export function WorkingLine(props: { sessionID: string; interrupt: number; inter
         when={retry()}
         fallback={
           <text fg={theme.text} wrapMode="none" flexShrink={1}>
-            {activity()}…
+            {activity().text}
+            <Show when={activity().detail} fallback="…">
+              <span style={{ fg: theme.textMuted }}> · {activity().detail} ·</span>
+            </Show>
             <Show when={elapsed()}>
               <span style={{ fg: theme.textMuted }}> {elapsed()}</span>
             </Show>

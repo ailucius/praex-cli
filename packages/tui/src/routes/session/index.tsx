@@ -39,7 +39,7 @@ import type {
 } from "@opencode-ai/sdk/v2"
 import { useLocal } from "../../context/local"
 import { Locale } from "../../util/locale"
-import { formatTook } from "../../util/status-line"
+import { formatSteps, formatTook, subagentProgress, toolInput } from "../../util/status-line"
 import { webSearchProviderLabel } from "../../util/tool-display"
 import { useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
 import { useSDK } from "../../context/sdk"
@@ -1913,12 +1913,15 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
     return true
   })
 
+  // While the model is still writing the call, its arguments stream in as raw JSON: rows show
+  // the description, path or command as soon as it arrives instead of a placeholder.
+  const input = createMemo(() => toolInput(props.part))
   const toolprops = {
     get metadata() {
       return props.part.state.status === "pending" ? {} : (props.part.state.metadata ?? {})
     },
     get input() {
-      return props.part.state.input ?? {}
+      return input()
     },
     get output() {
       return props.part.state.status === "completed" ? props.part.state.output : undefined
@@ -2454,33 +2457,24 @@ function Task(props: ToolProps) {
   const sync = useSync()
   const dialog = useDialog()
 
-  onMount(() => {
-    const sessionID = stringValue(props.metadata.sessionId)
-    if (sessionID && !sync.data.message[sessionID]?.length) void sync.session.sync(sessionID)
-  })
-
   const sessionID = createMemo(() => stringValue(props.metadata.sessionId))
-  const messages = createMemo(() => sync.data.message[sessionID() ?? ""] ?? [])
-
-  const tools = createMemo(() => {
-    return messages().flatMap((msg) =>
-      (sync.data.part[msg.id] ?? [])
-        .filter((part): part is ToolPart => part.type === "tool")
-        .map((part) => ({ tool: part.tool, state: part.state })),
-    )
-  })
-
-  const current = createMemo(() =>
-    tools().findLast((x) => (x.state.status === "running" || x.state.status === "completed") && x.state.title),
+  // The child session's messages normally arrive live with the parent's events. When the row
+  // is shown for a session that ran earlier (or the id only becomes known once the call
+  // starts running), load them once so the row can count the steps.
+  createEffect(
+    on(sessionID, (id) => {
+      if (id && !sync.data.message[id]?.length) void sync.session.sync(id)
+    }),
   )
+  const messages = createMemo(() => sync.data.message[sessionID() ?? ""] ?? [])
+  const progress = createMemo(() => subagentProgress(messages().flatMap((message) => sync.data.part[message.id] ?? [])))
 
   const status = createMemo(() => sync.data.session_status[sessionID() ?? ""])
+  const background = createMemo(() => props.metadata.background === true)
+  const writing = createMemo(() => props.part.state.status === "pending")
   const isRunning = createMemo(() => {
     const value = status()
-    return (
-      props.part.state.status === "running" ||
-      (props.metadata.background === true && value !== undefined && value.type !== "idle")
-    )
+    return props.part.state.status === "running" || (background() && value !== undefined && value.type !== "idle")
   })
   const retry = createMemo(() => {
     const value = status()
@@ -2495,33 +2489,30 @@ function Task(props: ToolProps) {
     return assistant - first
   })
 
-  const content = createMemo(() => {
-    const description = stringValue(props.input.description)
-    if (!description) return ""
-    let content = [
-      formatSubagentTitle(
-        Locale.titlecase(stringValue(props.input.subagent_type) ?? "General"),
-        description,
-        props.metadata.background === true,
-      ),
-    ]
+  const title = createMemo(() =>
+    formatSubagentTitle(
+      subagentLabel(stringValue(props.input.subagent_type)),
+      stringValue(props.input.description) ?? "",
+      background(),
+    ),
+  )
 
+  // One line under the title that says where the subagent is: writing its brief, its newest
+  // action and step count while it works, then how much it did and how long it took.
+  const detail = createMemo(() => {
     const retrying = retry()
-    if (isRunning() && retrying) {
-      content.push(`↳ ${formatSubagentRetry(retrying.attempt, Locale.truncate(retrying.message, 80))}`)
-    } else if (isRunning() && tools().length > 0) {
-      if (current()) {
-        const state = current()!.state
-        const title = state.status === "running" || state.status === "completed" ? state.title : undefined
-        content.push(`↳ ${Locale.titlecase(current()!.tool)} ${title}`)
-      } else content.push(`↳ ${formatSubagentToolcalls(tools().length)}`)
+    if (isRunning() && retrying) return formatSubagentRetry(retrying.attempt, Locale.truncate(retrying.message, 80))
+    if (writing()) return "Writing the brief"
+    if (isRunning()) {
+      const { steps, action } = progress()
+      if (background() && props.part.state.status !== "running")
+        return ["Running in the background", steps > 0 ? formatSteps(steps) : undefined].filter(Boolean).join(" · ")
+      if (steps === 0 && !action) return "Starting"
+      return [action, steps > 0 ? formatSteps(steps) : undefined].filter(Boolean).join(" · ")
     }
-
-    if (!isRunning() && props.part.state.status === "completed") {
-      content.push(`↳ ${formatCompletedSubagentDetail(tools().length, Locale.duration(duration()))}`)
-    }
-
-    return content.join("\n")
+    if (props.part.state.status === "completed")
+      return formatCompletedSubagentDetail(progress().steps, formatTook(duration()))
+    return undefined
   })
 
   return (
@@ -2529,38 +2520,43 @@ function Task(props: ToolProps) {
       icon={props.part.state.status === "completed" ? "✓" : "│"}
       subagent={true}
       color={retry() ? theme.error : undefined}
-      spinner={isRunning()}
+      spinner={isRunning() || writing()}
       complete={stringValue(props.input.description)}
-      pending="Delegating..."
+      pending="Delegating to a subagent"
+      failure={`${title()} · failed`}
       part={props.part}
       onClick={() => {
         if (sessionID()) {
           navigate({ type: "session", sessionID: sessionID()! })
         }
         const status = retry()
-        if (status) void DialogAlert.show(dialog, "Retry Error", status.message)
+        if (status) void DialogAlert.show(dialog, "Retry error", status.message)
       }}
     >
-      {content()}
+      {detail() ? `${title()}\n↳ ${detail()}` : title()}
     </InlineTool>
   )
 }
 
-export function formatSubagentToolcalls(count: number) {
-  return `${count} toolcall${count === 1 ? "" : "s"}`
+// The subagent's name only when it tells the user something: the general-purpose agent is
+// an implementation detail, so its tasks read as "Task".
+export function subagentLabel(agent: string | undefined) {
+  if (!agent || agent === "general") return "Task"
+  return Locale.titlecase(agent)
 }
 
 export function formatSubagentTitle(agent: string, description: string, background: boolean) {
-  return `${agent} Task${background ? " (background)" : ""} — ${description}`
+  const base = description ? `${agent} · ${description}` : agent
+  return background ? `${base} (background)` : base
 }
 
 export function formatSubagentRetry(attempt: number, message: string) {
   return `Retrying (attempt ${attempt}) · ${message}`
 }
 
-export function formatCompletedSubagentDetail(toolcalls: number, duration: string) {
-  if (toolcalls === 0) return duration
-  return `${formatSubagentToolcalls(toolcalls)} · ${duration}`
+export function formatCompletedSubagentDetail(steps: number, duration: string) {
+  if (steps === 0) return duration
+  return `${formatSteps(steps)} · ${duration}`
 }
 
 function Edit(props: ToolProps) {

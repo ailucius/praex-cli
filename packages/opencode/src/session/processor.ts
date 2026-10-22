@@ -71,7 +71,18 @@ type ToolCall = {
   done: Deferred.Deferred<void>
   inputEnded: boolean
   raw: string
+  // When the streaming input was last published to clients (see previewToolInput).
+  previewAt?: number
 }
+
+// While a model streams a tool call's arguments the part stays "pending" with empty input
+// until the call is complete. A long call (a subagent brief, a large write) can stream for
+// 15 s or more, and clients had nothing to show but a placeholder. The raw partial JSON is
+// published a few times a second so clients can show the description, path or command as
+// soon as it streams. Only the head is sent (those fields come first in the schemas), and
+// once it is full nothing more is published, so a call adds a handful of small updates.
+export const TOOL_INPUT_PREVIEW_INTERVAL = 300
+export const TOOL_INPUT_PREVIEW_MAX = 600
 
 interface ProcessorContext extends Input {
   toolcalls: Record<string, ToolCall>
@@ -352,6 +363,20 @@ export const layer = Layer.effect(
         return { call: ctx.toolcalls[input.id], part }
       })
 
+      const previewToolInput = Effect.fn("SessionProcessor.previewToolInput")(function* (
+        toolCallID: string,
+        part: SessionV1.ToolPart,
+      ) {
+        const call = ctx.toolcalls[toolCallID]
+        if (!call || part.state.status !== "pending") return
+        const now = Date.now()
+        if (call.previewAt !== undefined && now - call.previewAt < TOOL_INPUT_PREVIEW_INTERVAL) return
+        const head = call.raw.slice(0, TOOL_INPUT_PREVIEW_MAX)
+        if (part.state.raw === head) return
+        call.previewAt = now
+        yield* session.updatePart({ ...part, state: { status: "pending", input: {}, raw: head } })
+      })
+
       const isFilePart = (value: unknown): value is SessionV1.FilePart => Schema.is(SessionV1.FilePart)(value)
 
       const toolResultOutput = (
@@ -452,6 +477,7 @@ export const layer = Layer.effect(
                 })
               }
               ctx.toolcalls[value.id] = { ...toolCall.call, raw: toolCall.call.raw + value.text }
+              yield* previewToolInput(value.id, toolCall.part)
             }
             return
 

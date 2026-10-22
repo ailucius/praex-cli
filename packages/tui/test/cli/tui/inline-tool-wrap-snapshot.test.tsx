@@ -6,7 +6,7 @@ import {
   formatCompletedSubagentDetail,
   formatSubagentRetry,
   formatSubagentTitle,
-  formatSubagentToolcalls,
+  subagentLabel,
   InlineToolRow,
   parseApplyPatchFiles,
   parseDiagnostics,
@@ -106,10 +106,10 @@ function SubagentGroupFixture() {
         Grep "Task" (2 matches)
       </InlineToolRow>
       <InlineToolRow id="tool-inline-subagent-one" icon="⠙" complete={true} pending="" subagent={true}>
-        Explore Task — Inspect active task spacing
+        Explore · Inspect active task spacing
       </InlineToolRow>
       <InlineToolRow id="tool-inline-subagent-two" icon="✓" complete={true} pending="" subagent={true}>
-        {"General Task — Confirm completed task spacing\n↳ 1 toolcall · 501ms"}
+        {"Task · Confirm completed task spacing\n↳ 1 step · 501ms"}
       </InlineToolRow>
       <InlineToolRow id="tool-inline-after" icon="→" complete={true} pending="">
         Read src/cli/cmd/tui/routes/session/index.tsx
@@ -128,7 +128,7 @@ function LoadedReadBeforeSubagentFixture() {
         <text paddingLeft={3}>↳ Loaded src/cli/cmd/tui/routes/session/tools.tsx</text>
       </box>
       <InlineToolRow id="tool-inline-subagent-after-read" icon="✓" complete={true} pending="" subagent={true}>
-        {"Explore Task — Inspect active task spacing\n↳ 1 toolcall · 501ms"}
+        {"Explore · Inspect active task spacing\n↳ 1 step · 501ms"}
       </InlineToolRow>
     </box>
   )
@@ -141,7 +141,7 @@ function AssistantSummaryBeforeSubagentFixture() {
         <text>▣ Build · Little Frank · 53.1s</text>
       </box>
       <InlineToolRow id="tool-inline-subagent-one" icon="✓" complete={true} pending="" subagent={true}>
-        {"Build Task — Review changes\n↳ 48 toolcalls · 1m 40s"}
+        {"Build · Review changes\n↳ 48 steps · 1m 40s"}
       </InlineToolRow>
     </box>
   )
@@ -154,7 +154,7 @@ function AssistantErrorBeforeSubagentFixture() {
         <text>Managed inference requires an active Member plan</text>
       </box>
       <InlineToolRow id="tool-inline-subagent-one" icon="✓" complete={true} pending="" subagent={true}>
-        {"Build Task — Review changes\n↳ 48 toolcalls · 1m 40s"}
+        {"Build · Review changes\n↳ 48 steps · 1m 40s"}
       </InlineToolRow>
     </box>
   )
@@ -260,18 +260,20 @@ describe("TUI inline tool wrapping", () => {
     ).toEqual([{ message: "valid", range: { start: { line: 2, character: 3 } } }])
   })
 
-  test("formats completed subagent toolcall details", () => {
-    expect(formatCompletedSubagentDetail(0, "501ms")).toBe("501ms")
-    expect(formatCompletedSubagentDetail(1, "501ms")).toBe("1 toolcall · 501ms")
-    expect(formatCompletedSubagentDetail(2, "501ms")).toBe("2 toolcalls · 501ms")
-    expect(formatSubagentToolcalls(0)).toBe("0 toolcalls")
+  test("formats completed subagent details as steps and duration", () => {
+    expect(formatCompletedSubagentDetail(0, "1s")).toBe("1s")
+    expect(formatCompletedSubagentDetail(1, "1s")).toBe("1 step · 1s")
+    expect(formatCompletedSubagentDetail(2, "1m 06s")).toBe("2 steps · 1m 06s")
   })
 
-  test("keeps background state attached to the subagent identity", () => {
-    expect(formatSubagentTitle("Explore", "Inspect renderer", false)).toBe("Explore Task — Inspect renderer")
-    expect(formatSubagentTitle("Explore", "Inspect renderer", true)).toBe(
-      "Explore Task (background) — Inspect renderer",
-    )
+  test("names the subagent only when it means something, with no dashes", () => {
+    expect(subagentLabel(undefined)).toBe("Task")
+    expect(subagentLabel("general")).toBe("Task")
+    expect(subagentLabel("explore")).toBe("Explore")
+    expect(formatSubagentTitle("Task", "Audit stripboard project", false)).toBe("Task · Audit stripboard project")
+    expect(formatSubagentTitle("Explore", "Inspect renderer", true)).toBe("Explore · Inspect renderer (background)")
+    expect(formatSubagentTitle("Task", "", false)).toBe("Task")
+    expect(formatSubagentTitle("Task", "Audit", false)).not.toMatch(/[\u2013\u2014]/)
   })
 
   test("keeps retry status ahead of wrapping messages", () => {
