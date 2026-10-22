@@ -659,6 +659,18 @@ export const dict = {
 
   "home.welcome.skip": "Continue without signing in",
 
+  "praex.account.plan": "{{plan}} plan",
+  "praex.account.left": "{{percent}}% of today's allowance left",
+  "praex.account.leftUnder1": "Under 1% of today's allowance left",
+  "praex.account.leftShort": "{{percent}}% left today",
+  "praex.account.usedUpShort": "Allowance used up",
+  "praex.account.usedUp": "Today's allowance is used up",
+  "praex.account.resets": "resets in {{time}}",
+  "praex.account.resetsSoon": "resets soon",
+  "praex.account.reading": "Reading your plan",
+  "praex.account.signedOut": "Sign in with Google to use {{model}} for free every day.",
+  "praex.account.upgrade": "Praex Pro ($20/month) adds Faber II and a bigger daily allowance.",
+  "praex.account.upgrade.action": "Upgrade at praex.ai",
   "praex.signin.title": "Sign in to use Praex models",
 
   "praex.signin.description": "Velox III is free every day. Sign in with Google to continue where you left off.",

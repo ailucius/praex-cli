@@ -1,4 +1,5 @@
 import { Component, Show, createMemo, createResource, onMount, type JSX } from "solid-js"
+import { PraexAccountSettings } from "@/components/praex-account"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Select } from "@opencode-ai/ui/select"
@@ -740,6 +741,8 @@ export const SettingsGeneral: Component = () => {
       </div>
 
       <div class="flex flex-col gap-8 w-full">
+        <PraexAccountSettings />
+
         <GeneralSection />
 
         <AppearanceSection />

@@ -9,6 +9,8 @@ import {
   type Renderable,
 } from "@opentui/core"
 import { usePraex } from "../use-praex"
+import { usePraexAccount } from "../../context/praex-account"
+import { LOW_ALLOWANCE, leftText } from "../../util/praex-account"
 import type { CommandContext } from "@opentui/keymap"
 import { createEffect, createMemo, onMount, createSignal, onCleanup, on, For, Show, Switch, Match } from "solid-js"
 import "opentui-spinner/solid"
@@ -231,6 +233,7 @@ export function Prompt(props: PromptProps) {
   // The hosted lineup's display names already carry the tier ("Velox II · free"), so the
   // provider name would only repeat "Praex" after it; other providers keep their label.
   const praex = usePraex()
+  const praexAccount = usePraexAccount()
   const currentProviderLabel = createMemo(() =>
     local.model.current()?.providerID === "praex-cloud" ? "" : local.model.parsed().provider,
   )
@@ -365,6 +368,10 @@ export function Prompt(props: PromptProps) {
     const failed = mcp.filter((item) => item.status === "failed").length
     if (failed > 0) items.push({ id: "mcp", label: `${failed} MCP failed · /status`, color: theme.error })
     items.push(...registeredItems())
+    // 10-22: a quiet note when today's hosted allowance runs low (the model in use is a Praex one)
+    const left = praexAccount.account()?.left
+    if (local.model.current()?.providerID === "praex-cloud" && left !== undefined && left < LOW_ALLOWANCE)
+      items.push({ id: "allowance", label: leftText(left), color: left <= 0 ? theme.warning : undefined })
     const meter = usage()
     if (meter) {
       const high = meter.pct !== undefined && meter.pct >= 70

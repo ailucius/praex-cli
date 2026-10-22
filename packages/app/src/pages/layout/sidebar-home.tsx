@@ -1,4 +1,5 @@
 import { type Session } from "@opencode-ai/sdk/v2/client"
+import { LOW_ALLOWANCE, useAllowanceText, usePraexAccountRefresh } from "@/components/praex-account"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { getFilename } from "@opencode-ai/core/util/path"
 import { Button } from "@opencode-ai/ui/button"
@@ -135,7 +136,22 @@ function usePraexAccount() {
         })
       })
   }
-  return { available: () => !!provider(), signedIn, signIn, signOut }
+  // 10-22: email, plan and today's allowance under the account button (it said only "Signed in")
+  const info = usePraexAccountRefresh()
+  const text = useAllowanceText()
+  const detail = createMemo(() => {
+    const value = info.account()
+    if (!signedIn() || !value?.signedIn) return undefined
+    return {
+      name: value.email,
+      line:
+        value.left !== undefined && value.left < LOW_ALLOWANCE
+          ? `${text.plan(value.plan)} · ${text.short(value.left)}`
+          : text.plan(value.plan),
+      low: value.left !== undefined && value.left < LOW_ALLOWANCE,
+    }
+  })
+  return { available: () => !!provider(), signedIn, signIn, signOut, detail }
 }
 
 /**
@@ -420,9 +436,16 @@ export function SidebarHome(props: SidebarHomeProps) {
               P
             </span>
             <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span class="truncate text-[13px] text-text-strong">{language.t("sidebar.account.title")}</span>
-              <span class="truncate text-12-regular text-text-weak">
-                {account.signedIn() ? language.t("sidebar.account.signedIn") : language.t("sidebar.account.signedOut")}
+              <span class="truncate text-[13px] text-text-strong" data-slot="account-name">
+                {account.detail()?.name ?? language.t("sidebar.account.title")}
+              </span>
+              <span
+                class="truncate text-12-regular"
+                classList={{ "text-text-weak": !account.detail()?.low, "text-text-warning-base": !!account.detail()?.low }}
+                data-slot="account-plan"
+              >
+                {account.detail()?.line ??
+                  (account.signedIn() ? language.t("sidebar.account.signedIn") : language.t("sidebar.account.signedOut"))}
               </span>
             </span>
             <Icon name="settings-gear" size="small" class="shrink-0 text-icon-weak" />

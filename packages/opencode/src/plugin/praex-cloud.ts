@@ -395,6 +395,71 @@ export async function praexAccessToken(authFile = path.join(Global.Path.data, "a
   return tokens.id_token
 }
 
+// 10-22: the Praex account for clients (TUI /status, /usage and footer, desktop Settings): the gateway's
+// GET /v1/billing/plan, fetched here with the signed-in token so the token never goes to a client. Older
+// gateways send no resetsAt (the allowance starts over at midnight UTC) and no email or name.
+export type PraexAccount = {
+  signedIn: boolean
+  plan?: string
+  used?: number
+  inFlight?: number
+  allowance?: number
+  /** share of today's allowance left, 0 to 1, counting replies still streaming */
+  left?: number
+  resetsAt?: string
+  email?: string
+  name?: string
+  sources?: string[]
+  error?: string
+}
+
+export function nextMidnightUTC(now = new Date()) {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)).toISOString()
+}
+
+export function parseAccount(body: unknown, now = new Date()): PraexAccount {
+  const b = (body ?? {}) as Record<string, unknown>
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined)
+  const str = (v: unknown) => (typeof v === "string" && v ? v : undefined)
+  const used = num(b.used)
+  const inFlight = num(b.inFlight) ?? 0
+  const allowance = num(b.allowance)
+  const resetsAt = str(b.resetsAt) && !Number.isNaN(Date.parse(b.resetsAt as string)) ? (b.resetsAt as string) : nextMidnightUTC(now)
+  return {
+    signedIn: true,
+    ...(str(b.plan) ? { plan: str(b.plan) } : {}),
+    ...(used !== undefined ? { used, inFlight } : {}),
+    ...(allowance ? { allowance } : {}),
+    ...(used !== undefined && allowance ? { left: Math.max(0, Math.min(1, 1 - (used + inFlight) / allowance)) } : {}),
+    resetsAt,
+    ...(str(b.email) ? { email: str(b.email) } : {}),
+    ...(str(b.name) ? { name: str(b.name) } : {}),
+    ...(Array.isArray(b.sources) ? { sources: b.sources.filter((x): x is string => typeof x === "string") } : {}),
+  }
+}
+
+const ACCOUNT_TTL_MS = 15_000 // clients refresh after replies; several clients share one gateway read
+let accountCache: { at: number; value: PraexAccount } | undefined
+export async function praexAccount(opts: { fresh?: boolean; authFile?: string } = {}): Promise<PraexAccount> {
+  if (!(await praexSignedIn(opts.authFile))) {
+    accountCache = undefined
+    return { signedIn: false }
+  }
+  if (!opts.fresh && accountCache && Date.now() - accountCache.at < ACCOUNT_TTL_MS) return accountCache.value
+  const token = await praexAccessToken(opts.authFile)
+  if (!token) return { signedIn: true, error: "Your Praex sign-in has expired. Sign in again." }
+  const { baseURL } = await trustedGateway()
+  const res = await fetch(`${baseURL.replace(/\/+$/, "")}/billing/plan`, {
+    headers: { authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(8000),
+  }).catch(() => undefined)
+  if (!res) return accountCache?.value ?? { signedIn: true, error: "Couldn't reach Praex to read your plan." }
+  if (!res.ok) return accountCache?.value ?? { signedIn: true, error: `Praex couldn't read your plan (${res.status}).` }
+  const value = parseAccount(await res.json().catch(() => ({})))
+  accountCache = { at: Date.now(), value }
+  return value
+}
+
 // What a signed out Praex request gets instead of a trip to the gateway: the prompt never leaves
 // the machine. Same body shape as the gateway's own 401, so it is shown and not retried.
 // 10-22: it named a shell command (`praex login`) that the TUI and the desktop app do not have, and no

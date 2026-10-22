@@ -1,4 +1,5 @@
 import { Component, Show, createMemo, createResource, onMount } from "solid-js"
+import { PraexAccountSettings } from "@/components/praex-account"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { SelectV2 } from "@opencode-ai/ui/v2/select-v2"
 import { Switch } from "@opencode-ai/ui/v2/switch-v2"
@@ -695,6 +696,8 @@ export const SettingsGeneralV2: Component = () => {
       </div>
 
       <div class="settings-v2-tab-body">
+        <PraexAccountSettings />
+
         <GeneralSection />
 
         <AppearanceSection />

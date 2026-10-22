@@ -10,6 +10,8 @@ import {
   hostedLineup,
   hostedProvider,
   otherProviderConfigured,
+  parseAccount,
+  nextMidnightUTC,
   parseLineup,
   pinGateway,
   PraexCloudAuthPlugin,
@@ -302,3 +304,35 @@ describe("praex-cloud hosted lineup", () => {
     expect(other.model).toBeUndefined()
   })
 })
+
+describe("praex-cloud account (10-22)", () => {
+  const now = new Date("2026-10-22T19:00:00Z")
+  test("parses the gateway plan and works out the share left, counting replies in flight", () => {
+    const account = parseAccount(
+      { plan: "free", used: 800_000, inFlight: 50_000, allowance: 1_000_000, resetsAt: "2026-10-23T00:00:00.000Z", email: "a@b.c", name: "A", sources: ["stripe", 3] },
+      now,
+    )
+    expect(account.left).toBeCloseTo(0.15, 6)
+    expect({ ...account, left: undefined }).toEqual({
+      signedIn: true,
+      plan: "free",
+      used: 800_000,
+      inFlight: 50_000,
+      allowance: 1_000_000,
+      left: undefined,
+      resetsAt: "2026-10-23T00:00:00.000Z",
+      email: "a@b.c",
+      name: "A",
+      sources: ["stripe"],
+    })
+  })
+
+  test("an older gateway without resetsAt, email or name: reset at the next midnight UTC", () => {
+    const account = parseAccount({ plan: "pro", used: 2_000_000, inFlight: 0, allowance: 1_000_000, sources: [] }, now)
+    expect(account.resetsAt).toBe(nextMidnightUTC(now))
+    expect(account.resetsAt).toBe("2026-10-23T00:00:00.000Z")
+    expect(account.left).toBe(0)
+    expect(account.email).toBeUndefined()
+  })
+})
+

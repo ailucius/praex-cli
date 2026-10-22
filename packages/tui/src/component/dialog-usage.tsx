@@ -4,6 +4,10 @@ import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import { useTheme } from "../context/theme"
 import { useDialog } from "../ui/dialog"
 import { useSync } from "../context/sync"
+import { usePraexAccount } from "../context/praex-account"
+import { usePraex } from "./use-praex"
+import * as Model from "../util/model"
+import { allowanceLine, UPGRADE_HINT } from "../util/praex-account"
 
 const money = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -19,14 +23,17 @@ function tok(n: number): string {
   return `${n}`
 }
 
-export function DialogUsage(props: { sessionID: string }) {
+export function DialogUsage(props: { sessionID?: string }) {
   const dialog = useDialog()
   const { theme } = useTheme()
   const sync = useSync()
+  const praex = usePraex()
+  const account = usePraexAccount()
+  void account.refresh(true)
 
-  const session = createMemo(() => sync.session.get(props.sessionID))
+  const session = createMemo(() => (props.sessionID ? sync.session.get(props.sessionID) : undefined))
   const assistants = createMemo(() =>
-    (sync.data.message[props.sessionID] ?? []).filter(
+    (props.sessionID ? (sync.data.message[props.sessionID] ?? []) : []).filter(
       (m): m is AssistantMessage => m.role === "assistant",
     ),
   )
@@ -70,7 +77,9 @@ export function DialogUsage(props: { sessionID: string }) {
     >()
     for (const m of assistants()) {
       const key = `${m.providerID}/${m.modelID}`
-      const e = map.get(key) ?? { model: m.modelID, cost: 0, input: 0, output: 0, messages: 0 }
+      // 10-22: the display name ("Velox III · Free"), not the internal id (velox-ii-baked)
+      const model = Model.name(sync.data.provider, m.providerID, m.modelID)
+      const e = map.get(key) ?? { model, cost: 0, input: 0, output: 0, messages: 0 }
       e.cost += m.cost ?? 0
       e.input += m.tokens.input + m.tokens.cache.read + m.tokens.cache.write
       e.output += m.tokens.output + m.tokens.reasoning
@@ -84,13 +93,31 @@ export function DialogUsage(props: { sessionID: string }) {
     <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
         <text attributes={TextAttributes.BOLD} fg={theme.text}>
-          Usage for this session
+          Usage
         </text>
         <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
 
+      {/* 10-22: the hosted plan and what is left of today's allowance */}
+      <Show
+        when={praex.signedIn()}
+        fallback={<text fg={theme.textMuted}>Not signed in to Praex. Type /login to use {praex.freeName()} for free.</text>}
+      >
+        <box>
+          <text fg={theme.text}>{account.account()?.signedIn ? allowanceLine(account.account()!) : "Praex plan · reading…"}</text>
+          <Show when={account.account()?.error}>
+            <text fg={theme.textMuted}>{account.account()?.error}</text>
+          </Show>
+          <Show when={account.account()?.plan === "free"}>
+            <text fg={theme.textMuted}>{UPGRADE_HINT}</text>
+          </Show>
+        </box>
+      </Show>
+
+      <Show when={props.sessionID} fallback={<text fg={theme.textMuted}>Open a session to see its tokens and cost.</text>}>
+      <text fg={theme.text}>This session</text>
       <box flexDirection="row" gap={4}>
         <box>
           <text fg={theme.textMuted}>Spent</text>
@@ -138,6 +165,8 @@ export function DialogUsage(props: { sessionID: string }) {
             )}
           </For>
         </box>
+      </Show>
+
       </Show>
 
       <text fg={theme.textMuted} paddingBottom={1}>

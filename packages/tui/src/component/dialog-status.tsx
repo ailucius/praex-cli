@@ -4,6 +4,11 @@ import { useTheme } from "../context/theme"
 import { useDialog } from "../ui/dialog"
 import { useSync } from "../context/sync"
 import { For, Match, Switch, Show, createMemo } from "solid-js"
+import { InstallationVersion } from "@opencode-ai/core/installation/version"
+import { useLocal } from "../context/local"
+import { usePraexAccount } from "../context/praex-account"
+import { usePraex } from "./use-praex"
+import { accountName, allowanceLine } from "../util/praex-account"
 
 export type DialogStatusProps = {}
 
@@ -11,6 +16,11 @@ export function DialogStatus() {
   const sync = useSync()
   const { theme } = useTheme()
   const dialog = useDialog()
+  const local = useLocal()
+  const praex = usePraex()
+  const account = usePraexAccount()
+  void account.refresh(true)
+  const version = /^\d/.test(InstallationVersion) ? `v${InstallationVersion}` : InstallationVersion
 
   const enabledFormatters = createMemo(() => sync.data.formatter.filter((f) => f.enabled))
 
@@ -48,6 +58,31 @@ export function DialogStatus() {
         </text>
         <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
           esc
+        </text>
+      </box>
+      {/* 10-22: who is signed in, the plan, the version and the model; it showed only MCP, formatters and plugins */}
+      <box>
+        <Show
+          when={praex.signedIn()}
+          fallback={
+            <text fg={theme.text}>
+              Not signed in to Praex <span style={{ fg: theme.textMuted }}>· type /login to use {praex.freeName()} for free</span>
+            </text>
+          }
+        >
+          <text fg={theme.text}>
+            {accountName(account.account())}
+            <Show when={account.account()?.signedIn}>
+              <span style={{ fg: theme.textMuted }}> · {allowanceLine(account.account()!)}</span>
+            </Show>
+          </text>
+          <Show when={account.account()?.error}>
+            <text fg={theme.textMuted}>{account.account()?.error}</text>
+          </Show>
+        </Show>
+        <text fg={theme.textMuted}>
+          Praex {version} · {local.model.parsed().model}
+          {local.model.current()?.providerID === "praex-cloud" ? "" : ` · ${local.model.parsed().provider}`}
         </text>
       </box>
       <Show when={Object.keys(sync.data.mcp).length > 0} fallback={<text fg={theme.text}>No MCP servers</text>}>

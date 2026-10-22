@@ -1,4 +1,5 @@
 import { Config as EffectConfig, Context, Effect, Layer } from "effect"
+import { praexAccount } from "@/plugin/praex-cloud"
 import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
 import { HttpClient, HttpMiddleware, HttpRouter, HttpServer, HttpServerResponse } from "effect/unstable/http"
 import * as Socket from "effect/unstable/socket/Socket"
@@ -182,6 +183,16 @@ const docRoute = HttpRouter.use((router) => router.add("GET", "/doc", () => Effe
   Layer.provide(authOnlyRouterLayer),
 )
 
+// 10-22: the Praex account (plan, today's allowance, email) for the TUI and the desktop app. Read here with
+// the signed-in token, which never goes to the client. ?fresh=1 skips the 15 s cache.
+const praexAccountRoute = HttpRouter.use((router) =>
+  router.add("GET", "/praex/account", (request) =>
+    Effect.promise(() => praexAccount({ fresh: new URL(request.url, "http://localhost").searchParams.has("fresh") })).pipe(
+      Effect.map((body) => HttpServerResponse.jsonUnsafe(body)),
+    ),
+  ),
+).pipe(Layer.provide(authOnlyRouterLayer))
+
 const uiRoute = HttpRouter.use((router) =>
   Effect.gen(function* () {
     const fs = yield* FSUtil.Service
@@ -268,6 +279,7 @@ export function createRoutes(
     instanceRoutes,
     serverRoutes,
     docRoute,
+    praexAccountRoute,
     uiRoute,
   ).pipe(
     Layer.provide([

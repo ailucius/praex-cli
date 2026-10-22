@@ -36,6 +36,7 @@ import { SDKProvider, useSDK } from "./context/sdk"
 import { StartupLoading } from "./component/startup-loading"
 import { SyncProvider, useSync } from "./context/sync"
 import { DataProvider } from "./context/data"
+import { PraexAccountProvider } from "./context/praex-account"
 import { LocalProvider, useLocal } from "./context/local"
 import { DialogModel } from "./component/dialog-model"
 import { useConnected } from "./component/use-connected"
@@ -310,6 +311,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                           <ProjectProvider>
                                             <SyncProvider>
                                               <DataProvider>
+                                                <PraexAccountProvider>
                                                 <ThemeProvider mode={mode}>
                                                   <LocalProvider>
                                                     <PromptStashProvider>
@@ -331,6 +333,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                                     </PromptStashProvider>
                                                   </LocalProvider>
                                                 </ThemeProvider>
+                                                </PraexAccountProvider>
                                               </DataProvider>
                                             </SyncProvider>
                                           </ProjectProvider>
@@ -944,18 +947,13 @@ function App(props: {
         },
       },
       {
+        // 10-22: also outside a session: the plan and today's allowance are not per session
         name: "session.usage",
-        title: "Usage: tokens and cost for this session",
+        title: "Usage: today's Praex allowance, and tokens and cost for this session",
         slashName: "usage",
         category: "Session",
-        enabled: () => route.data.type === "session",
         run: () => {
-          if (route.data.type !== "session") {
-            toast.show({ variant: "info", message: "Open a session to see its usage", duration: 3000 })
-            dialog.clear()
-            return
-          }
-          const sessionID = route.data.sessionID
+          const sessionID = route.data.type === "session" ? route.data.sessionID : undefined
           dialog.replace(() => <DialogUsage sessionID={sessionID} />)
         },
       },
