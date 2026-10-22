@@ -53,10 +53,11 @@ import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut, useLeaderActive, u
 import { useTuiConfig } from "../../config"
 import { isDefaultTitle } from "../../util/session"
 import { installedUpdate } from "../../context/status-items"
-import { activeTurn, FooterItems, useRegisteredFooterItems, WorkingLine, type FooterItem } from "./status"
+import { FooterItems, useRegisteredFooterItems, WorkingLine, type FooterItem } from "./status"
 import { usePromptWorkspace } from "./workspace"
 import { usePromptMove } from "./move"
 import { readLocalAttachment } from "./local-attachment"
+import { joinPrompts, promptFromMessageParts, queuedMessageIDs } from "../../util/queue"
 
 export type PromptProps = {
   sessionID?: string
@@ -163,6 +164,13 @@ export function Prompt(props: PromptProps) {
   const dialog = useDialog()
   const toast = useToast()
   const status = createMemo(() => sync.data.session_status?.[props.sessionID ?? ""] ?? { type: "idle" })
+  // Messages sent during this turn that no step has read yet; ↑ in an empty composer pulls the
+  // newest one back to edit, and interrupting the turn pulls them all back.
+  const queued = createMemo(() =>
+    props.sessionID && status().type !== "idle"
+      ? queuedMessageIDs(sync.data.message[props.sessionID] ?? [], sync.data.part)
+      : [],
+  )
   const history = usePromptHistory()
   const stash = usePromptStash()
   const keymap = useOpencodeKeymap()
@@ -170,6 +178,11 @@ export function Prompt(props: PromptProps) {
   const paletteShortcut = useCommandShortcut("command.palette.show")
   const modeShortcut = useCommandShortcut("permission.mode.cycle")
   const interruptShortcut = useCommandShortcut("session.interrupt")
+  const historyShortcut = useCommandShortcut("prompt.history.previous")
+  const historyKey = () => {
+    const key = shortKey(historyShortcut())
+    return !key || key === "up" ? "↑" : key
+  }
   const renderer = useRenderer()
   const exit = useExit()
   const dimensions = useTerminalDimensions()
@@ -344,12 +357,7 @@ export function Prompt(props: PromptProps) {
       const plural = (n: number) => `${n} ${n === 1 ? "agent" : "agents"}`
       if (agents > 0) items.push({ id: "agents", label: `${plural(agents)} running` })
       if (behind > 0) items.push({ id: "background", label: `${plural(behind)} running in background` })
-      if (status().type !== "idle") {
-        const messages = sync.data.message[sessionID] ?? []
-        const turn = activeTurn(messages)
-        const queued = turn ? messages.filter((m) => m.role === "user" && m.id > turn.id).length : 0
-        if (queued > 0) items.push({ id: "queued", label: `${queued} queued`, color: theme.text })
-      }
+      if (queued().length > 0) items.push({ id: "queued", label: `${queued().length} queued`, color: theme.text })
     }
     const mcp = Object.values(sync.data.mcp)
     const failed = mcp.filter((item) => item.status === "failed").length
@@ -372,6 +380,7 @@ export function Prompt(props: PromptProps) {
     if (store.mode === "shell") return [{ key: "esc", label: "to exit shell mode" }]
     if (status().type !== "idle") {
       if (store.prompt.input.trim()) return [{ key: "enter", label: "to queue" }]
+      if (queued().length > 0) return [{ key: historyKey(), label: "to edit queued" }]
       return []
     }
     return [
@@ -510,10 +519,22 @@ export function Prompt(props: PromptProps) {
           }, 5000)
 
           if (store.interrupt >= 2) {
-            void sdk.client.session.abort({
-              sessionID: props.sessionID,
-            })
+            const sessionID = props.sessionID
             setStore("interrupt", 0)
+            // Queued messages come back to the composer first, so interrupting never sends them
+            // later by surprise or drops them.
+            void pullQueued(queued()).then((pulled) => {
+              void sdk.client.session.abort({ sessionID })
+              if (pulled === 0) return
+              toast.show({
+                message:
+                  pulled === 1
+                    ? "Interrupted. Your queued message is back in the prompt to edit or send."
+                    : `Interrupted. Your ${pulled} queued messages are back in the prompt to edit or send.`,
+                variant: "info",
+                duration: 4000,
+              })
+            })
           }
           dialog.clear()
         },
@@ -969,6 +990,10 @@ export function Prompt(props: PromptProps) {
           title: "Previous prompt history",
           category: "Prompt",
           run() {
+            if (!input.plainText && queued().length > 0) {
+              void pullQueued(queued().slice(-1))
+              return
+            }
             if (input.cursorOffset !== 0) {
               if (input.scrollY + input.visualCursor.visualRow === 0) input.cursorOffset = 0
               return false
@@ -1023,6 +1048,29 @@ export function Prompt(props: PromptProps) {
       bindings: tuiConfig.keybinds.get("prompt.history.next"),
     }
   })
+
+  // Takes queued messages back from the server and puts their text and attachments in the
+  // composer, ahead of anything already typed. A message the turn read in the meantime stays
+  // sent. Returns how many came back.
+  async function pullQueued(ids: readonly string[]) {
+    const sessionID = props.sessionID
+    if (!sessionID || ids.length === 0) return 0
+    const pulled: PromptInfo[] = []
+    for (const messageID of ids) {
+      const prompt = promptFromMessageParts(sync.data.part[messageID] ?? [])
+      const res = await sdk.client.session.deleteMessage({ sessionID, messageID }).catch(() => undefined)
+      if (!res || res.error) continue
+      pulled.push(prompt)
+    }
+    if (pulled.length === 0) {
+      toast.show({ message: "Too late to edit: the turn already read that message.", variant: "info", duration: 3000 })
+      return 0
+    }
+    if (!input || input.isDestroyed) return pulled.length
+    const draft = store.prompt.input.trim() ? [unwrap(store.prompt)] : []
+    ref.set(joinPrompts([...pulled, ...draft]))
+    return pulled.length
+  }
 
   let submitting = false
   async function submit() {

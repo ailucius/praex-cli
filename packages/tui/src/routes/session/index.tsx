@@ -40,6 +40,7 @@ import type {
 import { useLocal } from "../../context/local"
 import { Locale } from "../../util/locale"
 import { formatSteps, formatTook, subagentProgress, toolInput } from "../../util/status-line"
+import { queuedMessageIDs } from "../../util/queue"
 import { webSearchProviderLabel } from "../../util/tool-display"
 import { useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
 import { useSDK } from "../../context/sdk"
@@ -1409,6 +1410,13 @@ function UserMessage(props: {
   const { theme } = useTheme()
   const [hover, setHover] = createSignal(false)
   const queued = createMemo(() => props.pending && props.message.id > props.pending)
+  // Only the newest queued message comes back with ↑; the hint sits on that one.
+  const newestQueued = createMemo(() => {
+    if (!queued()) return false
+    const queuedIDs = queuedMessageIDs(ctx.sync.data.message[props.message.sessionID] ?? [], ctx.sync.data.part)
+    return queuedIDs.at(-1) === props.message.id
+  })
+  const historyShortcut = useCommandShortcut("prompt.history.previous")
   const color = createMemo(() => local.agent.color(props.message.agent))
   const metadataVisible = createMemo(() => queued() || ctx.showTimestamps())
 
@@ -1481,7 +1489,11 @@ function UserMessage(props: {
               }
             >
               <text fg={theme.textMuted}>
-                <span style={{ fg: color() }}>◦</span> queued · sends when the current turn ends
+                <span style={{ fg: color() }}>◦</span> queued
+                <Show when={newestQueued()}>
+                  {" · "}
+                  {!historyShortcut() || historyShortcut() === "up" ? "↑" : historyShortcut()} to edit
+                </Show>
               </text>
             </Show>
           </box>

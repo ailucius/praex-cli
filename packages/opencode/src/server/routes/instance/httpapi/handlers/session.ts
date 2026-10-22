@@ -1,4 +1,5 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
+import { isQueuedUserMessage } from "@/session/queued"
 import { Agent } from "@/agent/agent"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -372,11 +373,19 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return true
     })
 
+    // A queued user message (see isQueuedUserMessage) can be taken back while the session is
+    // busy: the TUI pulls it into the composer to edit.
+    const isQueued = Effect.fn("SessionHttpApi.isQueued")(function* (sessionID: SessionID, messageID: MessageID) {
+      const recent = yield* session.messages({ sessionID, limit: 50 }).pipe(Effect.orElseSucceed(() => []))
+      return isQueuedUserMessage(recent, messageID)
+    })
+
     const deleteMessage = Effect.fn("SessionHttpApi.deleteMessage")(function* (ctx: {
       params: { sessionID: SessionID; messageID: MessageID }
     }) {
       yield* requireSession(ctx.params.sessionID)
-      yield* SessionError.mapBusy(runState.assertNotBusy(ctx.params.sessionID))
+      if (!(yield* isQueued(ctx.params.sessionID, ctx.params.messageID)))
+        yield* SessionError.mapBusy(runState.assertNotBusy(ctx.params.sessionID))
       yield* session.removeMessage(ctx.params)
       return true
     })
