@@ -35,3 +35,15 @@ export function deniedLabel(
   if (typeof metadata.workspace !== "string") return "denied"
   return SAVE_TOOLS.has(tool) ? "notSaved" : "outsideFolder"
 }
+
+// Tools that fold into the quiet "Explored 2 reads, 1 search" group. 10-22: with foldCommands (a finished
+// turn) a shell command that completed folds in too; a denied or failed one keeps its own row.
+export const CONTEXT_GROUP_TOOLS = new Set(["read", "glob", "grep", "list"])
+export function quietGroupPart(
+  part: { type: string; tool?: string; state?: { status?: string } },
+  options?: { foldCommands?: boolean },
+): boolean {
+  if (part.type !== "tool" || !part.tool) return false
+  if (CONTEXT_GROUP_TOOLS.has(part.tool)) return true
+  return !!options?.foldCommands && part.tool === "bash" && part.state?.status === "completed"
+}

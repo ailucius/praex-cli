@@ -35,7 +35,7 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { Spinner } from "@opencode-ai/ui/spinner"
+import { WorkingMark } from "@opencode-ai/ui/working-mark"
 import { SessionRetry } from "@opencode-ai/ui/session-retry"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
@@ -1215,17 +1215,25 @@ export function MessageTimeline(props: {
         return (
           <TimelineRowFrame row={turnDividerRow}>
             <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
-              <div data-slot="session-turn-compaction">
-                <MessageDivider
-                  label={language.t(
-                    turnDividerRow().label === "compaction"
-                      ? "ui.messagePart.compaction"
-                      : turnDividerRow().label === "cutoff"
-                        ? "ui.message.cutOff"
-                        : "ui.message.interrupted",
-                  )}
-                />
-              </div>
+              {/* 10-22: a stopped or cut reply gets a small muted label under it; the full-width divider
+                  is kept for compaction, which really does split the conversation */}
+              <Show
+                when={turnDividerRow().label !== "compaction"}
+                fallback={
+                  <div data-slot="session-turn-compaction">
+                    <MessageDivider label={language.t("ui.messagePart.compaction")} />
+                  </div>
+                }
+              >
+                <div
+                  data-slot="session-turn-stopped"
+                  data-kind={turnDividerRow().label}
+                  class="flex items-center gap-1.5 text-12-regular text-text-weaker select-none"
+                >
+                  <span aria-hidden="true" class="size-1.5 rounded-[1px] bg-current" />
+                  {language.t(turnDividerRow().label === "cutoff" ? "ui.message.cutOff" : "ui.message.interrupted")}
+                </div>
+              </Show>
             </div>
           </TimelineRowFrame>
         )
@@ -1353,19 +1361,15 @@ export function MessageTimeline(props: {
               "sticky top-0 z-30 bg-[linear-gradient(to_bottom,var(--background-stronger)_48px,transparent)]": true,
               "w-full": true,
               "pb-4": true,
-              "pl-2 pr-3 md:pl-4 md:pr-3": true,
+              // 10-22: md:pl-5 lines the title up with the messages (px-5); it sat 4px to the left
+              "pl-2 pr-3 md:pl-5 md:pr-4": true,
               "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
             }}
           >
             <Show when={workingStatus() !== "hidden" && settings.general.showSessionProgressBar()}>
               <div data-component="session-progress" data-state={workingStatus()} aria-hidden="true">
-                <div
-                  data-component="session-progress-bar"
-                  style={{
-                    background: tint() ?? "var(--icon-interactive-base)",
-                    animation: `session-progress-whip ${bar.ms}ms infinite`,
-                  }}
-                />
+                {/* 10-22: a thin violet shimmer (off by default); the tilde by the title is the working sign */}
+                <div data-component="session-progress-bar" style={{ "animation-duration": `${bar.ms * 3}ms` }} />
               </div>
             </Show>
             <div class="h-12 w-full flex items-center justify-between gap-2">
@@ -1388,30 +1392,13 @@ export function MessageTimeline(props: {
                       /
                     </span>
                   </Show>
-                  <div
-                    class="shrink-0 flex items-center justify-center overflow-hidden transition-[width,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
-                    style={{
-                      width: working() ? "16px" : "0px",
-                      "margin-right": working() ? "8px" : "0px",
-                    }}
-                    aria-hidden="true"
-                  >
-                    <Show when={workingStatus() !== "hidden"}>
-                      <div
-                        class="transition-opacity duration-200 ease-out"
-                        classList={{ "opacity-0": workingStatus() === "hiding" }}
-                      >
-                        <Spinner class="size-4" style={{ color: tint() ?? "var(--icon-interactive-base)" }} />
-                      </div>
-                    </Show>
-                  </div>
                   <Show when={childTitle() || title.editing}>
                     <Show
                       when={title.editing}
                       fallback={
                         <h1
                           data-slot="session-title-child"
-                          class="text-14-medium text-text-strong truncate grow-1 min-w-0 cursor-text"
+                          class="text-14-medium text-text-strong truncate min-w-0 cursor-text"
                           title={language.t("common.rename")}
                           onClick={openTitleEditor}
                         >
@@ -1445,12 +1432,32 @@ export function MessageTimeline(props: {
                       />
                     </Show>
                   </Show>
+                  <div
+                    class="shrink-0 flex items-center justify-center overflow-hidden transition-[width,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                    style={{
+                      width: working() ? "16px" : "0px",
+                      "margin-left": working() ? "8px" : "0px",
+                    }}
+                    aria-hidden="true"
+                  >
+                    <Show when={workingStatus() !== "hidden"}>
+                      <div
+                        class="transition-opacity duration-200 ease-out"
+                        classList={{ "opacity-0": workingStatus() === "hiding" }}
+                      >
+                        {/* 10-22: the breathing tilde after the title, as in the TUI (it was a dotted spinner in the agent
+                            colour, before the title, which shifted the title on every turn) */}
+                        <WorkingMark class="text-[15px]" label={language.t("session.working")} />
+                      </div>
+                    </Show>
+                  </div>
                 </div>
               </div>
               <Show when={sessionID()} keyed>
                 {(id) => (
                   <div class="shrink-0 flex items-center gap-3">
-                    <SessionContextUsage placement="bottom" />
+                    {/* 10-22: the context ring read as a second spinner; it shows once the context is half full */}
+                    <SessionContextUsage placement="bottom" quietBelow={50} />
                     <Show when={!parentID()}>
                       <DropdownMenu
                         gutter={4}

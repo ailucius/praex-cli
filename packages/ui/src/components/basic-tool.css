@@ -258,3 +258,47 @@
     }
   }
 }
+
+/* 10-22: rows read as one list: running rows at full strength with the tilde, finished rows step back,
+   a denied call is its own row with the reason as a quiet line under it. */
+[data-component="tool-trigger"][data-status="running"] {
+  [data-slot="basic-tool-tool-title"] {
+    color: var(--text-base);
+  }
+
+  [data-slot="basic-tool-tool-subtitle"] {
+    color: var(--text-weak);
+  }
+}
+
+[data-component="tool-trigger"][data-status="completed"] {
+  [data-slot="basic-tool-tool-title"] {
+    color: var(--text-weak);
+  }
+
+  [data-slot="basic-tool-tool-subtitle"] {
+    color: var(--text-weak);
+  }
+
+  [data-slot="basic-tool-tool-icon"] {
+    color: var(--icon-weaker, var(--icon-weak));
+  }
+}
+
+[data-component="tool-denied-row"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+
+  [data-component="tool-trigger"] {
+    opacity: 0.75;
+  }
+
+  [data-slot="tool-denied-reason"] {
+    padding-left: 24px;
+    font-size: 12.5px;
+    line-height: var(--line-height-large);
+    color: var(--text-weaker);
+  }
+}
+

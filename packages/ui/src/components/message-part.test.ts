@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { deniedLabel, readPartText, reasoningState, thoughtSeconds } from "./message-part-text"
+import { deniedLabel, quietGroupPart, readPartText, reasoningState, thoughtSeconds } from "./message-part-text"
 
 describe("readPartText", () => {
   test("returns empty string when accum is undefined and part text is undefined", () => {
@@ -82,5 +82,25 @@ describe("deniedLabel", () => {
   test("a real failure stays a failure", () => {
     expect(deniedLabel("write", "EACCES: permission denied, open '/x'", {})).toBeUndefined()
     expect(deniedLabel("bash", "Tool execution aborted", { interrupted: true })).toBeUndefined()
+  })
+})
+
+describe("quietGroupPart", () => {
+  const tool = (name: string, status = "completed") => ({ type: "tool", tool: name, state: { status } })
+
+  test("reads, searches and lists always fold", () => {
+    expect(quietGroupPart(tool("read"))).toBe(true)
+    expect(quietGroupPart(tool("grep", "running"))).toBe(true)
+  })
+
+  test("10-22: a finished command folds only once the turn is over", () => {
+    expect(quietGroupPart(tool("bash"))).toBe(false)
+    expect(quietGroupPart(tool("bash"), { foldCommands: true })).toBe(true)
+  })
+
+  test("a running, denied or failed command keeps its own row", () => {
+    expect(quietGroupPart(tool("bash", "running"), { foldCommands: true })).toBe(false)
+    expect(quietGroupPart(tool("bash", "error"), { foldCommands: true })).toBe(false)
+    expect(quietGroupPart({ type: "text" }, { foldCommands: true })).toBe(false)
   })
 })

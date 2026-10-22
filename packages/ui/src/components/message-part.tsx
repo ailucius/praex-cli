@@ -54,11 +54,19 @@ import { Spinner } from "./spinner"
 import { TextShimmer } from "./text-shimmer"
 import { AnimatedCountList } from "./tool-count-summary"
 import { ToolStatusTitle } from "./tool-status-title"
+import { WorkingMark } from "./working-mark"
 import { patchFiles } from "./apply-patch-file"
 import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
 import { attached, inline, kind } from "./message-file"
-import { deniedLabel, readPartText, reasoningState, thoughtSeconds } from "./message-part-text"
+import {
+  CONTEXT_GROUP_TOOLS,
+  deniedLabel,
+  quietGroupPart,
+  readPartText,
+  reasoningState,
+  thoughtSeconds,
+} from "./message-part-text"
 
 async function writeClipboard(text: string): Promise<boolean> {
   const body = typeof document === "undefined" ? undefined : document.body
@@ -505,7 +513,6 @@ function taskSession(
     .sort((a, b) => (b.time.created ?? 0) - (a.time.created ?? 0))[0]?.id
 }
 
-const CONTEXT_GROUP_TOOLS = new Set(["read", "glob", "grep", "list"])
 const HIDDEN_TOOLS = new Set(["todowrite"])
 
 function list<T>(value: T[] | undefined | null, fallback: T[]) {
@@ -561,9 +568,13 @@ export function sameGroups(a: readonly PartGroup[] | undefined, b: readonly Part
   return a.every((item, i) => sameGroup(item, b[i]!))
 }
 
-export function groupParts(parts: { messageID: string; part: PartType }[]) {
+// 10-22: once a turn is over, finished shell commands fold into the same quiet group as reads and searches
+// (like the TUI's "Read 2 files · ran 2 commands"); while a turn runs nothing folds, so nothing above the
+// live output moves. A denied or failed command stays its own row.
+export function groupParts(parts: { messageID: string; part: PartType }[], options?: { foldCommands?: boolean }) {
   const result: PartGroup[] = []
   let start = -1
+  const groupable = (part: PartType) => quietGroupPart(part, options)
 
   const flush = (end: number) => {
     if (start < 0) return
@@ -585,7 +596,7 @@ export function groupParts(parts: { messageID: string; part: PartType }[]) {
   }
 
   parts.forEach((item, index) => {
-    if (isContextGroupTool(item.part)) {
+    if (groupable(item.part)) {
       if (start < 0) start = index
       return
     }
@@ -686,7 +697,7 @@ export function AssistantParts(props: {
                     if (entry.type !== "context") return emptyTools
                     return entry.refs
                       .map((ref) => part().get(ref.messageID)?.get(ref.partID))
-                      .filter((part): part is ToolPart => !!part && isContextGroupTool(part))
+                      .filter((part): part is ToolPart => !!part && (isContextGroupTool(part) || isFoldedCommand(part)))
                   },
                   emptyTools,
                   { equals: same },
@@ -742,6 +753,10 @@ export function AssistantParts(props: {
 
 function isContextGroupTool(part: PartType): part is ToolPart {
   return part.type === "tool" && CONTEXT_GROUP_TOOLS.has(part.tool)
+}
+
+function isFoldedCommand(part: PartType): part is ToolPart {
+  return part.type === "tool" && part.tool === "bash" && part.state.status === "completed"
 }
 
 function contextToolDetail(part: ToolPart): string | undefined {
@@ -815,7 +830,8 @@ function contextToolSummary(parts: ToolPart[]) {
   const read = parts.filter((part) => part.tool === "read").length
   const search = parts.filter((part) => part.tool === "glob" || part.tool === "grep").length
   const list = parts.filter((part) => part.tool === "list").length
-  return { read, search, list }
+  const command = parts.filter((part) => part.tool === "bash").length
+  return { read, search, list, command }
 }
 
 function ExaOutput(props: { output?: string }) {
@@ -907,7 +923,7 @@ export function AssistantMessageDisplay(props: {
                     if (entry.type !== "context") return emptyTools
                     return entry.refs
                       .map((ref) => part().get(ref.partID))
-                      .filter((part): part is ToolPart => !!part && isContextGroupTool(part))
+                      .filter((part): part is ToolPart => !!part && (isContextGroupTool(part) || isFoldedCommand(part)))
                   },
                   emptyTools,
                   { equals: same },
@@ -955,6 +971,7 @@ export function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean; onS
       !!props.busy || props.parts.some((part) => part.state.status === "pending" || part.state.status === "running"),
   )
   const summary = createMemo(() => contextToolSummary(props.parts))
+  const onlyCommands = createMemo(() => summary().command > 0 && summary().command === props.parts.length)
   const handleOpenChange = (value: boolean) => {
     setOpen(value)
     props.onSizeChange?.()
@@ -975,19 +992,21 @@ export function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean; onS
             class="min-w-0 flex items-center gap-2 text-14-medium text-text-strong"
           >
             <span data-slot="context-tool-group-icon" aria-hidden="true">
-              <Icon name="magnifying-glass-menu" size="small" />
+              <Show when={!pending()} fallback={<WorkingMark class="text-[14px]" />}>
+                <Icon name={onlyCommands() ? "console" : "magnifying-glass-menu"} size="small" />
+              </Show>
             </span>
             <span data-slot="context-tool-group-label" class="shrink-0">
               <ToolStatusTitle
                 active={pending()}
                 activeText={i18n.t("ui.sessionTurn.status.gatheringContext")}
-                doneText={i18n.t("ui.sessionTurn.status.gatheredContext")}
+                doneText={i18n.t(onlyCommands() ? "ui.sessionTurn.status.ran" : "ui.sessionTurn.status.gatheredContext")}
                 split={false}
               />
             </span>
             <span
               data-slot="context-tool-group-summary"
-              class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-normal text-text-base"
+              class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-normal text-text-weak"
             >
               <AnimatedCountList
                 items={[
@@ -1009,6 +1028,12 @@ export function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean; onS
                     one: i18n.t("ui.messagePart.context.list.one"),
                     other: i18n.t("ui.messagePart.context.list.other"),
                   },
+                  {
+                    key: "command",
+                    count: summary().command,
+                    one: i18n.t("ui.messagePart.context.command.one"),
+                    other: i18n.t("ui.messagePart.context.command.other"),
+                  },
                 ]}
                 fallback=""
               />
@@ -1021,6 +1046,25 @@ export function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean; onS
         <div data-component="context-tool-group-list">
           <Index each={props.parts}>
             {(partAccessor) => {
+              // a folded command keeps its output: it opens like its own row would
+              const command = createMemo(() => {
+                const part = partAccessor()
+                return part.tool === "bash" && part.state.status === "completed" ? part.state : undefined
+              })
+              if (command())
+                return (
+                  <div data-slot="context-tool-group-item" data-kind="command">
+                    <Dynamic
+                      component={ToolRegistry.render("bash") ?? GenericTool}
+                      input={command()!.input}
+                      tool="bash"
+                      sessionID={partAccessor().sessionID}
+                      metadata={command()!.metadata}
+                      output={command()!.output}
+                      status="completed"
+                    />
+                  </div>
+                )
               const trigger = createMemo(() => contextToolTrigger(partAccessor(), i18n))
               const running = createMemo(
                 () => partAccessor().state.status === "pending" || partAccessor().state.status === "running",
@@ -1422,14 +1466,27 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
     <Show when={!hideQuestion()}>
       <div data-component="tool-part-wrapper" data-timeline-part-id={part().id}>
         <Switch>
+          {/* 10-22: a denied call keeps its row (tool and description, muted) with the reason as a quiet line
+              under it; it was a loose line between the other rows */}
           <Match when={denied()}>
             {(text) => (
               <div
-                data-component="tool-denied"
-                class="text-13-regular text-text-weak cursor-default"
+                data-component="tool-denied-row"
+                class="cursor-default"
                 title={typeof input().filePath === "string" ? String(input().filePath) : undefined}
               >
-                {text()}
+                <Dynamic
+                  component={render()}
+                  input={input()}
+                  tool={part().tool}
+                  sessionID={part().sessionID}
+                  metadata={partMetadata()}
+                  status="denied"
+                  hideDetails={true}
+                />
+                <div data-component="tool-denied" data-slot="tool-denied-reason">
+                  {text()}
+                </div>
               </div>
             )}
           </Match>
@@ -1856,9 +1913,9 @@ ToolRegistry.register({
           <div data-slot="basic-tool-tool-info-structured">
             <div data-slot="basic-tool-tool-info-main">
               <span data-slot="basic-tool-tool-title">
-                <TextShimmer text={i18n.t("ui.tool.webfetch")} active={pending()} />
+                <TextShimmer text={i18n.t("ui.tool.webfetch")} active={false} />
               </span>
-              <Show when={!pending() && url()}>
+              <Show when={url()}>
                 <a
                   data-slot="basic-tool-tool-subtitle"
                   class="clickable subagent-link"
@@ -2024,10 +2081,19 @@ ToolRegistry.register({
           <div data-slot="basic-tool-tool-info-structured">
             <div data-slot="basic-tool-tool-info-main">
               <span data-slot="basic-tool-tool-title">
-                <TextShimmer text={i18n.t("ui.tool.shell")} active={pending()} />
+                <TextShimmer text={i18n.t("ui.tool.shell")} active={false} />
               </span>
-              <Show when={!pending() && props.input.description}>
-                <ShellSubmessage text={props.input.description} animate={sawPending} />
+              {/* 10-22: a running command shows what it does (its description, or the command until one
+                  arrives); the row used to read just "Shell" until it finished */}
+              <Show
+                when={props.input.description || (pending() ? props.input.command : undefined)}
+                fallback={
+                  <Show when={pending()}>
+                    <span data-slot="basic-tool-tool-subtitle">{i18n.t("ui.tool.preparing")}</span>
+                  </Show>
+                }
+              >
+                {(text) => <ShellSubmessage text={text()} animate={sawPending} />}
               </Show>
             </div>
           </div>
@@ -2120,13 +2186,13 @@ ToolRegistry.register({
               <div data-slot="message-part-title-area">
                 <div data-slot="message-part-title">
                   <span data-slot="message-part-title-text">
-                    <TextShimmer text={i18n.t("ui.messagePart.title.edit")} active={pending()} />
+                    <TextShimmer text={i18n.t("ui.messagePart.title.edit")} active={false} />
                   </span>
-                  <Show when={!pending()}>
+                  <Show when={props.input.filePath}>
                     <span data-slot="message-part-title-filename">{filename()}</span>
                   </Show>
                 </div>
-                <Show when={!pending() && props.input.filePath?.includes("/")}>
+                <Show when={props.input.filePath?.includes("/")}>
                   <div data-slot="message-part-path">
                     <span data-slot="message-part-directory">{getDirectory(props.input.filePath!)}</span>
                   </div>
@@ -2181,13 +2247,13 @@ ToolRegistry.register({
               <div data-slot="message-part-title-area">
                 <div data-slot="message-part-title">
                   <span data-slot="message-part-title-text">
-                    <TextShimmer text={i18n.t("ui.messagePart.title.write")} active={pending()} />
+                    <TextShimmer text={i18n.t("ui.messagePart.title.write")} active={false} />
                   </span>
-                  <Show when={!pending()}>
+                  <Show when={props.input.filePath}>
                     <span data-slot="message-part-title-filename">{filename()}</span>
                   </Show>
                 </div>
-                <Show when={!pending() && props.input.filePath?.includes("/")}>
+                <Show when={props.input.filePath?.includes("/")}>
                   <div data-slot="message-part-path">
                     <span data-slot="message-part-directory">{getDirectory(props.input.filePath!)}</span>
                   </div>

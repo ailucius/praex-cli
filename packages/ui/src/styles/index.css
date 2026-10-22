@@ -54,6 +54,7 @@
 @import "../components/text-reveal.css" layer(components);
 @import "../components/text-strikethrough.css" layer(components);
 @import "../components/text-shimmer.css" layer(components);
+@import "../components/working-mark.css" layer(components);
 @import "../components/tool-count-label.css" layer(components);
 @import "../components/tool-count-summary.css" layer(components);
 @import "../components/tool-status-title.css" layer(components);

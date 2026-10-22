@@ -131,24 +131,26 @@ export namespace Timeline {
         .filter((part) => renderable(part))
         .map((part) => ({ messageID: message.id, messageIndex, part })),
     )
+    // 10-22: finished routine commands fold into the quiet group once the turn is over (see groupParts)
+    const fold = { foldCommands: !(isActive && status !== "idle") }
     const assistantItems =
       interrupted && !compaction
         ? [
-            ...groupParts(assistantPartRefs.filter((ref) => ref.messageIndex <= interruptedMessageIndex)).map(
+            ...groupParts(assistantPartRefs.filter((ref) => ref.messageIndex <= interruptedMessageIndex), fold).map(
               (group) => ({
                 type: "part" as const,
                 group,
               }),
             ),
             { type: "interrupted" as const },
-            ...groupParts(assistantPartRefs.filter((ref) => ref.messageIndex > interruptedMessageIndex)).map(
+            ...groupParts(assistantPartRefs.filter((ref) => ref.messageIndex > interruptedMessageIndex), fold).map(
               (group) => ({
                 type: "part" as const,
                 group,
               }),
             ),
           ]
-        : groupParts(assistantPartRefs).map((group) => ({ type: "part" as const, group }))
+        : groupParts(assistantPartRefs, fold).map((group) => ({ type: "part" as const, group }))
     if (comments.length > 0)
       rows.push(
         new TimelineRow.CommentStrip({

@@ -2,7 +2,7 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 import { Avatar } from "@opencode-ai/ui/avatar"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Spinner } from "@opencode-ai/ui/spinner"
+import { WorkingMark } from "@opencode-ai/ui/working-mark"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/core/util/path"
 import { A, useParams } from "@solidjs/router"
@@ -63,7 +63,7 @@ export const ProjectIcon = (props: {
       </Show>
       <Show when={props.working}>
         <div class="absolute bottom-px right-px size-3 rounded-full bg-background-base z-10 flex items-center justify-center">
-          <Spinner class="size-[9px]" />
+          <WorkingMark class="text-[9px]" />
         </div>
       </Show>
     </div>
@@ -115,13 +115,11 @@ const SessionRow = (props: {
       }}
     >
       <Show when={props.isWorking() || props.hasPermissions() || props.hasError() || props.unseenCount() > 0}>
-        <div
-          class="shrink-0 size-6 flex items-center justify-center"
-          style={{ color: props.tint() ?? "var(--icon-interactive-base)" }}
-        >
+        <div class="shrink-0 size-6 flex items-center justify-center">
           <Switch>
+            {/* 10-22: the breathing tilde in the accent colour, the one working sign */}
             <Match when={props.isWorking()}>
-              <Spinner class="size-[15px]" />
+              <WorkingMark class="text-[14px]" />
             </Match>
             <Match when={props.hasPermissions()}>
               <div class="size-1.5 rounded-full bg-surface-warning-strong" />

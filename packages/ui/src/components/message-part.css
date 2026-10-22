@@ -211,7 +211,7 @@
 
 [data-component="text-part"] {
   width: 100%;
-  margin-top: 20px;
+  margin-top: 8px; /* 10-22: was 20px; with the row gap a reply sat 48px under the question */
 
   [data-slot="text-part-body"] {
     margin-top: 0;

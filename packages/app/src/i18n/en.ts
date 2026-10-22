@@ -609,6 +609,7 @@ export const dict = {
   "home.cowork.openFolder": "open a folder",
   "home.chat.openFolder": "open a folder in Code",
   "home.code.title": "Open a folder to start coding",
+  "session.working": "Working",
   "home.code.description": "Praex reads and edits the files in the folder you pick and runs commands there. It asks before it changes anything.",
   "home.code.openFolder": "Open folder",
   "composer.send.waiting": "Getting ready to send",

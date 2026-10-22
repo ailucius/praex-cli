@@ -92,6 +92,9 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.search.other": "{{count}} searches",
   "ui.messagePart.context.list.one": "{{count}} list",
   "ui.messagePart.context.list.other": "{{count}} lists",
+  "ui.messagePart.context.command.one": "{{count}} command",
+  "ui.messagePart.context.command.other": "{{count}} commands",
+  "ui.sessionTurn.status.ran": "Ran",
 
   "ui.list.loading": "Loading",
   "ui.list.empty": "No results",
@@ -122,6 +125,7 @@ export const dict: Record<string, string> = {
   "ui.tool.webfetch": "Webfetch",
   "ui.tool.websearch": "Web Search",
   "ui.tool.shell": "Shell",
+  "ui.tool.preparing": "Preparing the command",
   "ui.tool.patch": "Patch",
   "ui.tool.todos": "To-dos",
   "ui.tool.todos.read": "Read to-dos",

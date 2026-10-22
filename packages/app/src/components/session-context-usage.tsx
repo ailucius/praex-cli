@@ -15,6 +15,8 @@ import { createSessionTabs } from "@/pages/session/helpers"
 interface SessionContextUsageProps {
   variant?: "button" | "indicator"
   placement?: TooltipProps["placement"]
+  /** 10-22: hidden while the context is below this many percent full */
+  quietBelow?: number
 }
 
 function openSessionContext(args: {
@@ -102,7 +104,7 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
   )
 
   return (
-    <Show when={params.id}>
+    <Show when={params.id && (props.quietBelow === undefined || (context()?.usage ?? 0) >= props.quietBelow)}>
       <Tooltip value={tooltipValue()} placement={props.placement ?? "top"}>
         <Switch>
           <Match when={variant() === "indicator"}>{circle()}</Match>

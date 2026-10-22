@@ -5,6 +5,7 @@ import { createStore } from "solid-js/store"
 import { Collapsible } from "./collapsible"
 import { Icon, type IconProps } from "./icon"
 import { TextShimmer } from "./text-shimmer"
+import { WorkingMark } from "./working-mark"
 
 export type TriggerTitle = {
   title: string
@@ -178,15 +179,20 @@ export function BasicTool(props: BasicToolProps) {
     setOpen(value)
   }
 
+  // 10-22: one look for every row. Running or still being written: the breathing tilde in the icon column
+  // and the description already shown (it read just "Shell"); finished: muted; see basic-tool.css.
   const trigger = () => (
     <div
       data-component="tool-trigger"
       data-clickable={props.clickable ? "true" : undefined}
       data-hide-details={props.hideDetails ? "true" : undefined}
+      data-status={pending() ? "running" : props.status}
     >
       <div data-slot="basic-tool-tool-trigger-content">
         <span data-slot="basic-tool-tool-icon" aria-hidden="true">
-          <Icon name={props.icon} size="small" />
+          <Show when={pending()} fallback={<Icon name={props.icon} size="small" />}>
+            <WorkingMark class="text-[14px]" />
+          </Show>
         </span>
         <div data-slot="basic-tool-tool-info">
           <Switch>
@@ -200,9 +206,9 @@ export function BasicTool(props: BasicToolProps) {
                         [title().titleClass ?? ""]: !!title().titleClass,
                       }}
                     >
-                      <TextShimmer text={title().title} active={pending()} />
+                      <TextShimmer text={title().title} active={false} />
                     </span>
-                    <Show when={!pending()}>
+                    <Show when={true}>
                       <Show when={title().subtitle}>
                         <span
                           data-slot="basic-tool-tool-subtitle"

@@ -116,7 +116,7 @@ const defaultSettings: Settings = {
     showReasoningSummaries: false,
     shellToolPartsExpanded: false,
     editToolPartsExpanded: false,
-    showSessionProgressBar: true,
+    showSessionProgressBar: false, // 10-22: the tilde by the title is the working sign; the line is opt-in
     showCustomAgents: false,
   },
   appearance: {

@@ -1,0 +1,30 @@
+/* 10-22: see working-mark.tsx */
+[data-component="working-mark"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  line-height: 1;
+  font-weight: 600;
+  color: var(--icon-interactive-base);
+  animation: working-mark-breathe 1800ms ease-in-out infinite;
+  user-select: none;
+}
+
+@keyframes working-mark-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-component="working-mark"] {
+    animation: none;
+    opacity: 0.9;
+  }
+}

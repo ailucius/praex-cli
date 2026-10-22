@@ -16,26 +16,21 @@
 }
 
 @layer components {
-  @keyframes session-progress-whip {
+  /* 10-22: the header's optional progress line is a 1px violet shimmer that drifts across, not a thick
+     whip in the agent colour; the tilde by the title is the working sign. Still under reduced motion. */
+  @keyframes session-progress-shimmer {
     0% {
-      clip-path: inset(0 100% 0 0 round 999px);
-      animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+      background-position: -40% 0;
     }
-
-    48% {
-      clip-path: inset(0 0 0 0 round 999px);
-      animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
-    }
-
     100% {
-      clip-path: inset(0 0 0 100% round 999px);
+      background-position: 140% 0;
     }
   }
 
   [data-component="session-progress"] {
     position: absolute;
-    inset: 0 0 auto;
-    height: 2px;
+    inset: auto 0 0;
+    height: 1px;
     overflow: hidden;
     pointer-events: none;
     opacity: 1;
@@ -49,9 +44,24 @@
   [data-component="session-progress-bar"] {
     width: 100%;
     height: 100%;
-    border-radius: 999px;
-    clip-path: inset(0 100% 0 0 round 999px);
-    will-change: clip-path;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        color-mix(in srgb, var(--icon-interactive-base) 85%, transparent) 50%,
+        transparent 100%
+      )
+      no-repeat;
+    background-size: 40% 100%;
+    animation-name: session-progress-shimmer;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-component="session-progress-bar"] {
+      animation: none;
+      background: color-mix(in srgb, var(--icon-interactive-base) 35%, transparent);
+    }
   }
 
   [data-component="getting-started"] {

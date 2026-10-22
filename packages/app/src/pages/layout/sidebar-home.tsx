@@ -11,6 +11,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Mark } from "@opencode-ai/ui/logo"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { WorkingMark } from "@opencode-ai/ui/working-mark"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { A, useNavigate, useParams } from "@solidjs/router"
 import { type Accessor, createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from "solid-js"
@@ -649,7 +650,8 @@ function SessionRow(props: { session: Session; indent?: boolean; pinned?: boolea
         </Show>
       }
     >
-      <Spinner class="size-3 shrink-0" />
+      {/* 10-22: a session at work shows the breathing tilde, the same sign as the header and the TUI */}
+      <WorkingMark class="shrink-0 text-[13px]" />
     </Show>
   )
 
