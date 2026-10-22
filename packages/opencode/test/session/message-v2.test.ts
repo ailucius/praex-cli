@@ -1037,8 +1037,61 @@ describe("session.message-v2.toModelMessage", () => {
         content: [
           { type: "reasoning", text: "thinking", providerOptions: undefined },
           { type: "text", text: "partial answer" },
+          { type: "text", text: "\n\n[Interrupted by the user]" },
         ],
       },
+    ])
+  })
+
+  test("10-22: an interrupted reply is replayed with a note that it was interrupted", async () => {
+    const aborted = new SessionV1.AbortedError({ message: "aborted" }).toObject() as SessionV1.Assistant["error"]
+    const input: SessionV1.WithParts[] = [
+      {
+        info: userInfo("m-u1"),
+        parts: [{ ...basePart("m-u1", "u1"), type: "text", text: "Write a story." }] as SessionV1.Part[],
+      },
+      {
+        info: assistantInfo("m-a1", "m-u1", aborted),
+        parts: [{ ...basePart("m-a1", "a1"), type: "text", text: "The ovens woke before" }] as SessionV1.Part[],
+      },
+      {
+        info: userInfo("m-u2"),
+        parts: [{ ...basePart("m-u2", "u2"), type: "text", text: "Another one." }] as SessionV1.Part[],
+      },
+      {
+        info: assistantInfo("m-a2", "m-u2"),
+        parts: [{ ...basePart("m-a2", "a2"), type: "text", text: "Done." }] as SessionV1.Part[],
+      },
+      {
+        info: userInfo("m-u3"),
+        parts: [{ ...basePart("m-u3", "u3"), type: "text", text: "Thanks." }] as SessionV1.Part[],
+      },
+      // interrupted before any output: the step has no parts at all
+      { info: assistantInfo("m-a3", "m-u3", aborted), parts: [] },
+      {
+        info: userInfo("m-u4"),
+        parts: [{ ...basePart("m-u4", "u4"), type: "text", text: "Hello?" }] as SessionV1.Part[],
+      },
+    ]
+
+    const messages = await MessageV2.toModelMessages(input, model)
+    // a cut-off text is closed where it stops
+    expect(messages[1]).toStrictEqual({
+      role: "assistant",
+      content: [
+        { type: "text", text: "The ovens woke before" },
+        { type: "text", text: "\n\n[Interrupted by the user]" },
+      ],
+    })
+    // a step with no text to close puts the note on the next prompt
+    expect(messages.filter((m) => m.role === "user").map((m) => m.content)).toStrictEqual([
+      [{ type: "text", text: "Write a story." }],
+      [{ type: "text", text: "Another one." }],
+      [{ type: "text", text: "Thanks." }],
+      [
+        { type: "text", text: "[Request interrupted by user]" },
+        { type: "text", text: "Hello?" },
+      ],
     ])
   })
 

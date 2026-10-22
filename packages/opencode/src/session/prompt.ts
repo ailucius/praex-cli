@@ -1488,10 +1488,34 @@ export const layer = Layer.effect(
       },
     )
 
+    // 10-22: an interrupt that lands between two steps (the last step ended with tool calls and the
+    // next one was not created yet) left no aborted message behind, so the turn read as stopped in
+    // the TUI and as finished in the desktop app. The turn's last step is marked aborted then, the
+    // same as an interrupt in the middle of a step. A step that already finished the turn stays done.
+    const markInterrupted = Effect.fnUntraced(function* (sessionID: SessionID) {
+      const match = yield* sessions.findMessage(sessionID, (m) => m.info.role === "assistant").pipe(Effect.orDie)
+      if (Option.isNone(match)) return
+      const info = match.value.info
+      if (info.role !== "assistant" || info.error || info.summary) return
+      if (info.finish && !["tool-calls", "unknown"].includes(info.finish)) return
+      yield* sessions.updateMessage({
+        ...info,
+        error: MessageV2.fromError(new DOMException("Aborted", "AbortError"), {
+          providerID: info.providerID,
+          aborted: true,
+        }),
+        time: { ...info.time, completed: info.time.completed ?? Date.now() },
+      })
+    })
+
     const loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.loop")(function* (
       input: LoopInput,
     ) {
-      return yield* state.ensureRunning(input.sessionID, lastAssistant(input.sessionID), runLoop(input.sessionID))
+      return yield* state.ensureRunning(
+        input.sessionID,
+        lastAssistant(input.sessionID),
+        runLoop(input.sessionID).pipe(Effect.onInterrupt(() => markInterrupted(input.sessionID))),
+      )
     })
 
     const shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError> = Effect.fn(

@@ -203,15 +203,24 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
     return { type: "json", value: output as never }
   }
 
+  // 10-22: a reply the user interrupted was replayed as it stood, cut off mid-sentence and with nothing
+  // saying so. Velox III then tended to cut its next reply short the same way, with a normal finish that
+  // the TUI showed as done (live: 2 of 3 next replies; replayed: 6 of 8). A cut-off text now ends with
+  // a note that it was interrupted (replayed: 0 of 8 cut). A step interrupted before any text, or on a
+  // tool call, has no text to close, so the next prompt starts with the note instead.
+  let interrupted = false
   for (const msg of input) {
+    // before the skips below: an interrupt before any output leaves the prompt unanswered too
+    if (msg.info.role === "assistant") interrupted = AbortedError.isInstance(msg.info.error)
     if (msg.parts.length === 0) continue
 
     if (msg.info.role === "user") {
       const userMessage: UIMessage = {
         id: msg.info.id,
         role: "user",
-        parts: [],
+        parts: interrupted ? [{ type: "text", text: "[Request interrupted by user]" }] : [],
       }
+      interrupted = false
       for (const part of msg.parts) {
         // User message parts should never be empty
         if (part.type === "text" && !part.ignored && part.text !== "")
@@ -385,6 +394,10 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
             providerMetadata: part.metadata,
           })
         }
+      }
+      if (interrupted && assistantMessage.parts.at(-1)?.type === "text") {
+        assistantMessage.parts.push({ type: "text", text: "\n\n[Interrupted by the user]" })
+        interrupted = false
       }
       if (assistantMessage.parts.length > 0) {
         result.push(assistantMessage)

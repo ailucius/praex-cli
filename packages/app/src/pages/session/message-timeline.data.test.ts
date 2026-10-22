@@ -72,3 +72,26 @@ describe("Timeline.constructMessageRows thinking", () => {
     expect(tags).not.toContain("Thinking")
   })
 })
+
+describe("Timeline.constructMessageRows stopped replies", () => {
+  const reply = { msg_reply: [{ id: "prt_r", type: "text", text: "The story begins and then" } as unknown as Part] }
+  const dividers = (message: AssistantMessage) =>
+    rows(reply, [message]).flatMap((row) => (row._tag === "TurnDivider" ? [row.label] : []))
+
+  test("10-22: a reply cut at the output limit says so", () => {
+    expect(dividers({ ...assistant("msg_reply", false), finish: "length" } as AssistantMessage)).toEqual(["cutoff"])
+  })
+
+  test("an interrupted reply shows Interrupted, not a cut-off", () => {
+    const aborted = {
+      ...assistant("msg_reply", false),
+      finish: undefined,
+      error: { name: "MessageAbortedError", data: { message: "Aborted" } },
+    } as unknown as AssistantMessage
+    expect(dividers(aborted)).toEqual(["interrupted"])
+  })
+
+  test("a finished reply has no divider", () => {
+    expect(dividers(assistant("msg_reply", false))).toEqual([])
+  })
+})

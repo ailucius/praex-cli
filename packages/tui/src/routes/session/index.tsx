@@ -1603,14 +1603,15 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
 
   // The turn's first step: the first assistant message after the previous finished turn. A
   // message sent mid-turn changes the steps' parent, so the parent alone would restart the clock.
+  // 10-22: an interrupted or failed turn ends a turn too. It has an error and no finish, so the
+  // next turn used to count from the interrupted one ("Done in 22m 37s" for an 11 s reply).
   const firstStep = createMemo(() => {
     const previous = messages().findLast(
       (x) =>
         x.role === "assistant" &&
         x.id < props.message.id &&
         !!x.time.completed &&
-        !!x.finish &&
-        !["tool-calls", "unknown"].includes(x.finish),
+        (!!x.error || (!!x.finish && !["tool-calls", "unknown"].includes(x.finish))),
     )?.id
     return messages().find((x) => x.role === "assistant" && x.id > (previous ?? "") && x.id <= props.message.id)
   })
@@ -1660,6 +1661,9 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
     if (failed)
       return { glyph: "✕", color: theme.error, text: `${agent}Stopped${took ? ` after ${took}` : ""} · ${name}` }
     if (stopped && !final()) return { glyph: "◼", color: theme.textMuted, text: `${agent}Stopped · ${name}` }
+    // 10-22: a reply that hit the output limit stops mid-sentence; it is not done.
+    if (props.message.finish === "length")
+      return { glyph: "◼", color: theme.textMuted, text: `${agent}Cut off at the length limit · ${name}` }
     // A finished turn is history, not the live thing: a soft check, the rest in grey.
     return {
       glyph: "✓",

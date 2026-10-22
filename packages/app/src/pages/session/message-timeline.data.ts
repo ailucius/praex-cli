@@ -17,7 +17,7 @@ export type TimelineRowMap = {
   }
   TurnDivider: {
     userMessageID: string
-    label: "compaction" | "interrupted"
+    label: "compaction" | "interrupted" | "cutoff"
   }
   AssistantPart: {
     userMessageID: string
@@ -43,7 +43,7 @@ export namespace TimelineRow {
   }> {}
   export class TurnDivider extends Data.TaggedClass("TurnDivider")<{
     userMessageID: string
-    label: "compaction" | "interrupted"
+    label: "compaction" | "interrupted" | "cutoff"
   }> {}
   export class AssistantPart extends Data.TaggedClass("AssistantPart")<{
     userMessageID: string
@@ -195,6 +195,16 @@ export namespace Timeline {
       )
       assistantGroupIndex += 1
     })
+
+    // 10-22: a reply that hit the output limit stops mid-sentence; say so instead of letting it read as done.
+    if (!interrupted && !compaction && assistantMessages.at(-1)?.finish === "length") {
+      rows.push(
+        new TimelineRow.TurnDivider({
+          userMessageID: userMessage.id,
+          label: "cutoff",
+        }),
+      )
+    }
 
     // One "Thinking…" at a time: this row only covers the wait before the first part lands.
     // Once the model streams its thinking, the reasoning row carries the label itself.

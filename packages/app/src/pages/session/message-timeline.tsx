@@ -1208,7 +1208,11 @@ export function MessageTimeline(props: {
               <div data-slot="session-turn-compaction">
                 <MessageDivider
                   label={language.t(
-                    turnDividerRow().label === "compaction" ? "ui.messagePart.compaction" : "ui.message.interrupted",
+                    turnDividerRow().label === "compaction"
+                      ? "ui.messagePart.compaction"
+                      : turnDividerRow().label === "cutoff"
+                        ? "ui.message.cutOff"
+                        : "ui.message.interrupted",
                   )}
                 />
               </div>
