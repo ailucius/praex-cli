@@ -1017,6 +1017,15 @@ export function MessageTimeline(props: {
 
   const getMsgPart = (messageID: string, partID: string) => getMsgParts(messageID).find((part) => part.id === partID)
 
+  // 10-22: Regenerate sits next to Copy on the last reply of the session, once the turn is over
+  const regenerateFor = (userMessageID: string, partID: string) => {
+    const regenerate = props.actions?.regenerate
+    const id = sessionID()
+    if (!regenerate || !id || sessionStatus().type !== "idle") return
+    if (props.userMessages.at(-1)?.id !== userMessageID || assistantCopyPartID(userMessageID) !== partID) return
+    return () => void regenerate({ sessionID: id, messageID: userMessageID })
+  }
+
   const renderAssistantPartGroup = (row: Accessor<TimelineRowMap["AssistantPart"]>) => {
     if (row().group.type === "context") {
       const parts = createMemo(() => {
@@ -1069,6 +1078,7 @@ export function MessageTimeline(props: {
                 message={message()}
                 showAssistantCopyPartID={assistantCopyPartID(row().userMessageID)}
                 turnDurationMs={turnDurationMs(row().userMessageID)}
+                onRegenerate={regenerateFor(row().userMessageID, part().id)}
                 defaultOpen={defaultOpen()}
                 toolOpen={toolOpen[part().id] ?? defaultOpen()}
                 onToolOpenChange={(open) => setToolOpen(part().id, open)}

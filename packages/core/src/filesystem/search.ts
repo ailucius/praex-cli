@@ -11,6 +11,7 @@ import { Location } from "../location"
 import { Ripgrep } from "../ripgrep"
 import { RelativePath } from "../schema"
 import { Flag } from "../flag/flag"
+import { artifact } from "./artifact"
 
 export interface Interface {
   readonly find: (input: FileSystem.FindInput) => Effect.Effect<FileSystem.Entry[]>
@@ -108,7 +109,7 @@ export const ripgrepLayer = Layer.effect(
               : input.type === "directory"
                 ? state.directories
                 : [...state.files, ...state.directories]
-          return fuzzysort.go(input.query, items, { limit: input.limit ?? 50 }).map((item) => {
+          return fuzzysort.go(input.query, items.filter((item) => !artifact(item)), { limit: input.limit ?? 50 }).map((item) => {
             const relative = item.target
             const type = relative.endsWith(path.sep) ? ("directory" as const) : ("file" as const)
             const clean = type === "directory" ? relative.slice(0, -path.sep.length) : relative
@@ -203,7 +204,8 @@ export const fffLayer = Layer.effect(
         }),
       find: (input) =>
         Effect.sync(() => {
-          const options = { pageIndex: 0, pageSize: input.limit ?? 50 }
+          // asks for more than the limit: artifacts are dropped below
+          const options = { pageIndex: 0, pageSize: (input.limit ?? 50) * 3 }
           const items = (() => {
             if (input.type === "file") {
               const found = result.value.fileSearch(input.query.trim(), options)
@@ -232,7 +234,9 @@ export const fffLayer = Layer.effect(
             }))
           })()
           return items
+            .filter((item) => !artifact(item.path))
             .sort((a, b) => b.score - a.score || a.path.length - b.path.length)
+            .slice(0, input.limit ?? 50)
             .map((item) => {
               const relative = item.path.replaceAll("\\", "/").replace(/\/$/, "")
               const absolute = path.resolve(location.directory, relative)

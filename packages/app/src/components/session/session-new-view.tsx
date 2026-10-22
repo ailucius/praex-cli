@@ -27,16 +27,23 @@ export function NewSessionView(props: NewSessionViewProps) {
     if (options().includes(selection)) return selection
     return MAIN_WORKTREE
   })
+  // 10-22: a second clone of a repository shares the project with the first clone but is neither its
+  // worktree nor one of its sandboxes; it showed the first clone's path. The open folder is its root.
+  const elsewhere = createMemo(() => {
+    const project = sync().project
+    if (!project || project.worktree === "/") return false
+    return sdk().directory !== project.worktree && !(project.sandboxes ?? []).includes(sdk().directory)
+  })
   // a folder outside git belongs to the catch-all project whose worktree is "/": show the folder
   const projectRoot = createMemo(() => {
     const worktree = sync().project?.worktree
-    return worktree && worktree !== "/" ? worktree : sdk().directory
+    return worktree && worktree !== "/" && !elsewhere() ? worktree : sdk().directory
   })
   const isGit = createMemo(() => sync().project?.vcs === "git")
   const isWorktree = createMemo(() => {
     const project = sync().project
     if (!project) return false
-    return sdk().directory !== project.worktree
+    return sdk().directory !== project.worktree && !elsewhere()
   })
 
   const label = (value: string) => {

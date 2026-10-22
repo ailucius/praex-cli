@@ -267,10 +267,25 @@ export const layer = Layer.effect(
         vcs: data.vcs?.type ?? fakeVcs,
         time: { ...existing.time, updated: Date.now() },
       }
+      // 10-22: a second clone of the same repository gets the same project id but has its own .git. It was
+      // filed as a sandbox (worktree) of the first clone, so the app grouped it under the first one and
+      // showed that clone's name and path. Only directories that share the main worktree's git store (git
+      // worktrees, Praex workspaces) are sandboxes; an unreadable main worktree keeps the old behaviour.
+      const storeOf = (dir: string) =>
+        projectV2.resolve(AbsolutePath.make(dir)).pipe(
+          Effect.map((resolved) => resolved.vcs?.store),
+          Effect.catchCause(() => Effect.succeed(undefined)),
+        )
+      const sameRepo = (store: string | undefined, main: string | undefined) => !main || !store || store === main
+      const main =
+        projectID !== ProjectV2.ID.global && data.directory !== result.worktree && (yield* fs.exists(result.worktree).pipe(Effect.orDie))
+          ? yield* storeOf(result.worktree)
+          : data.vcs?.store
       if (
         projectID !== ProjectV2.ID.global &&
         data.directory !== result.worktree &&
-        !result.sandboxes.includes(data.directory)
+        !result.sandboxes.includes(data.directory) &&
+        sameRepo(data.vcs?.store, main)
       )
         result.sandboxes.push(data.directory)
       result.sandboxes = yield* Effect.forEach(
@@ -278,7 +293,9 @@ export const layer = Layer.effect(
         (s) =>
           fs.exists(s).pipe(
             Effect.orDie,
-            Effect.map((exists) => (exists ? s : undefined)),
+            Effect.flatMap((exists) =>
+              exists ? storeOf(s).pipe(Effect.map((store) => (sameRepo(store, main) ? s : undefined))) : Effect.succeed(undefined),
+            ),
           ),
         { concurrency: "unbounded" },
       ).pipe(Effect.map((arr) => arr.filter((x): x is string => x !== undefined)))

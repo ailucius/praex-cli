@@ -405,6 +405,38 @@ describe("Project.fromDirectory with worktrees", () => {
   )
 })
 
+describe("Project.fromDirectory second clones (10-22)", () => {
+  it.live("a second clone of the same repository is not filed as a sandbox of the first", () =>
+    Effect.gen(function* () {
+      const project = yield* Project.Service
+      const tmp = yield* tmpdirScoped({ git: true })
+      const clone = path.join(tmp, "..", path.basename(tmp) + "-clone")
+      yield* Effect.addFinalizer(() => Effect.promise(() => $`rm -rf ${clone}`.quiet().nothrow()).pipe(Effect.ignore))
+      yield* Effect.promise(() => $`git clone ${tmp} ${clone}`.quiet())
+
+      const first = yield* project.fromDirectory(tmp)
+      const second = yield* project.fromDirectory(clone)
+
+      expect(second.project.id).toBe(first.project.id)
+      expect(second.project.sandboxes).not.toContain(clone)
+    }),
+  )
+
+  it.live("a clone filed as a sandbox before is dropped from the list", () =>
+    Effect.gen(function* () {
+      const project = yield* Project.Service
+      const tmp = yield* tmpdirScoped({ git: true })
+      const clone = path.join(tmp, "..", path.basename(tmp) + "-old-clone")
+      yield* Effect.addFinalizer(() => Effect.promise(() => $`rm -rf ${clone}`.quiet().nothrow()).pipe(Effect.ignore))
+      yield* Effect.promise(() => $`git clone ${tmp} ${clone}`.quiet())
+      const first = yield* project.fromDirectory(tmp)
+      yield* project.addSandbox(first.project.id, clone)
+      const again = yield* project.fromDirectory(tmp)
+      expect(again.project.sandboxes).not.toContain(clone)
+    }),
+  )
+})
+
 describe("Project.discover", () => {
   iconDiscoveryIt.live("discovers favicon from fromDirectory when enabled", () =>
     Effect.gen(function* () {

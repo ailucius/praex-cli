@@ -5,6 +5,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import os from "os"
 import { SessionID, MessageID, PartID } from "./schema"
 import { MessageV2 } from "./message-v2"
+import { SessionTitle } from "./title"
 import { SessionRevert } from "./revert"
 import { Session } from "./session"
 import { Agent } from "../agent/agent"
@@ -243,7 +244,12 @@ export const layer = Layer.effect(
           model: mdl,
           sessionID: input.session.id,
           retries: 2,
-          messages: [{ role: "user", content: "Generate a title for this conversation:\n" }, ...msgs],
+          messages: [
+            { role: "user", content: "Generate a title for this conversation:\n" },
+            ...msgs,
+            // 10-22: the request last, so a small model titles the message above instead of answering it
+            { role: "user", content: "Reply with the title only: a few words for what the message above asks. Do not answer it." },
+          ],
         })
         .pipe(
           Stream.filter(LLMEvent.is.textDelta),
@@ -265,7 +271,9 @@ export const layer = Layer.effect(
         )
         .find((line) => line.length > 0)
       if (!cleaned) return
-      const t = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned
+      const request = firstUser.parts.flatMap((p) => (p.type === "text" && !p.synthetic ? [p.text] : [])).join(" ")
+      const named = SessionTitle.answered(cleaned, request) ? SessionTitle.fromRequest(request) : cleaned
+      const t = named.length > 100 ? named.substring(0, 97) + "..." : named
       yield* sessions
         .setTitle({ sessionID: input.session.id, title: t })
         .pipe(Effect.catchCause((cause) => Effect.logError("failed to generate title", { error: Cause.squash(cause) })))

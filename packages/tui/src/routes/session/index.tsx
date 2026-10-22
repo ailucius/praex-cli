@@ -14,6 +14,7 @@ import {
   untrack,
   useContext,
 } from "solid-js"
+import { softWrap } from "../../util/soft-wrap"
 import { SIGNED_OUT_PREFIX, usePraex } from "../../component/use-praex"
 import { Dynamic } from "solid-js/web"
 import path from "node:path"
@@ -1965,6 +1966,8 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
   const ctx = use()
   const { theme, syntax } = useTheme()
   const segments = createMemo(() => splitFences(props.part.text.trim()))
+  // 10-22: lines are wrapped at spaces before the renderer, whose word wrap also breaks after "(" ("sum(" | "xs)")
+  const [room, setRoom] = createSignal(0)
   return (
     <Show when={props.part.text.trim()}>
       <box
@@ -1974,6 +1977,9 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
         flexShrink={0}
         flexDirection="column"
         gap={1}
+        onSizeChange={function () {
+          setRoom(this.width - 3)
+        }}
       >
         <For each={segments()}>
           {(segment) => (
@@ -1983,7 +1989,7 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
                   syntaxStyle={syntax()}
                   streaming={true}
                   internalBlockMode="top-level"
-                  content={segment.text}
+                  content={softWrap(segment.text, room())}
                   tableOptions={{ style: "grid" }}
                   conceal={ctx.conceal()}
                   fg={theme.markdownText}

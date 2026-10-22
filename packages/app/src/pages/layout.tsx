@@ -12,6 +12,7 @@ import {
   untrack,
   type Accessor,
 } from "solid-js"
+import { workspaceMode } from "@/utils/workspace-mode"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useLayout, LocalProject } from "@/context/layout"
@@ -370,6 +371,14 @@ export default function Layout(props: ParentProps) {
     if (!dir) return navigateWithSidebarReset("/")
     navigateWithSidebarReset(`/${base64Encode(dir)}/session`)
   }
+  // 10-22: Ctrl+N in Code starts a new session in the open folder (it went back to Chat); with no folder
+  // open it does what the Code button does
+  function newSession() {
+    if (workspaceMode.get() !== "code") return newChat()
+    const dir = currentDir()
+    if (dir && !isChatDirectory(dir, chatDir())) return navigateWithSidebarReset(`/${base64Encode(dir)}/session`)
+    openCode()
+  }
   // Code mode: back to the project you were in last, else the first one, else the folder picker.
   function openCode() {
     const list = layout.projects.list().filter((project) => project.worktree !== "/" && project.worktree !== chatDir())
@@ -574,11 +583,13 @@ export default function Layout(props: ParentProps) {
 
     const projects = layout.projects.list()
 
-    const sandbox = projects.find((p) => p.sandboxes?.some((item) => pathKey(item) === key))
-    if (sandbox) return sandbox
-
+    // 10-22: the folder itself first: a second clone opened on its own is its own entry, even where an
+    // older record still lists it among the first clone's sandboxes
     const direct = projects.find((p) => pathKey(p.worktree) === key)
     if (direct) return direct
+
+    const sandbox = projects.find((p) => p.sandboxes?.some((item) => pathKey(item) === key))
+    if (sandbox) return sandbox
 
     const [child] = serverSync().child(directory, { bootstrap: false })
     const id = child.project
@@ -1041,7 +1052,7 @@ export default function Layout(props: ParentProps) {
         title: language.t("sidebar.chat.new"),
         category: language.t("command.category.session"),
         keybind: "mod+n",
-        onSelect: () => newChat(),
+        onSelect: () => newSession(),
       },
       {
         id: "chat.search",

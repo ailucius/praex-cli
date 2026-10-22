@@ -1,4 +1,5 @@
 import { type Session } from "@opencode-ai/sdk/v2/client"
+import { workspaceMode } from "@/utils/workspace-mode"
 import { LOW_ALLOWANCE, useAllowanceText, usePraexAccountRefresh } from "@/components/praex-account"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { getFilename } from "@opencode-ai/core/util/path"
@@ -175,7 +176,8 @@ export function SidebarHome(props: SidebarHomeProps) {
   )
 
   const pins = usePins()
-  const [mode, setMode] = createSignal<SidebarMode>("chat")
+  const mode = workspaceMode.get
+  const setMode = workspaceMode.set
   // the route decides the mode: a project means Code, the chat workspace means Chat. Re-derived on
   // every navigation (not only a folder change), so opening a chat after a Code click shows Chat.
   createEffect(

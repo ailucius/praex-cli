@@ -1,4 +1,4 @@
-import type { Project, UserMessage } from "@opencode-ai/sdk/v2"
+import type { FilePartInput, Project, TextPartInput, UserMessage } from "@opencode-ai/sdk/v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { createQuery, skipToken, useMutation, useQueryClient } from "@tanstack/solid-query"
 import {
@@ -33,6 +33,8 @@ import { checksum } from "@opencode-ai/core/util/encode"
 import { useLocation, useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
 import { ChatHomeView } from "@/components/session/chat-home-view"
+import { CodeHomeView } from "@/components/session/code-home-view"
+import { workspaceMode } from "@/utils/workspace-mode"
 import { isChatDirectory, useChatDirectory } from "@/utils/chat-workspace"
 import { useComments } from "@/context/comments"
 import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
@@ -1587,7 +1589,34 @@ export default function Page() {
       .map((item) => ({ id: item.id, text: line(item.id) }))
   })
 
-  const actions = { revert }
+  // 10-22: Regenerate on the last reply: back to the question, like Revert, then the same question again
+  // with the same agent and model (the reverted reply is dropped when the new one starts)
+  const regenerate = async (input: { sessionID: string; messageID: string }) => {
+    if (reverting() || busy(input.sessionID)) return
+    const message = messages().find((item) => item.id === input.messageID)
+    if (!message || message.role !== "user") return
+    const parts = (sync().data.part[input.messageID] ?? []).flatMap((part): (TextPartInput | FilePartInput)[] => {
+      if (part.type === "text" && !part.synthetic && part.text) return [{ type: "text", text: part.text }]
+      if (part.type === "file") return [{ type: "file", mime: part.mime, url: part.url, filename: part.filename }]
+      return []
+    })
+    if (parts.length === 0) return
+    await sdk()
+      .client.session.revert(input)
+      .then((result) => {
+        if (result.data) merge(result.data)
+        return sdk().client.session.promptAsync({
+          sessionID: input.sessionID,
+          agent: message.agent,
+          model: { providerID: message.model.providerID, modelID: message.model.modelID },
+          variant: message.model.variant,
+          parts,
+        })
+      })
+      .catch(fail)
+  }
+
+  const actions = { revert, regenerate }
 
   createEffect(() => {
     const sessionID = params.id
@@ -1830,6 +1859,9 @@ export default function Page() {
                       }}
                     />
                   </Show>
+                </Match>
+                <Match when={chat() && workspaceMode.get() === "code"}>
+                  <CodeHomeView />
                 </Match>
                 <Match when={chat()}>
                   <ChatHomeView composer={composerRegion("inline")} />

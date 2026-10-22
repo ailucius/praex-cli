@@ -169,11 +169,15 @@ export type SessionAction = (input: { sessionID: string; messageID: string }) =>
 export type UserActions = {
   fork?: SessionAction
   revert?: SessionAction
+  /** 10-22: ask the last question again (the timeline offers it on the last reply only) */
+  regenerate?: SessionAction
 }
 
 export interface MessagePartProps {
   part: PartType
   message: MessageType
+  /** 10-22: a Regenerate button next to Copy (the last reply of a session) */
+  onRegenerate?: () => void
   hideDetails?: boolean
   defaultOpen?: boolean
   toolOpen?: boolean
@@ -1287,6 +1291,7 @@ export function Part(props: MessagePartProps) {
         virtualizeDiff={props.virtualizeDiff}
         showAssistantCopyPartID={props.showAssistantCopyPartID}
         turnDurationMs={props.turnDurationMs}
+        onRegenerate={props.onRegenerate}
       />
     </Show>
   )
@@ -1598,6 +1603,19 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
                 aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
               />
             </Tooltip>
+            <Show when={props.onRegenerate}>
+              <Tooltip value={i18n.t("ui.message.regenerate")} placement="top" gutter={4}>
+                <IconButton
+                  icon="reset"
+                  size="normal"
+                  variant="ghost"
+                  data-action="regenerate"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => props.onRegenerate?.()}
+                  aria-label={i18n.t("ui.message.regenerate")}
+                />
+              </Tooltip>
+            </Show>
             <Show when={meta()}>
               <span data-slot="text-part-meta" class="text-12-regular text-text-weak cursor-default">
                 {meta()}
