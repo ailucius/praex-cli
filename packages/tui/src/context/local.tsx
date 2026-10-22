@@ -511,15 +511,21 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     function createPermissionMode() {
       // Claude Code-style runtime permission modes. The default agent ships "*": "allow", so
-      // the TUI enforces "manual" by pushing session-level ask rules for sensitive tools —
+      // the TUI enforces "manual" by pushing session-level ask rules for sensitive tools:
       // session rules are evaluated after agent rules and matching is last-wins, so the most
-      // recently synced mode decides. "auto" restores blanket allow. Headless `praex run` is
-      // untouched. Known v1 softening: session rules also out-rank the plan agent's edit deny.
+      // recently synced mode decides. "auto" allows every tool, except that the server's
+      // destructive-action guard (packages/opencode/src/permission/guard.ts) still asks for a
+      // short list of destructive or hard-to-undo actions (rm -rf outside the project, sudo,
+      // git push --force, writes outside the project, curl | sh, ...). Both modes carry the
+      // guard rule: subagents inherit it (not the manual asks), so a subagent stops for
+      // `rm -rf ~` in either mode. Headless `praex run` is untouched. Known v1 softening:
+      // session rules also out-rank the plan agent's edit deny.
       // write.ts + apply_patch.ts ask as "edit"; shell.ts asks as "bash" (ShellID.ToolID)
       const SENSITIVE = ["edit", "bash", "task", "webfetch", "websearch"]
+      const GUARD = { permission: "destructive", pattern: "*", action: "ask" as const }
       const RULES = {
-        manual: SENSITIVE.map((permission) => ({ permission, pattern: "*", action: "ask" as const })),
-        auto: [{ permission: "*", pattern: "*", action: "allow" as const }],
+        manual: [...SENSITIVE.map((permission) => ({ permission, pattern: "*", action: "ask" as const })), GUARD],
+        auto: [{ permission: "*", pattern: "*", action: "allow" as const }, GUARD],
       }
       const [store, setStore] = createStore({
         current: "manual" as keyof typeof RULES,

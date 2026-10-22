@@ -16,6 +16,7 @@ import { getScrollAcceleration } from "../../util/scroll"
 import { useTuiConfig } from "../../config"
 import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut } from "../../keymap"
 import { usePathFormatter } from "../../context/path-format"
+import { useLocal } from "../../context/local"
 
 type PermissionStage = "permission" | "always" | "reject"
 
@@ -146,6 +147,13 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
   const pathFormatter = usePathFormatter()
 
   const session = createMemo(() => sync.data.session.find((s) => s.id === props.request.sessionID))
+  const local = useLocal()
+  // Set by the server's destructive-action guard: why this call stops even in auto mode.
+  const guard = createMemo(() => {
+    const reason = props.request.metadata?.guard
+    if (typeof reason !== "string" || !reason) return
+    return local.permission.current() === "auto" ? `Auto mode stops for this: ${reason}` : reason
+  })
 
   const input = createMemo(() => {
     const tool = props.request.tool
@@ -424,6 +432,14 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                 </text>
                 <text fg={theme.text}>{current.title}</text>
               </box>
+              <Show when={guard()}>
+                <box flexDirection="row" gap={1} paddingLeft={2} flexShrink={0}>
+                  <text fg={theme.warning} flexShrink={0}>
+                    !
+                  </text>
+                  <text fg={theme.warning}>{guard()}</text>
+                </box>
+              </Show>
             </box>
           )
 

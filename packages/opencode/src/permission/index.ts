@@ -8,6 +8,7 @@ import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@opencode-ai/core/event"
 import { PermissionDiff } from "./diff"
+import { Guard } from "./guard"
 
 export const Event = {
   Asked: EventV2.define({ type: "permission.asked", schema: PermissionV1.Request.fields }),
@@ -93,6 +94,14 @@ export const layer = Layer.effect(
         needsAsk = true
       }
 
+      // Destructive-action guard (see ./guard): only sessions or configs with a "destructive"
+      // rule use it. A flagged call asks even when its tool is allowed, with a one-line reason.
+      const guarded = yield* Guard.evaluate(request, ruleset, approved)
+      if (guarded?.action === "deny") {
+        return yield* new PermissionV1.DeniedError({ ruleset: ruleset.filter((rule) => rule.permission === Guard.ID) })
+      }
+      if (guarded?.action === "ask") needsAsk = true
+
       if (!needsAsk) return
 
       const id = request.id ?? PermissionV1.ID.ascending()
@@ -102,7 +111,10 @@ export const layer = Layer.effect(
         permission: request.permission,
         patterns: request.patterns,
         // The proposed change rides along so clients can show it before approval, capped in size.
-        metadata: request.permission === "edit" ? PermissionDiff.metadata(request.metadata) : request.metadata,
+        metadata: {
+          ...(request.permission === "edit" ? PermissionDiff.metadata(request.metadata) : request.metadata),
+          ...(guarded?.action === "ask" ? { guard: guarded.reason } : {}),
+        },
         always: request.always,
         tool: request.tool,
       }

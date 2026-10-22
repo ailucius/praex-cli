@@ -1,6 +1,7 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { test, expect } from "bun:test"
 import os from "os"
+import path from "path"
 import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import { EventV2Bridge } from "../../src/event-v2-bridge"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
@@ -610,6 +611,126 @@ it.instance(
       expect(yield* waitForPending(1)).toHaveLength(1)
       yield* rejectAll()
       yield* Fiber.await(fiber)
+    }),
+  { git: true },
+)
+
+// Auto mode: everything is allowed, destructive actions still ask (see src/permission/guard.ts).
+const AUTO: PermissionV1.Rule[] = [
+  { permission: "*", pattern: "*", action: "allow" },
+  { permission: "destructive", pattern: "*", action: "ask" },
+]
+
+it.instance(
+  "ask - auto mode runs ordinary commands without asking",
+  () =>
+    Effect.gen(function* () {
+      for (const command of ["rm -rf ./build", "git push", "git status", "bun test"]) {
+        const result = yield* ask({
+          sessionID: SessionID.make("session_test"),
+          permission: "bash",
+          patterns: [command],
+          metadata: { command },
+          always: [],
+          ruleset: AUTO,
+        })
+        expect(result).toBeUndefined()
+      }
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - auto mode stops for a destructive command with a reason",
+  () =>
+    Effect.gen(function* () {
+      const fiber = yield* ask({
+        sessionID: SessionID.make("session_test"),
+        permission: "bash",
+        patterns: ["rm -rf ~"],
+        metadata: { command: "rm -rf ~" },
+        always: ["rm *"],
+        ruleset: AUTO,
+      }).pipe(Effect.forkScoped)
+
+      const items = yield* waitForPending(1)
+      expect(items[0]?.metadata).toMatchObject({
+        command: "rm -rf ~",
+        guard: "Deletes your home folder or a folder above it",
+      })
+      yield* rejectAll()
+      yield* Fiber.await(fiber)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - auto mode stops for git push -f and for writes outside the project",
+  () =>
+    Effect.gen(function* () {
+      const push = yield* ask({
+        sessionID: SessionID.make("session_test"),
+        permission: "bash",
+        patterns: ["git push -f"],
+        metadata: { command: "git push -f" },
+        always: [],
+        ruleset: AUTO,
+      }).pipe(Effect.forkScoped)
+      expect((yield* waitForPending(1))[0]?.metadata.guard).toContain("Force-pushes")
+      yield* rejectAll()
+      yield* Fiber.await(push)
+
+      const outside = path.join(os.tmpdir(), "praex-guard-test", "x.txt")
+      const write = yield* ask({
+        sessionID: SessionID.make("session_test"),
+        permission: "edit",
+        patterns: [outside],
+        metadata: { filepath: outside, diff: "" },
+        always: ["*"],
+        ruleset: AUTO,
+      }).pipe(Effect.forkScoped)
+      expect((yield* waitForPending(1))[0]?.metadata.guard).toContain("Writes outside the project folder")
+      yield* rejectAll()
+      yield* Fiber.await(write)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - without a destructive rule nothing extra asks",
+  () =>
+    Effect.gen(function* () {
+      const result = yield* ask({
+        sessionID: SessionID.make("session_test"),
+        permission: "bash",
+        patterns: ["rm -rf ~"],
+        metadata: { command: "rm -rf ~" },
+        always: [],
+        ruleset: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+      expect(result).toBeUndefined()
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - a destructive deny rule blocks the command",
+  () =>
+    Effect.gen(function* () {
+      const err = yield* fail(
+        ask({
+          sessionID: SessionID.make("session_test"),
+          permission: "bash",
+          patterns: ["sudo rm x"],
+          metadata: { command: "sudo rm x" },
+          always: [],
+          ruleset: [
+            { permission: "*", pattern: "*", action: "allow" },
+            { permission: "destructive", pattern: "*", action: "deny" },
+          ],
+        }),
+      )
+      expect(err).toBeInstanceOf(PermissionV1.DeniedError)
     }),
   { git: true },
 )

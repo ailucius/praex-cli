@@ -263,7 +263,7 @@ const parse = Effect.fn("ShellTool.parse")(function* (command: string, ps: boole
 const ask = Effect.fn("ShellTool.ask")(function* (
   ctx: Tool.Context,
   scan: Scan,
-  input: { command: string; description: string },
+  input: { command: string; description: string; cwd: string },
 ) {
   if (scan.dirs.size > 0) {
     const directories = Array.from(scan.dirs)
@@ -292,6 +292,8 @@ const ask = Effect.fn("ShellTool.ask")(function* (
     metadata: {
       command: input.command,
       description: input.description,
+      // Where it runs: the destructive-action guard resolves relative paths against it.
+      cwd: input.cwd,
     },
   })
 })
@@ -635,7 +637,7 @@ export const ShellTool = Tool.define(
                   )
                   const scan = yield* collect(tree.rootNode, cwd, ps, shell, instanceCtx)
                   if (!containsPath(cwd, instanceCtx)) scan.dirs.add(cwd)
-                  yield* ask(ctx, scan, params)
+                  yield* ask(ctx, scan, { ...params, cwd })
                 }),
               )
 

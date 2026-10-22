@@ -798,7 +798,7 @@ function App(props: {
             variant: local.permission.current() === "auto" ? "warning" : "info",
             message:
               local.permission.current() === "auto"
-                ? "Auto mode: tools run without asking"
+                ? "Auto mode: runs tools without asking, stops for destructive commands"
                 : "Manual mode: sensitive tools ask first",
             duration: 2000,
           })
