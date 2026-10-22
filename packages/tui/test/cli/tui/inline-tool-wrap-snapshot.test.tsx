@@ -3,6 +3,7 @@ import { createSignal, For, Show } from "solid-js"
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { testRender, type JSX } from "@opentui/solid"
 import {
+  backgroundTaskResult,
   formatCompletedSubagentDetail,
   formatSubagentRetry,
   formatSubagentTitle,
@@ -274,6 +275,17 @@ describe("TUI inline tool wrapping", () => {
     expect(formatSubagentTitle("Explore", "Inspect renderer", true)).toBe("Explore · Inspect renderer (background)")
     expect(formatSubagentTitle("Task", "", false)).toBe("Task")
     expect(formatSubagentTitle("Task", "Audit", false)).not.toMatch(/[\u2013\u2014]/)
+  })
+
+  test("reads a background task's result message", () => {
+    const text =
+      '<task id="ses_1" state="completed">\n<summary>Background task completed: Find bugs</summary>\n<task_result>\nok\n</task_result>\n</task>'
+    expect(backgroundTaskResult(text)).toEqual({ failed: false, description: "Find bugs" })
+    expect(backgroundTaskResult("<summary>Background task failed: Audit</summary>")).toEqual({
+      failed: true,
+      description: "Audit",
+    })
+    expect(backgroundTaskResult("hello")).toBeUndefined()
   })
 
   test("keeps retry status ahead of wrapping messages", () => {

@@ -322,10 +322,28 @@ export function Prompt(props: PromptProps) {
     const sessionID = props.sessionID
     if (sessionID) {
       const statuses = sync.data.session_status ?? {}
-      const agents = sync.data.session.filter(
+      const running = sync.data.session.filter(
         (item) => item.parentID === sessionID && (statuses[item.id]?.type ?? "idle") !== "idle",
-      ).length
-      if (agents > 0) items.push({ id: "agents", label: `${agents} ${agents === 1 ? "agent" : "agents"} running` })
+      )
+      // Tasks sent to the background (ctrl+b) carry background: true on their task part.
+      const background = new Set(
+        (sync.data.message[sessionID] ?? []).flatMap((message) =>
+          (sync.data.part[message.id] ?? []).flatMap((part) =>
+            part.type === "tool" &&
+            part.tool === "task" &&
+            part.state.status !== "pending" &&
+            part.state.metadata?.background === true &&
+            typeof part.state.metadata?.sessionId === "string"
+              ? [part.state.metadata.sessionId]
+              : [],
+          ),
+        ),
+      )
+      const behind = running.filter((item) => background.has(item.id)).length
+      const agents = running.length - behind
+      const plural = (n: number) => `${n} ${n === 1 ? "agent" : "agents"}`
+      if (agents > 0) items.push({ id: "agents", label: `${plural(agents)} running` })
+      if (behind > 0) items.push({ id: "background", label: `${plural(behind)} running in background` })
       if (status().type !== "idle") {
         const messages = sync.data.message[sessionID] ?? []
         const turn = activeTurn(messages)

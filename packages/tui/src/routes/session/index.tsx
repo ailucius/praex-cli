@@ -1026,12 +1026,21 @@ export function Session() {
       category: "Session",
       hidden: true,
       enabled: foregroundTasks().length > 0,
-      run: () => {
-        void sdk.client.experimental.session.background({
-          sessionID: route.sessionID,
-          workspace: project.workspace.current(),
-        })
+      run: async () => {
         dialog.clear()
+        const count = foregroundTasks().length
+        const res = await sdk.client.experimental.session
+          .background({ sessionID: route.sessionID, workspace: project.workspace.current() })
+          .catch(() => undefined)
+        if (!res?.data) {
+          toast.show({ message: "Nothing to move to the background right now.", variant: "info", duration: 2500 })
+          return
+        }
+        toast.show({
+          message: `${count === 1 ? "Task" : `${count} tasks`} moved to the background. Keep chatting: the result arrives here when it is done.`,
+          variant: "info",
+          duration: 4000,
+        })
       },
     },
     {
@@ -1390,6 +1399,13 @@ function UserMessage(props: {
     return texts.join("\n\n")
   })
   const files = createMemo(() => props.parts.flatMap((x) => (x.type === "file" ? [x] : [])))
+  // A background task's result arrives as a hidden message that starts a new turn; one quiet
+  // line says where the reply below it came from.
+  const backgroundResult = createMemo(() =>
+    text()
+      ? undefined
+      : props.parts.map((x) => (x.type === "text" ? backgroundTaskResult(x.text) : undefined)).find(Boolean),
+  )
   const { theme } = useTheme()
   const [hover, setHover] = createSignal(false)
   const queued = createMemo(() => props.pending && props.message.id > props.pending)
@@ -1398,6 +1414,18 @@ function UserMessage(props: {
 
   return (
     <>
+      <Show when={backgroundResult()}>
+        {(result) => (
+          <box id={props.message.id} marginTop={props.index === 0 ? 0 : 1} paddingLeft={3}>
+            <text fg={theme.textMuted} wrapMode="none">
+              <span style={{ fg: result().failed ? theme.error : tint(theme.textMuted, theme.success, 0.55) }}>
+                {result().failed ? "✕" : "✓"}
+              </span>{" "}
+              Background task {result().failed ? "failed" : "finished"} · {result().description}
+            </text>
+          </box>
+        )}
+      </Show>
       <Show when={text()}>
         <box id={props.message.id} marginTop={props.index === 0 ? 0 : 1}>
           {/* A slim accent bar in the agent colour on a faint tint that hugs the text, instead of
@@ -1461,6 +1489,14 @@ function UserMessage(props: {
       </Show>
     </>
   )
+}
+
+// The task tool reports a background task's end as a synthetic message
+// (<summary>Background task completed: description</summary>).
+export function backgroundTaskResult(text: string) {
+  const match = /<summary>Background task (completed|failed): ([^<]*)<\/summary>/.exec(text)
+  if (!match) return
+  return { failed: match[1] === "failed", description: match[2]!.trim() }
 }
 
 // A compaction renders as one quiet line, the way Claude Code shows it. The summary the
@@ -1641,7 +1677,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
             >
               <span style={{ fg: theme.textMuted }}> · </span>
               {backgroundShortcut()}
-              <span style={{ fg: theme.textMuted }}> background</span>
+              <span style={{ fg: theme.textMuted }}> send to background</span>
             </Show>
           </text>
         </box>
