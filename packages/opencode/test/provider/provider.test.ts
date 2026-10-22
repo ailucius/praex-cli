@@ -690,6 +690,17 @@ test("provider.sort prioritizes preferred models", () => {
   expect(sorted[sorted.length - 1].id).not.toContain("sonnet-4")
 })
 
+test("10-22: provider.sort never puts an image, speech or embedding model first", () => {
+  const models = [
+    { id: "gemini-3-pro-image-preview", name: "Nano Banana Pro" },
+    { id: "gemini-3.5-flash-preview-tts", name: "Gemini 3.5 Flash TTS" },
+    { id: "gemini-embedding-002", name: "Gemini Embedding 2" },
+    { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash" },
+    { id: "gemini-3-pro-preview", name: "Gemini 3 Pro", capabilities: { toolcall: false, output: { text: true } } },
+  ] as any[]
+  expect(Provider.sort(models)[0].id).toBe("gemini-3.8-flash")
+})
+
 it.instance(
   "multiple providers can be configured simultaneously",
   Effect.gen(function* () {

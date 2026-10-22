@@ -1962,9 +1962,21 @@ export const defaultLayer = Layer.suspend(() =>
 // Ascending preference: sort() orders by findIndex desc, so the LAST entry wins.
 // velox last = the free Praex tier is the default model on a fresh install.
 const priority = ["gpt-5", "claude-sonnet-4", "big-pickle", "gemini-3-pro", "velox"]
-export function sort<T extends { id: string }>(models: T[]) {
+// 10-22: image, speech, live, translation and embedding models never come first, so they never become the
+// default chat model. gemini-3-pro-image-preview (Nano Banana Pro) matched "gemini-3-pro" and was the
+// default for signed-out users with a Google key; the first message failed.
+const NOT_CHAT =
+  /(^|[^a-z])(live|realtime|translat\w*|tts|speech|audio|transcri\w*|whisper|embed\w*|image|imagen|dall-e|veo|lyria|moderation)([^a-z]|$)/i
+function chatLike(model: { id: string; capabilities?: { toolcall?: boolean; output?: { text?: boolean } } }) {
+  if (model.capabilities?.output?.text === false || model.capabilities?.toolcall === false) return false
+  return !NOT_CHAT.test(model.id)
+}
+export function sort<T extends { id: string; capabilities?: { toolcall?: boolean; output?: { text?: boolean } } }>(
+  models: T[],
+) {
   return sortBy(
     models,
+    [(model) => (chatLike(model) ? 0 : 1), "asc"],
     [(model) => priority.findIndex((filter) => model.id.includes(filter)), "desc"],
     [(model) => (model.id.includes("latest") ? 0 : 1), "asc"],
     [(model) => model.id, "desc"],
