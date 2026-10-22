@@ -192,12 +192,13 @@ function waitForCallback(state: string): Promise<TokenResponse> {
 // the display name — nothing else. Retiring or adding a model is now a gateway deploy only.
 const GATEWAY_BASE_URL = "https://praex-gateway-384599766402.us-central1.run.app/v1"
 const TIER_LIMITS = { context: 32768, output: 8192 }
-export type HostedModel = { name: string; plan?: string; reasoning?: boolean; limit: { context: number; output: number } }
+// input: what the model reads (gateway /v1/models since 10-22); "image" turns on image attachments for it.
+export type HostedModel = { name: string; plan?: string; reasoning?: boolean; input?: string[]; limit: { context: number; output: number } }
 export type HostedLineup = Record<string, HostedModel>
 // Offline / first-run fallback only; the live gateway list always wins. Mirrors the gateway
 // lineup as of 2026-10-22: Velox III (free, id velox-ii-baked), Faber II (Pro, on demand), Lucia II (Max).
 export const BAKED_LINEUP: HostedLineup = {
-  "velox-ii-baked": { name: "Velox III", plan: "free", limit: { context: 131072, output: TIER_LIMITS.output } }, // 10-22: Velox III fleet, 128k
+  "velox-ii-baked": { name: "Velox III", plan: "free", input: ["text", "image"], limit: { context: 131072, output: TIER_LIMITS.output } }, // 10-22: Velox III fleet, 128k, reads images
   "faber-ii": { name: "Faber II · Pro", plan: "pro", limit: { ...TIER_LIMITS } }, // on demand, paying Pro only
   "lucia-ii": { name: "Lucia II · Max", plan: "max", limit: { ...TIER_LIMITS } },
 }
@@ -216,6 +217,7 @@ export function parseLineup(body: unknown): HostedLineup | undefined {
       name: typeof m.name === "string" && m.name ? m.name : m.id,
       ...(typeof m.plan === "string" && m.plan ? { plan: m.plan } : {}),
       ...(m.reasoning === true ? { reasoning: true } : {}),
+      ...(Array.isArray(m.input) ? { input: m.input.filter((x: unknown) => typeof x === "string") } : {}),
       limit: {
         context: Number.isFinite(context) && context > 0 ? context : TIER_LIMITS.context,
         output: Number.isFinite(output) && output > 0 ? output : TIER_LIMITS.output,
@@ -444,6 +446,8 @@ export function hostedProvider(user: Record<string, any> | undefined, lineup: Ho
             // Thinking tiers say so in the pickers; their level stays the gateway's default for now
             // (the level picker is queued), so the effort variants this would add are switched off.
             ...(m.reasoning ? { reasoning: true, variants: NO_EFFORT_VARIANTS } : {}),
+            // 10-22: Velox III reads images; the gateway checks them (inline PNG/JPEG/WebP/GIF, 3 MB each).
+            ...(m.input?.includes("image") ? { attachment: true, modalities: { input: ["text", "image"], output: ["text"] } } : {}),
           },
         ]),
     ),

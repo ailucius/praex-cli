@@ -56,6 +56,23 @@ describe("praex-cloud hosted lineup", () => {
     expect(p.models["lucia-ii"].name).toBe("Lucia II · Max")
   })
 
+  test("10-22: a model whose lineup input lists image accepts image attachments; the others do not", () => {
+    const l = parseLineup({
+      data: [
+        { id: "velox-ii-baked", name: "Velox III", plan: "free", input: ["text", "image", 7] },
+        { id: "faber-ii", name: "Faber II", plan: "pro", input: ["text"] },
+        { id: "old", name: "Old" },
+      ],
+    })!
+    expect(l["velox-ii-baked"].input).toEqual(["text", "image"])
+    const p = hostedProvider(undefined, l) as any
+    expect(p.models["velox-ii-baked"].attachment).toBe(true)
+    expect(p.models["velox-ii-baked"].modalities).toEqual({ input: ["text", "image"], output: ["text"] })
+    expect(p.models["faber-ii"].attachment).toBeUndefined()
+    expect(p.models["old"].modalities).toBeUndefined()
+    expect((hostedProvider(undefined, BAKED_LINEUP) as any).models["velox-ii-baked"].attachment).toBe(true)
+  })
+
   test("plain gateway names get their plan suffix, and the free tier is listed first", () => {
     const l = parseLineup({
       data: [
