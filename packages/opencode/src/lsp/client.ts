@@ -134,6 +134,9 @@ export async function create(input: {
     new StreamMessageWriter(input.server.process.stdin as any),
   )
   input.server.process.stderr?.resume()
+  // 10-23: a language server that has already exited makes the next write (often the shutdown message at
+  // exit) fail with EPIPE; without a listener that error crashed `praex run` with exit 1 after the work was done.
+  input.server.process.stdin?.on?.("error", () => {})
   // --- Connection state ---
 
   const pushDiagnostics = new Map<string, Diagnostic[]>()

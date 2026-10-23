@@ -40,6 +40,14 @@ function show(out: string) {
   process.stderr.write(out)
 }
 
+// 10-23: when the reader of our output goes away (a closed pipe), stop quietly like other CLIs instead of
+// crashing with an unhandled EPIPE.
+for (const stream of [process.stdout, process.stderr])
+  stream.on("error", (err: NodeJS.ErrnoException) => {
+    if (err?.code === "EPIPE") process.exit(process.exitCode ?? 0)
+    throw err
+  })
+
 const cli = yargs(args)
   .parserConfiguration({ "populate--": true })
   .scriptName("praex")

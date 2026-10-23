@@ -456,14 +456,16 @@ export const layer = Layer.effect(
             yield* finishReasoning(value.id)
             return
 
+          // 10-23: the summary request offers no tools, but some open models (GLM through vLLM's tool parser)
+          // still produce a tool call there. That used to throw and end the whole run during auto-compaction
+          // (2 Terminal-Bench trials). The call is dropped; the summary keeps whatever text was written.
           case "tool-input-start":
-            if (ctx.assistantMessage.summary) {
-              throw new Error(`Tool call not allowed while generating summary: ${value.name}`)
-            }
+            if (ctx.assistantMessage.summary) return
             yield* ensureToolCall(value)
             return
 
           case "tool-input-delta":
+            if (ctx.assistantMessage.summary) return
             {
               const toolCall = yield* ensureToolCall(value)
               const assistantMessageID = mirrorAssistant ? yield* requireV2AssistantMessage(toolCall.call) : undefined
@@ -482,6 +484,7 @@ export const layer = Layer.effect(
             return
 
           case "tool-input-end": {
+            if (ctx.assistantMessage.summary) return
             const toolCall = yield* ensureToolCall(value)
             // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
             if (mirrorAssistant) {
@@ -499,9 +502,7 @@ export const layer = Layer.effect(
           }
 
           case "tool-call": {
-            if (ctx.assistantMessage.summary) {
-              throw new Error(`Tool call not allowed while generating summary: ${value.name}`)
-            }
+            if (ctx.assistantMessage.summary) return
             const toolCall = yield* ensureToolCall(value)
             const input = isRecord(value.input) ? value.input : { value: value.input }
             if (!toolCall.call.inputEnded) {
