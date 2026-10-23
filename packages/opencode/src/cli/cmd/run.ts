@@ -290,6 +290,9 @@ export const RunCommand = effectCmd({
     yield* Effect.promise(async () => {
       const rawMessage = [...args.message, ...(args["--"] || [])].join(" ")
       const thinking = args.interactive ? (args.thinking ?? true) : (args.thinking ?? false)
+      // 10-23: a non-interactive local run has nobody watching; the session loop (in this process) adds one
+      // completion check at the end of a turn that used tools (session/nudge.ts VERIFY_TEXT).
+      if (!args.interactive && !args.attach) process.env.PRAEX_HEADLESS = "1"
       const die = (message: string): never => {
         UI.error(message)
         process.exit(1)

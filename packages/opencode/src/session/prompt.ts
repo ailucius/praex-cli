@@ -21,7 +21,7 @@ import { Instruction } from "./instruction"
 import { Memory } from "./memory"
 import { Plugin } from "../plugin"
 import MAX_STEPS from "../session/prompt/max-steps.txt"
-import { MAX_NUDGES, NUDGE_TEXT, nudgeReason } from "./nudge"
+import { MAX_NUDGES, NUDGE_TEXT, VERIFY_TEXT, isHeadless, nudgeReason } from "./nudge"
 import { ToolRegistry } from "@/tool/registry"
 import { MCP } from "../mcp"
 import { LSP } from "@/lsp/lsp"
@@ -1182,6 +1182,7 @@ export const layer = Layer.effect(
         let step = 0
         let emptySteps = 0
         let nudges = 0
+        let verified = false
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
 
         while (true) {
@@ -1195,6 +1196,10 @@ export const layer = Layer.effect(
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+          // the person's own message for this turn (nudges and the completion check are synthetic user messages)
+          const realUserID =
+            msgs.findLast((m) => m.info.role === "user" && m.parts.some((p) => !(p.type === "text" && p.synthetic)))?.info.id ??
+            lastUser.id
 
           const lastAssistantMsg = msgs.findLast(
             (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
@@ -1255,6 +1260,34 @@ export const layer = Layer.effect(
                 sessionID,
                 type: "text",
                 text: NUDGE_TEXT[reason],
+                synthetic: true,
+              } satisfies SessionV1.TextPart)
+              continue
+            }
+            // 10-23: one completion check per turn in headless runs, after a turn that used tools (nudge.ts).
+            const usedTools = msgs.some(
+              (m) => m.info.role === "assistant" && m.info.id > realUserID && m.parts.some((part) => part.type === "tool"),
+            )
+            if (!orphan && !verified && isHeadless() && usedTools && !lastAssistant.error && !lastAssistant.summary) {
+              verified = true
+              yield* Effect.logInfo("asking the model to verify before finishing", { "session.id": sessionID })
+              const verifyMsg: SessionV1.User = {
+                id: MessageID.ascending(),
+                sessionID,
+                role: "user",
+                time: { created: Date.now() },
+                agent: lastUser.agent,
+                model: lastUser.model,
+                ...(lastUser.format ? { format: lastUser.format } : {}),
+                ...(lastUser.system ? { system: lastUser.system } : {}),
+              }
+              yield* sessions.updateMessage(verifyMsg)
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: verifyMsg.id,
+                sessionID,
+                type: "text",
+                text: VERIFY_TEXT,
                 synthetic: true,
               } satisfies SessionV1.TextPart)
               continue

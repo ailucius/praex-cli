@@ -776,6 +776,53 @@ it.instance("10-23: nudges stop after three in one turn", () =>
   }),
 )
 
+it.instance("10-23: a headless run that used tools gets one completion check before it ends", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const session = yield* sessions.create({
+      title: "Verify",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "write out.txt" }],
+    })
+    yield* llm.tool("first", { value: "first" })
+    yield* llm.text("Done.")
+    yield* llm.text("Checked: out.txt exists and has the right content.")
+    process.env.PRAEX_HEADLESS = "1"
+    const result = yield* prompt.loop({ sessionID: session.id }).pipe(Effect.ensuring(Effect.sync(() => delete process.env.PRAEX_HEADLESS)))
+    expect(yield* llm.calls).toBe(3)
+    expect(JSON.stringify((yield* llm.hits)[2].body)).toContain("Before you finish, check your work against the original request")
+    expect(result.parts.some((part) => part.type === "text" && part.text.startsWith("Checked:"))).toBe(true)
+  }),
+)
+
+it.instance("10-23: no completion check in an interactive session or a headless answer without tools", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const a = yield* sessions.create({ title: "Interactive", permission: [{ permission: "*", pattern: "*", action: "allow" }] })
+    yield* prompt.prompt({ sessionID: a.id, agent: "build", noReply: true, parts: [{ type: "text", text: "write out.txt" }] })
+    yield* llm.tool("first", { value: "first" })
+    yield* llm.text("Done.")
+    yield* prompt.loop({ sessionID: a.id })
+    expect(yield* llm.calls).toBe(2)
+
+    const b = yield* sessions.create({ title: "Headless chat", permission: [{ permission: "*", pattern: "*", action: "allow" }] })
+    yield* prompt.prompt({ sessionID: b.id, agent: "build", noReply: true, parts: [{ type: "text", text: "what is 2+2?" }] })
+    yield* llm.text("4")
+    process.env.PRAEX_HEADLESS = "1"
+    yield* prompt.loop({ sessionID: b.id }).pipe(Effect.ensuring(Effect.sync(() => delete process.env.PRAEX_HEADLESS)))
+    expect(yield* llm.calls).toBe(3)
+  }),
+)
+
 it.instance("10-23: a finished answer is not nudged", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)

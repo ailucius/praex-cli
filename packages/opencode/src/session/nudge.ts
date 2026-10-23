@@ -47,3 +47,11 @@ export function nudgeReason(finish: string | undefined, text: string): NudgeReas
   // last sentence; a long one is usually part of a finished explanation).
   if (/[:…]$|\.\.\.$/.test(last) || sentence.length <= 160) return "announce"
 }
+
+// 10-23 (harness gap): in the Terminal-Bench runs our losses against Harbor's reference agent were mostly
+// finished-but-wrong answers; that agent asks the model to confirm completion once more before grading. A
+// headless run (`praex run`, nobody watching) now gets one hidden check at the end of a turn that used tools.
+export const VERIFY_TEXT =
+  "Before you finish, check your work against the original request. Re-read it and list each requirement (file paths, names, formats, values, commands the user will run, things that must keep running). Verify each one with your tools against the real files and outputs, and run the code or tests again if you changed anything. Fix whatever does not match. Then reply with a short summary of what you checked."
+
+export const isHeadless = () => process.env.PRAEX_HEADLESS === "1"
