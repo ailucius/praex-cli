@@ -13,7 +13,9 @@ export const NUDGE_TEXT: Record<NudgeReason, string> = {
     "Continue: carry out the step you just described, using your tools. If the task is already complete, say so in one line.",
   "tool-as-text":
     "Your last message contained a tool call written as plain text, so it did not run. Make the call again with the tool calling format.",
-  cut: "Your last message was cut off at the output limit. Continue from where it stopped, and write large files in smaller parts.",
+  // 10-23 A/B: most cut steps are a model thinking past the output limit before acting. "Continue" let it
+  // keep deliberating until the task timed out; this asks for the next action instead.
+  cut: "Your last message hit the output limit before you acted. Do not start the analysis over: take the next concrete step now with a tool call. Write large files in smaller parts.",
 }
 
 const ACTION_VERBS =
