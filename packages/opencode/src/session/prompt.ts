@@ -21,6 +21,7 @@ import { Instruction } from "./instruction"
 import { Memory } from "./memory"
 import { Plugin } from "../plugin"
 import MAX_STEPS from "../session/prompt/max-steps.txt"
+import { MAX_NUDGES, NUDGE_TEXT, nudgeReason } from "./nudge"
 import { ToolRegistry } from "@/tool/registry"
 import { MCP } from "../mcp"
 import { LSP } from "@/lsp/lsp"
@@ -1180,6 +1181,7 @@ export const layer = Layer.effect(
         let structured: unknown
         let step = 0
         let emptySteps = 0
+        let nudges = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
 
         while (true) {
@@ -1221,6 +1223,41 @@ export const layer = Layer.effect(
                 tool: orphan.tool,
                 callID: orphan.callID,
               })
+            }
+            // 10-23: a step that only announced its next action (or wrote a tool call as text, or was cut at
+            // the output limit) gets a hidden "continue" instead of ending the turn (nudge.ts).
+            const reason =
+              !orphan && nudges < MAX_NUDGES && !lastAssistant.error && !lastAssistant.summary
+                ? nudgeReason(
+                    lastAssistant.finish,
+                    (lastAssistantMsg?.parts ?? [])
+                      .flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : []))
+                      .join("\n"),
+                  )
+                : undefined
+            if (reason) {
+              nudges++
+              yield* Effect.logInfo("nudging the model to continue", { "session.id": sessionID, reason, nudges })
+              const nudgeMsg: SessionV1.User = {
+                id: MessageID.ascending(),
+                sessionID,
+                role: "user",
+                time: { created: Date.now() },
+                agent: lastUser.agent,
+                model: lastUser.model,
+                ...(lastUser.format ? { format: lastUser.format } : {}),
+                ...(lastUser.system ? { system: lastUser.system } : {}),
+              }
+              yield* sessions.updateMessage(nudgeMsg)
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: nudgeMsg.id,
+                sessionID,
+                type: "text",
+                text: NUDGE_TEXT[reason],
+                synthetic: true,
+              } satisfies SessionV1.TextPart)
+              continue
             }
             yield* Effect.logInfo("exiting loop", { "session.id": sessionID })
             break

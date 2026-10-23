@@ -12,6 +12,7 @@ import PROMPT_KIMI from "./prompt/kimi.txt"
 
 import PROMPT_CODEX from "./prompt/codex.txt"
 import PROMPT_TRINITY from "./prompt/trinity.txt"
+import PROMPT_PRAEX from "./prompt/praex.txt"
 import type { Provider } from "@/provider/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
@@ -21,6 +22,8 @@ import { Location } from "@opencode-ai/core/location"
 import { LocationServiceMap } from "@opencode-ai/core/location-layer"
 import { PluginBoot } from "@opencode-ai/core/plugin/boot"
 import { Reference } from "@opencode-ai/core/reference"
+
+export const isPraexModel = (id: string) => /^(velox|faber|lucia)(-|$)/i.test(id)
 
 export function provider(model: Provider.Model) {
   if (model.api.id.includes("gpt-4") || model.api.id.includes("o1") || model.api.id.includes("o3"))
@@ -35,6 +38,10 @@ export function provider(model: Provider.Model) {
   if (model.api.id.includes("claude")) return [PROMPT_ANTHROPIC]
   if (model.api.id.toLowerCase().includes("trinity")) return [PROMPT_TRINITY]
   if (model.api.id.toLowerCase().includes("kimi")) return [PROMPT_KIMI]
+  // 10-23: Praex's own models (Velox, Faber, Lucia) get a prompt for long agent work: plan, keep commands
+  // from blocking, change approach after repeated failures, verify against the request before finishing.
+  // The default prompt is written for short chat answers ("just stop" after a file edit).
+  if (isPraexModel(model.api.id)) return [PROMPT_PRAEX]
   return [PROMPT_DEFAULT]
 }
 

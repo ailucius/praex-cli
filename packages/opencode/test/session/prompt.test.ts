@@ -725,6 +725,79 @@ it.instance("loop continues when finish is tool-calls", () =>
   }),
 )
 
+it.instance("10-23: a step that only announces its next action is nudged and the turn goes on", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const session = yield* sessions.create({
+      title: "Nudge",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "fix the failing test" }],
+    })
+    yield* llm.text("Now I will run the tests to see what happens:")
+    yield* llm.text("Done. All 3 tests pass.")
+
+    const result = yield* prompt.loop({ sessionID: session.id })
+    expect(yield* llm.calls).toBe(2)
+    expect(result.parts.some((part) => part.type === "text" && part.text === "Done. All 3 tests pass.")).toBe(true)
+    const hits = yield* llm.hits
+    expect(JSON.stringify(hits[1].body)).toContain("carry out the step you just described")
+    const msgs = yield* sessions.messages({ sessionID: session.id })
+    const nudge = msgs.filter((m) => m.info.role === "user").at(-1)
+    expect(nudge?.parts.every((part) => part.type !== "text" || part.synthetic)).toBe(true)
+  }),
+)
+
+it.instance("10-23: nudges stop after three in one turn", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const session = yield* sessions.create({
+      title: "Nudge limit",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "go" }],
+    })
+    for (let i = 0; i < 5; i++) yield* llm.text("Let me check the logs:")
+
+    yield* prompt.loop({ sessionID: session.id })
+    expect(yield* llm.calls).toBe(4)
+  }),
+)
+
+it.instance("10-23: a finished answer is not nudged", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const session = yield* sessions.create({
+      title: "No nudge",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "what is 2+2?" }],
+    })
+    yield* llm.text("4")
+
+    yield* prompt.loop({ sessionID: session.id })
+    expect(yield* llm.calls).toBe(1)
+  }),
+)
+
 it.instance("glob tool keeps instance context during prompt runs", () =>
   Effect.gen(function* () {
     const { dir, llm } = yield* useServerConfig(providerCfg)
