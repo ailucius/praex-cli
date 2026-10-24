@@ -59,6 +59,9 @@ type CompletedCompaction = {
   summary: string | undefined
 }
 
+const SUMMARY_TEXT_ONLY =
+  "\n\nYour previous reply contained no summary text. Reply now with the summary as plain text only. Do not call any tools."
+
 function summaryText(message: SessionV1.WithParts) {
   const text = message.parts
     .filter((part): part is SessionV1.TextPart => part.type === "text")
@@ -94,12 +97,21 @@ function preserveRecentBudget(input: { cfg: ConfigV1.Info; model: Provider.Model
   )
 }
 
+// 10-24 (audit C09): the loop's hidden nudges and completion checks are user messages made only of synthetic
+// text; they continue the person's turn and must not count as turns of their own. When no real turn comes
+// before (history already summarized), the first one still opens a turn so the recent tail can be kept.
+// The overflow replay below still picks them: replaying the nudge keeps the turn's work in the summary.
+function syntheticOnly(msg: SessionV1.WithParts) {
+  return msg.info.role === "user" && msg.parts.length > 0 && msg.parts.every((p) => p.type === "text" && p.synthetic)
+}
+
 function turns(messages: SessionV1.WithParts[]) {
   const result: Turn[] = []
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]
     if (msg.info.role !== "user") continue
     if (msg.parts.some((part) => part.type === "compaction")) continue
+    if (syntheticOnly(msg) && result.length) continue
     result.push({
       start: i,
       end: messages.length,
@@ -403,53 +415,77 @@ export const layer = Layer.effect(
               }),
             )
       const ctx = yield* InstanceState.context
-      const msg: SessionV1.Assistant = {
-        id: MessageID.ascending(),
-        role: "assistant",
-        parentID: input.parentID,
-        sessionID: input.sessionID,
-        mode: "compaction",
-        agent: "compaction",
-        variant: userMessage.model.variant,
-        summary: true,
-        path: {
-          cwd: ctx.directory,
-          root: ctx.worktree,
-        },
-        cost: 0,
-        tokens: {
-          output: 0,
-          input: 0,
-          reasoning: 0,
-          cache: { read: 0, write: 0 },
-        },
-        modelID: model.id,
-        providerID: model.providerID,
-        time: {
-          created: Date.now(),
-        },
-      }
-      yield* session.updateMessage(msg)
-      const processor = yield* processors.create({
-        assistantMessage: msg,
-        sessionID: input.sessionID,
-        model,
-      })
-      const result = yield* processor.process({
-        user: userMessage,
-        agent,
-        sessionID: input.sessionID,
-        tools: {},
-        system: [],
-        messages: [
-          ...modelMessages,
-          {
-            role: "user",
-            content: [{ type: "text", text: nextPrompt }],
+      // 10-24 (audit C07): a summary with no text must never count as a finished compaction (filterCompacted
+      // would drop the older history with nothing in its place). Some open models answer the summary request
+      // with only a tool call, which the processor drops; an empty first try is removed and asked again for
+      // plain text, a second empty one ends the turn with an error and keeps the history.
+      let msg!: SessionV1.Assistant
+      let processor!: SessionProcessor.Handle
+      let result!: SessionProcessor.Result
+      for (let attempt = 1; ; attempt++) {
+        msg = {
+          id: MessageID.ascending(),
+          role: "assistant",
+          parentID: input.parentID,
+          sessionID: input.sessionID,
+          mode: "compaction",
+          agent: "compaction",
+          variant: userMessage.model.variant,
+          summary: true,
+          path: {
+            cwd: ctx.directory,
+            root: ctx.worktree,
           },
-        ],
-        model,
-      })
+          cost: 0,
+          tokens: {
+            output: 0,
+            input: 0,
+            reasoning: 0,
+            cache: { read: 0, write: 0 },
+          },
+          modelID: model.id,
+          providerID: model.providerID,
+          time: {
+            created: Date.now(),
+          },
+        }
+        yield* session.updateMessage(msg)
+        processor = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: input.sessionID,
+          model,
+        })
+        result = yield* processor.process({
+          user: userMessage,
+          agent,
+          sessionID: input.sessionID,
+          tools: {},
+          system: [],
+          messages: [
+            ...modelMessages,
+            {
+              role: "user",
+              content: [{ type: "text", text: attempt === 1 ? nextPrompt : nextPrompt + SUMMARY_TEXT_ONLY }],
+            },
+          ],
+          model,
+        })
+        if (result !== "continue" || processor.message.error) break
+        const written = (yield* session.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)).find(
+          (item) => item.info.id === msg.id,
+        )
+        if (written && summaryText(written)) break
+        if (attempt === 1) {
+          yield* session.removeMessage({ sessionID: input.sessionID, messageID: msg.id }).pipe(Effect.ignore)
+          continue
+        }
+        processor.message.error = new SessionV1.ContextOverflowError({
+          message: "The conversation could not be summarized to free space (the summary came back empty twice). Start a new session or try again.",
+        }).toObject()
+        processor.message.finish = "error"
+        yield* session.updateMessage(processor.message)
+        return "stop"
+      }
 
       if (result === "compact") {
         processor.message.error = new SessionV1.ContextOverflowError({

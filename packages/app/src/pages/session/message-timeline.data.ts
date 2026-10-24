@@ -5,6 +5,10 @@ import { Data, Equal } from "effect"
 
 export type SummaryDiff = SnapshotFileDiff & { file: string }
 
+// 10-24 (audit C09): the agent loop's hidden nudges and completion checks are user messages made only of
+// synthetic text. They continue the person's turn: no user row, and their replies belong to the turn before.
+export const syntheticOnly = (parts: Part[]) => parts.length > 0 && parts.every((p) => p.type === "text" && p.synthetic)
+
 export type TimelineRowMap = {
   CommentStrip: {
     userMessageID: string

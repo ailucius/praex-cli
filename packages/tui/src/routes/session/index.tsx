@@ -1600,8 +1600,21 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
   const messages = createMemo(() => sync.data.message[props.message.sessionID] ?? [])
   const model = createMemo(() => Model.name(ctx.providers(), props.message.providerID, props.message.modelID))
 
+  // 10-24 (audit C09): a step answered by one of the loop's hidden nudges or completion checks (a user message
+  // made only of synthetic text) did not end the turn, so it gets no "Done" line and does not restart the clock.
+  const continuedByLoop = (id: string) => {
+    const list = messages()
+    const next = list.slice(list.findIndex((x) => x.id === id) + 1).find((x) => x.role === "user")
+    const parts = next ? (sync.data.part[next.id] ?? []) : []
+    return parts.length > 0 && parts.every((p) => p.type === "text" && p.synthetic)
+  }
+
   const final = createMemo(() => {
-    return props.message.finish && !["tool-calls", "unknown"].includes(props.message.finish)
+    return (
+      props.message.finish &&
+      !["tool-calls", "unknown"].includes(props.message.finish) &&
+      !continuedByLoop(props.message.id)
+    )
   })
 
   // The turn's first step: the first assistant message after the previous finished turn. A
@@ -1614,7 +1627,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
         x.role === "assistant" &&
         x.id < props.message.id &&
         !!x.time.completed &&
-        (!!x.error || (!!x.finish && !["tool-calls", "unknown"].includes(x.finish))),
+        (!!x.error || (!!x.finish && !["tool-calls", "unknown"].includes(x.finish) && !continuedByLoop(x.id))),
     )?.id
     return messages().find((x) => x.role === "assistant" && x.id > (previous ?? "") && x.id <= props.message.id)
   })

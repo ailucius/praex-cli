@@ -47,6 +47,7 @@ import { useSDK } from "@/context/sdk"
 import { useServerSDK } from "@/context/server-sdk"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
+import { syntheticOnly } from "@/pages/session/message-timeline.data"
 import { useTerminal } from "@/context/terminal"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
@@ -347,7 +348,8 @@ export default function Page() {
     return sync().session.history.loading(id)
   })
   const userMessages = createMemo(
-    () => messages().filter((m) => m.role === "user") as UserMessage[],
+    () =>
+      messages().filter((m) => m.role === "user" && !syntheticOnly(sync().data.part[m.id] ?? [])) as UserMessage[],
     emptyUserMessages,
     { equals: same },
   )

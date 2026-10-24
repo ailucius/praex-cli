@@ -89,7 +89,7 @@ function createModel(opts: {
 
 const wide = () => ProviderTest.fake({ model: createModel({ context: 100_000, output: 32_000 }) })
 
-function createUserMessage(sessionID: SessionID, text: string) {
+function createUserMessage(sessionID: SessionID, text: string, synthetic?: boolean) {
   return Effect.gen(function* () {
     const ssn = yield* SessionNs.Service
     const msg = yield* ssn.updateMessage({
@@ -106,6 +106,7 @@ function createUserMessage(sessionID: SessionID, text: string) {
       sessionID,
       type: "text",
       text,
+      ...(synthetic ? { synthetic } : {}),
     })
     return msg
   })
@@ -197,6 +198,7 @@ function createCompactionMarker(sessionID: SessionID) {
 function fake(
   input: Parameters<SessionProcessorModule.SessionProcessor.Interface["create"]>[0],
   result: "continue" | "compact",
+  ssn: SessionNs.Interface,
 ) {
   const msg = input.assistantMessage
   return {
@@ -205,15 +207,29 @@ function fake(
     },
     updateToolCall: Effect.fn("TestSessionProcessor.updateToolCall")(() => Effect.succeed(undefined)),
     completeToolCall: Effect.fn("TestSessionProcessor.completeToolCall")(() => Effect.void),
-    process: Effect.fn("TestSessionProcessor.process")(() => Effect.succeed(result)),
+    // a finished summary has text, like the real processor writes (an empty one is retried, see compaction.ts)
+    process: Effect.fn("TestSessionProcessor.process")(function* () {
+      if (result === "continue")
+        yield* ssn.updatePart({
+          id: PartID.ascending(),
+          messageID: msg.id,
+          sessionID: msg.sessionID,
+          type: "text",
+          text: "summary",
+        })
+      return result
+    }),
   } satisfies SessionProcessorModule.SessionProcessor.Handle
 }
 
 function layer(result: "continue" | "compact") {
-  return Layer.succeed(
+  return Layer.effect(
     SessionProcessorModule.SessionProcessor.Service,
-    SessionProcessorModule.SessionProcessor.Service.of({
-      create: Effect.fn("TestSessionProcessor.create")((input) => Effect.succeed(fake(input, result))),
+    Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      return SessionProcessorModule.SessionProcessor.Service.of({
+        create: Effect.fn("TestSessionProcessor.create")((input) => Effect.succeed(fake(input, result, ssn))),
+      })
     }),
   )
 }
@@ -227,7 +243,7 @@ function cfg(compaction?: ConfigV1.Info["compaction"]) {
 
 const deps = Layer.mergeAll(
   wide().layer,
-  layer("continue"),
+  layer("continue").pipe(Layer.provide(SessionNs.defaultLayer)),
   Agent.defaultLayer,
   Plugin.defaultLayer,
   EventV2Bridge.defaultLayer,
@@ -351,6 +367,14 @@ function reply(
       }),
     )
   }
+}
+
+function emptyReply(): (input: LLM.StreamInput) => Stream.Stream<LLMEvent, unknown> {
+  return () =>
+    Stream.make(
+      LLMEvent.stepFinish({ index: 0, reason: "stop", usage: basicUsage() }),
+      LLMEvent.finish({ reason: "stop", usage: basicUsage() }),
+    )
 }
 
 function plugin(ready: Deferred.Deferred<void>) {
@@ -964,6 +988,31 @@ describe("session.compaction.process", () => {
   )
 
   itCompaction.instance(
+    "10-24: hidden loop messages do not count as turns when picking the retained tail",
+    Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      const session = yield* ssn.create({})
+      yield* createUserMessage(session.id, "first")
+      const keep = yield* createUserMessage(session.id, "second")
+      yield* createUserMessage(session.id, "Continue: carry out the step you just described.", true)
+      yield* createUserMessage(session.id, "third")
+      yield* createUserMessage(session.id, "Before you finish, check your work.", true)
+      yield* createSummaryCompaction(session.id)
+
+      const msgs = yield* ssn.messages({ sessionID: session.id })
+      yield* SessionCompaction.use.process({
+        parentID: msgs.at(-1)!.info.id,
+        messages: msgs,
+        sessionID: session.id,
+        auto: false,
+      })
+
+      const part = yield* readCompactionPart(session.id)
+      expect(part?.tail_start_id).toBe(keep.id)
+    }).pipe(withCompaction({ config: cfg({ tail_turns: 2, preserve_recent_tokens: 10_000 }) })),
+  )
+
+  itCompaction.instance(
     "shrinks retained tail to fit preserve token budget",
     Effect.gen(function* () {
       const ssn = yield* SessionNs.Service
@@ -1012,6 +1061,71 @@ describe("session.compaction.process", () => {
         expect(part?.tail_start_id).toBeUndefined()
         expect(captured).toContain("yyyy")
       }).pipe(withCompaction({ llm: stub.layer, config: cfg({ tail_turns: 1, preserve_recent_tokens: 20 }) }))
+    },
+    { git: true },
+  )
+
+  // 10-24 (audit C07): a summary with no text (the model answered with a tool call, which is dropped) must
+  // never count as a finished compaction.
+  itCompaction.instance(
+    "10-24: an empty summary is retried once with a text-only request, and the second summary is used",
+    () => {
+      const stub = llm()
+      let retried = ""
+      stub.push(emptyReply())
+      stub.push(reply("real summary", (input) => (retried = JSON.stringify(input.messages))))
+      return Effect.gen(function* () {
+        const ssn = yield* SessionNs.Service
+        const session = yield* ssn.create({})
+        yield* createUserMessage(session.id, "first")
+        yield* createUserMessage(session.id, "second")
+        yield* createSummaryCompaction(session.id)
+        const msgs = yield* ssn.messages({ sessionID: session.id })
+        const result = yield* SessionCompaction.use.process({
+          parentID: msgs.at(-1)!.info.id,
+          messages: msgs,
+          sessionID: session.id,
+          auto: false,
+        })
+        expect(result).toBe("continue")
+        expect(retried).toContain("Your previous reply contained no summary text")
+        const summaries = (yield* ssn.messages({ sessionID: session.id })).filter(
+          (msg) => msg.info.role === "assistant" && msg.info.summary,
+        )
+        expect(summaries).toHaveLength(1)
+        expect(summaries[0].parts.some((part) => part.type === "text" && part.text === "real summary")).toBe(true)
+      }).pipe(withCompaction({ llm: stub.layer }))
+    },
+    { git: true },
+  )
+
+  itCompaction.instance(
+    "10-24: two empty summaries end with an error and the history is kept",
+    () => {
+      const stub = llm()
+      stub.push(emptyReply())
+      stub.push(emptyReply())
+      return Effect.gen(function* () {
+        const ssn = yield* SessionNs.Service
+        const session = yield* ssn.create({})
+        yield* createUserMessage(session.id, "keep me")
+        yield* createUserMessage(session.id, "second")
+        yield* createSummaryCompaction(session.id)
+        const msgs = yield* ssn.messages({ sessionID: session.id })
+        const result = yield* SessionCompaction.use.process({
+          parentID: msgs.at(-1)!.info.id,
+          messages: msgs,
+          sessionID: session.id,
+          auto: false,
+        })
+        expect(result).toBe("stop")
+        const after = yield* ssn.messages({ sessionID: session.id })
+        const summary = after.find((msg) => msg.info.role === "assistant" && msg.info.summary)
+        expect(summary?.info.role === "assistant" && summary.info.finish).toBe("error")
+        expect(JSON.stringify(summary?.info.role === "assistant" ? summary.info.error : "")).toContain("could not be summarized")
+        const visible = MessageV2.filterCompacted(after)
+        expect(visible.some((msg) => msg.parts.some((part) => part.type === "text" && part.text === "keep me"))).toBe(true)
+      }).pipe(withCompaction({ llm: stub.layer }))
     },
     { git: true },
   )

@@ -71,7 +71,7 @@ import { isPlaceholderTitle, sessionTitle } from "@/utils/session-title"
 import { isChatDirectory, useChatDirectory } from "@/utils/chat-workspace"
 import { formatTurnTime, TURN_GAP_MS } from "@/pages/session/turn-time"
 import { makeTimer } from "@solid-primitives/timer"
-import { MessageComment, SummaryDiff, Timeline, TimelineRow, TimelineRowMap } from "./message-timeline.data"
+import { MessageComment, SummaryDiff, syntheticOnly, Timeline, TimelineRow, TimelineRowMap } from "./message-timeline.data"
 
 const emptyMessages: MessageType[] = []
 const emptyParts: PartType[] = []
@@ -304,14 +304,23 @@ export function MessageTimeline(props: {
   const messageByID = createMemo(() => new Map(sessionMessages().map((message) => [message.id, message] as const)))
   const assistantMessagesByParent = createMemo(() => {
     const result = new Map<string, AssistantMessage[]>()
+    // replies to a hidden nudge or completion check belong to the person's turn before it (syntheticOnly)
+    const owner = new Map<string, string>()
+    let lastReal: string | undefined
+    for (const message of sessionMessages()) {
+      if (message.role !== "user") continue
+      if (lastReal && syntheticOnly(getMsgParts(message.id))) owner.set(message.id, lastReal)
+      else lastReal = message.id
+    }
     for (const message of sessionMessages()) {
       if (message.role !== "assistant") continue
-      const messages = result.get(message.parentID)
+      const parentID = owner.get(message.parentID) ?? message.parentID
+      const messages = result.get(parentID)
       if (messages) {
         messages.push(message)
         continue
       }
-      result.set(message.parentID, [message])
+      result.set(parentID, [message])
     }
     return result
   })
