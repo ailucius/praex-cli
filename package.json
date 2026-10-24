@@ -73,7 +73,7 @@
       "semver": "7.7.4",
       "typescript": "5.8.2",
       "@typescript/native-preview": "7.0.0-dev.20251207.1",
-      "zod": "4.1.8",
+      "zod": "4.6.6",
       "remeda": "2.26.0",
       "sst": "4.13.1",
       "shiki": "3.20.0",
@@ -150,6 +150,6 @@
     "gcp-metadata@8.1.2": "patches/gcp-metadata@8.1.2.patch",
     "pacote@21.5.1": "patches/pacote@21.5.1.patch",
     "@ai-sdk/google@3.0.73": "patches/@ai-sdk%2Fgoogle@3.0.73.patch",
-    "@modelcontextprotocol/sdk@1.29.0": "patches/@modelcontextprotocol%2Fsdk@1.29.0.patch"
+    "@modelcontextprotocol/sdk@1.32.1": "patches/@modelcontextprotocol%2Fsdk@1.32.1.patch"
   }
 }
