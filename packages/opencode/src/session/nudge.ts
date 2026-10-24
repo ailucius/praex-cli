@@ -31,12 +31,15 @@ const ANNOUNCE = new RegExp(
 
 const TOOL_AS_TEXT = /<\/?tool_call>|<function=[\w.-]+>|<\/function>|<invoke\s+name=|<\|tool_call/i
 
+// 10-24 (audit C10): tool-call markup quoted in a code block or `inline code` is an explanation, not a call.
+const withoutCode = (text: string) => text.replace(/```[\s\S]*?(```|$)/g, " ").replace(/`[^`\n]*`/g, " ")
+
 // Why a step that ended the turn should get a nudge, or undefined when it really looks finished.
 export function nudgeReason(finish: string | undefined, text: string): NudgeReason | undefined {
   const t = text.trim()
   if (finish === "length") return "cut"
   if (finish !== "stop" || !t) return
-  if (TOOL_AS_TEXT.test(t.slice(-4000))) return "tool-as-text"
+  if (TOOL_AS_TEXT.test(withoutCode(t.slice(-4000)))) return "tool-as-text"
   if (t.endsWith("```")) return
   const lines = t.split("\n").map((l) => l.trim()).filter(Boolean)
   const last = (lines.at(-1) ?? "").replace(/^[\s>*_#-]+|[\s*_]+$/g, "")
@@ -55,3 +58,34 @@ export const VERIFY_TEXT =
   "Before you finish, check your work against the original request. Re-read it and list each requirement (file paths, names, formats, values, commands the user will run, things that must keep running). Verify each one with your tools against the real files and outputs, and run the code or tests again if you changed anything. Fix whatever does not match. Then reply with a short summary of what you checked."
 
 export const isHeadless = () => process.env.PRAEX_HEADLESS === "1"
+
+// 10-24 (audit C08): the check costs a step and can rewrite a good answer, so it runs only after the turn
+// changed something: a file tool, or a shell command that is not plainly read-only.
+const FILE_TOOLS = new Set(["write", "edit", "apply_patch", "multiedit", "patch"])
+const READ_ONLY = new Set(
+  "ls cat head tail less grep egrep fgrep rg wc pwd echo printf which whereis type file stat tree du df printenv date whoami id uname find sed awk sort uniq cut tr diff cmp jq basename dirname realpath readlink true false test [ nl column xxd od hexdump md5sum sha256sum git cd".split(
+    " ",
+  ),
+)
+const READ_ONLY_GIT = new Set(["status", "log", "diff", "show", "blame", "grep", "ls-files", "rev-parse", "describe"])
+const FIND_WRITES = new Set(["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"])
+
+export function changesSomething(tool: string, input: Record<string, unknown> | undefined): boolean {
+  if (FILE_TOOLS.has(tool)) return true
+  if (tool !== "bash") return false
+  const command = typeof input?.command === "string" ? input.command : ""
+  const line = command.replace(/\d*>>?\s*\/dev\/null|\d*>&\d/g, " ")
+  if (/[>`]|\$\(|<\(/.test(line)) return true
+  return line.split(/&&|\|\||[|;&\n]/).some((segment) => {
+    const words = segment.trim().split(/\s+/).filter((w) => w && !/^\w+=/.test(w))
+    const [name, sub] = words
+    if (!name) return false
+    if (!READ_ONLY.has(name)) return true
+    if (name === "git") return !READ_ONLY_GIT.has(sub ?? "")
+    if (name === "sed") return words.some((w) => /^(-i|--in-place)/.test(w) || /^-[a-zA-Z]*i/.test(w))
+    if (name === "sort") return words.some((w) => /^(-o|--output)/.test(w))
+    if (name === "awk") return /system\s*\(|print\s*>/.test(segment)
+    if (name === "find") return words.some((w) => FIND_WRITES.has(w))
+    return false
+  })
+}

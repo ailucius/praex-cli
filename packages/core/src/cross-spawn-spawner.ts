@@ -228,6 +228,10 @@ export const make = Effect.gen(function* () {
     Effect.suspend(() => {
       let sink: Sink.Sink<void, unknown, never, PlatformError.PlatformError> = Sink.drain
       if (Predicate.isNotNull(proc.stdin)) {
+        // 10-24: a child that exits before reading all its input (git fed a file list, `head`) makes the
+        // pipe emit EPIPE, sometimes after the sink has finished and removed its listener. Unobserved, that
+        // error crashed the whole CLI with exit 1 at the end of otherwise good runs.
+        proc.stdin.on("error", () => {})
         sink = NodeSink.fromWritable({
           evaluate: () => proc.stdin!,
           onError: (err) => toPlatformError("fromWritable(stdin)", toError(err), command),

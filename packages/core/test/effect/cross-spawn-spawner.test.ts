@@ -225,6 +225,27 @@ describe("cross-spawn spawner", () => {
         expect(out).toBe("a b c")
       }),
     )
+
+    fx.effect(
+      "10-24: a command that exits without reading its input does not crash the process (EPIPE)",
+      Effect.gen(function* () {
+        // the snapshot's `git check-ignore --stdin` in a folder with no .git: git exits at once, and the
+        // write of the file list fails after the input stream has finished
+        const args = ["--git-dir", "/nonexistent/.git", "--work-tree", os.tmpdir(), "check-ignore", "--no-index", "--stdin", "-z"]
+        for (let i = 0; i < 40; i++) {
+          yield* Effect.scoped(
+            Effect.gen(function* () {
+              const handle = yield* ChildProcess.make("git", args, {
+                stdin: Stream.make(new TextEncoder().encode("a.txt\0b.txt\0")),
+              })
+              yield* handle.exitCode
+            }),
+          ).pipe(Effect.ignore)
+        }
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 300)))
+        expect(true).toBe(true)
+      }),
+    )
   })
 
   describe("process control", () => {

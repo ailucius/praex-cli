@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { nudgeReason } from "../../src/session/nudge"
+import { changesSomething, nudgeReason } from "../../src/session/nudge"
 import { SystemPrompt } from "../../src/session/system"
 
 describe("nudgeReason", () => {
@@ -33,6 +33,38 @@ describe("nudgeReason", () => {
     expect(nudgeReason("stop", "")).toBeUndefined()
     expect(nudgeReason("tool-calls", "Let me run the tests:")).toBeUndefined()
     expect(nudgeReason(undefined, "Let me run the tests:")).toBeUndefined()
+    expect(nudgeReason("stop", "Should I delete the old files?")).toBeUndefined()
+  })
+
+  test("10-24: tool-call markup quoted in code is an explanation, not a call", () => {
+    expect(nudgeReason("stop", "The model must wrap calls in `<tool_call>` tags.")).toBeUndefined()
+    expect(
+      nudgeReason("stop", 'The format is:\n```xml\n<tool_call>\n{"name": "bash"}\n</tool_call>\n```\nThat is all it needs.'),
+    ).toBeUndefined()
+  })
+})
+
+describe("changesSomething", () => {
+  const bash = (command: string) => changesSomething("bash", { command })
+  test("file tools and writing commands change something", () => {
+    expect(changesSomething("write", { filePath: "a.py" })).toBe(true)
+    expect(changesSomething("apply_patch", {})).toBe(true)
+    expect(bash("pip install -r requirements.txt")).toBe(true)
+    expect(bash("echo hi > out.txt")).toBe(true)
+    expect(bash("sed -i 's/a/b/' x.py")).toBe(true)
+    expect(bash("find . -name '*.pyc' -delete")).toBe(true)
+    expect(bash("git commit -m x")).toBe(true)
+    expect(bash("ls && python3 build.py")).toBe(true)
+    expect(bash("cat $(ls)")).toBe(true)
+  })
+  test("reading and searching do not", () => {
+    expect(changesSomething("read", { filePath: "a.py" })).toBe(false)
+    expect(changesSomething("grep", { pattern: "x" })).toBe(false)
+    expect(bash("ls -la src 2>/dev/null | head -20")).toBe(false)
+    expect(bash("cd src && grep -rn TODO . | wc -l")).toBe(false)
+    expect(bash("git status && git diff --stat")).toBe(false)
+    expect(bash("sed -n '1,40p' main.py")).toBe(false)
+    expect(bash("find . -name '*.py' 2>&1 | sort")).toBe(false)
   })
 })
 

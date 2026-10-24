@@ -791,7 +791,7 @@ it.instance("10-23: a headless run that used tools gets one completion check bef
       noReply: true,
       parts: [{ type: "text", text: "write out.txt" }],
     })
-    yield* llm.tool("first", { value: "first" })
+    yield* llm.tool("write", { filePath: "out.txt", content: "hello" })
     yield* llm.text("Done.")
     yield* llm.text("Checked: out.txt exists and has the right content.")
     process.env.PRAEX_HEADLESS = "1"
@@ -820,6 +820,33 @@ it.instance("10-23: no completion check in an interactive session or a headless 
     process.env.PRAEX_HEADLESS = "1"
     yield* prompt.loop({ sessionID: b.id }).pipe(Effect.ensuring(Effect.sync(() => delete process.env.PRAEX_HEADLESS)))
     expect(yield* llm.calls).toBe(3)
+  }),
+)
+
+it.instance("10-24: no completion check after a read-only turn or inside a subagent", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const a = yield* sessions.create({ title: "Look only", permission: [{ permission: "*", pattern: "*", action: "allow" }] })
+    yield* prompt.prompt({ sessionID: a.id, agent: "build", noReply: true, parts: [{ type: "text", text: "what is in here?" }] })
+    yield* llm.tool("bash", { command: "ls -la 2>/dev/null | head -5", description: "List files" })
+    yield* llm.text("Two files.")
+    process.env.PRAEX_HEADLESS = "1"
+    yield* prompt.loop({ sessionID: a.id }).pipe(Effect.ensuring(Effect.sync(() => delete process.env.PRAEX_HEADLESS)))
+    expect(yield* llm.calls).toBe(2)
+
+    const child = yield* sessions.create({
+      parentID: a.id,
+      title: "Subagent",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({ sessionID: child.id, agent: "build", noReply: true, parts: [{ type: "text", text: "write out.txt" }] })
+    yield* llm.tool("write", { filePath: "out.txt", content: "hello" })
+    yield* llm.text("Done.")
+    process.env.PRAEX_HEADLESS = "1"
+    yield* prompt.loop({ sessionID: child.id }).pipe(Effect.ensuring(Effect.sync(() => delete process.env.PRAEX_HEADLESS)))
+    expect(yield* llm.calls).toBe(4)
   }),
 )
 

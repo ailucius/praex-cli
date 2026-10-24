@@ -21,7 +21,7 @@ import { Instruction } from "./instruction"
 import { Memory } from "./memory"
 import { Plugin } from "../plugin"
 import MAX_STEPS from "../session/prompt/max-steps.txt"
-import { MAX_NUDGES, NUDGE_TEXT, VERIFY_TEXT, isHeadless, nudgeReason } from "./nudge"
+import { MAX_NUDGES, NUDGE_TEXT, VERIFY_TEXT, changesSomething, isHeadless, nudgeReason } from "./nudge"
 import { ToolRegistry } from "@/tool/registry"
 import { MCP } from "../mcp"
 import { LSP } from "@/lsp/lsp"
@@ -1232,7 +1232,8 @@ export const layer = Layer.effect(
             // 10-23: a step that only announced its next action (or wrote a tool call as text, or was cut at
             // the output limit) gets a hidden "continue" instead of ending the turn (nudge.ts).
             const reason =
-              !orphan && nudges < MAX_NUDGES && !lastAssistant.error && !lastAssistant.summary
+              // plan mode only plans: "carry out the step" would push it to act (audit C10)
+              !orphan && nudges < MAX_NUDGES && !lastAssistant.error && !lastAssistant.summary && lastUser.agent !== "plan"
                 ? nudgeReason(
                     lastAssistant.finish,
                     (lastAssistantMsg?.parts ?? [])
@@ -1264,11 +1265,23 @@ export const layer = Layer.effect(
               } satisfies SessionV1.TextPart)
               continue
             }
-            // 10-23: one completion check per turn in headless runs, after a turn that used tools (nudge.ts).
-            const usedTools = msgs.some(
-              (m) => m.info.role === "assistant" && m.info.id > realUserID && m.parts.some((part) => part.type === "tool"),
+            // 10-23: one completion check per turn in headless runs, after a turn that changed something
+            // (nudge.ts). 10-24 (audit C08): only in the top-level session, never inside a subagent's task.
+            const changed = msgs.some(
+              (m) =>
+                m.info.role === "assistant" &&
+                m.info.id > realUserID &&
+                m.parts.some((part) => part.type === "tool" && changesSomething(part.tool, part.state.input)),
             )
-            if (!orphan && !verified && isHeadless() && usedTools && !lastAssistant.error && !lastAssistant.summary) {
+            if (
+              !orphan &&
+              !verified &&
+              isHeadless() &&
+              !session.parentID &&
+              changed &&
+              !lastAssistant.error &&
+              !lastAssistant.summary
+            ) {
               verified = true
               yield* Effect.logInfo("asking the model to verify before finishing", { "session.id": sessionID })
               const verifyMsg: SessionV1.User = {
