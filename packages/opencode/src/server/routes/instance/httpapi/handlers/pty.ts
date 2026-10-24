@@ -192,11 +192,12 @@ export const ptyConnectHandlers = HttpApiBuilder.group(PtyConnectApi, "pty-conne
 
         const query = Schema.decodeUnknownOption(CursorQuery)(yield* HttpServerRequest.ParsedSearchParams)
         if (Option.isNone(query)) return HttpServerResponse.empty({ status: 400 })
+        // 10-24 (audit C03): browsers always send Origin on a WebSocket, so a page on another site is
+        // refused here even when the server has no password and the client sends no ticket
+        if (!validOrigin(ctx.request, cors)) return HttpServerResponse.empty({ status: 403 })
         const ticket = new URL(ctx.request.url, "http://localhost").searchParams.get(PTY_CONNECT_TICKET_QUERY)
         if (ticket) {
-          const valid = validOrigin(ctx.request, cors)
-            ? yield* tickets.consume({ ticket, ptyID: ctx.params.ptyID, ...(yield* ticketScope) })
-            : false
+          const valid = yield* tickets.consume({ ticket, ptyID: ctx.params.ptyID, ...(yield* ticketScope) })
           if (!valid) return HttpServerResponse.empty({ status: 403 })
         }
         const parsedCursor = query.value.cursor === undefined ? undefined : Number(query.value.cursor)

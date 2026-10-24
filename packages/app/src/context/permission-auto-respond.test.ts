@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { PermissionRequest, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { autoRespondsPermission, isDirectoryAutoAccepting } from "./permission-auto-respond"
+import { autoRespondsPermission, guardReason, isDirectoryAutoAccepting } from "./permission-auto-respond"
 
 const session = (input: { id: string; parentID?: string }) =>
   ({
@@ -98,5 +98,16 @@ describe("isDirectoryAutoAccepting", () => {
     const directory = "/tmp/project"
     const autoAccept = { [`${base64Encode(directory)}/*`]: false }
     expect(isDirectoryAutoAccepting(autoAccept, directory)).toBe(false)
+  })
+})
+
+describe("guardReason (10-24, audit C01)", () => {
+  test("a request the guard flagged carries its reason; others do not", () => {
+    expect(guardReason({ metadata: { guard: "Deletes your home folder or a folder above it" } })).toBe(
+      "Deletes your home folder or a folder above it",
+    )
+    expect(guardReason({ metadata: { command: "ls" } })).toBeUndefined()
+    expect(guardReason({ metadata: { guard: "" } })).toBeUndefined()
+    expect(guardReason({})).toBeUndefined()
   })
 })

@@ -12,6 +12,7 @@ import { useFileComponent } from "@opencode-ai/ui/context/file"
 import { resolveFileDiff } from "@opencode-ai/ui/session-diff"
 import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
 import { useLanguage } from "@/context/language"
+import { guardReason } from "@/context/permission-auto-respond"
 import { permissionDiffs, type PermissionDiffEntry } from "./session-permission-diff"
 
 function PermissionDiff(props: { entry: PermissionDiffEntry }) {
@@ -124,14 +125,17 @@ export function SessionPermissionDock(props: {
             <Button variant="ghost" size="normal" onClick={() => props.onDecide("reject")} disabled={props.responding}>
               {language.t("ui.permission.deny")}
             </Button>
-            <Button
-              variant="secondary"
-              size="normal"
-              onClick={() => props.onDecide("always")}
-              disabled={props.responding}
-            >
-              {language.t("ui.permission.allowAlways")}
-            </Button>
+            {/* an "always" never covers what the guard flagged, so it is not offered there */}
+            <Show when={!guardReason(props.request)}>
+              <Button
+                variant="secondary"
+                size="normal"
+                onClick={() => props.onDecide("always")}
+                disabled={props.responding}
+              >
+                {language.t("ui.permission.allowAlways")}
+              </Button>
+            </Show>
             <Button variant="primary" size="normal" onClick={() => props.onDecide("once")} disabled={props.responding}>
               {language.t("ui.permission.allowOnce")}
             </Button>
@@ -139,6 +143,17 @@ export function SessionPermissionDock(props: {
         </>
       }
     >
+      <Show when={guardReason(props.request)}>
+        {(reason) => (
+          <div data-slot="permission-row">
+            <span data-slot="permission-spacer" aria-hidden="true" />
+            <div data-slot="permission-hint" class="text-text-strong">
+              {reason()}
+            </div>
+          </div>
+        )}
+      </Show>
+
       <Show when={toolDescription()}>
         <div data-slot="permission-row">
           <span data-slot="permission-spacer" aria-hidden="true" />

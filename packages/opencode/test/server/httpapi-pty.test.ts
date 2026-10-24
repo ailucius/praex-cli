@@ -188,6 +188,25 @@ describe("pty HttpApi bridge", () => {
     expect(response.status).toBe(404)
   })
 
+  testPty("10-24 (audit C03): a page on another site cannot connect to a PTY without a ticket", async () => {
+    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
+    const headers = { "x-opencode-directory": tmp.path }
+    const created = await app().request(PtyPaths.create, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ command: "/usr/bin/env", args: ["sh", "-c", "sleep 5"] }),
+    })
+    const info = await created.json()
+    try {
+      const response = await app().request(PtyPaths.connect.replace(":ptyID", info.id), {
+        headers: { ...headers, origin: "https://evil.example" },
+      })
+      expect(response.status).toBe(403)
+    } finally {
+      await app().request(PtyPaths.remove.replace(":ptyID", info.id), { method: "DELETE", headers })
+    }
+  })
+
   test("returns 404 for missing PTY websocket before decoding cursor query", async () => {
     await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
     const response = await app().request(`${PtyPaths.connect.replace(":ptyID", PtyID.ascending())}?cursor=a&cursor=b`, {

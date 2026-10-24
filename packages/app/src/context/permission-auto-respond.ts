@@ -1,5 +1,16 @@
 import { base64Encode } from "@opencode-ai/core/util/encode"
 
+// 10-24 (audit C01): the server's destructive-action guard (packages/opencode/src/permission/guard.ts)
+// asks before rm -rf outside the project, sudo, git push --force and the like, but only for sessions
+// that carry this rule. The TUI adds it in both modes; desktop sessions now get it when created.
+export const GUARD_RULE = { permission: "destructive", pattern: "*", action: "ask" as const }
+
+// A request the guard flagged carries its reason; auto-accept never answers it.
+export function guardReason(permission: { metadata?: Record<string, unknown> }) {
+  const reason = permission.metadata?.guard
+  return typeof reason === "string" && reason ? reason : undefined
+}
+
 export function acceptKey(sessionID: string, directory?: string) {
   if (!directory) return sessionID
   return `${base64Encode(directory)}/${sessionID}`

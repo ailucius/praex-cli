@@ -12,6 +12,7 @@ import {
   directoryAcceptKey,
   isDirectoryAutoAccepting,
   autoRespondsPermission,
+  guardReason,
 } from "./permission-auto-respond"
 
 type PermissionRespondFn = (input: {
@@ -151,6 +152,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     }
 
     function shouldAutoRespond(permission: PermissionRequest, directory?: string) {
+      if (guardReason(permission)) return false
       const session = directory ? serverSync().child(directory, { bootstrap: false })[0].session : []
       return autoRespondsPermission(store.autoAccept, session, permission, directory)
     }
