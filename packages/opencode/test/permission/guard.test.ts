@@ -93,6 +93,88 @@ describe("auto mode guard: destructive or hard to undo asks", () => {
   })
 })
 
+describe("10-24 (audit C05): bypasses and gaps now ask", () => {
+  test.each([
+    ["echo $(rm -rf ~)", "home folder"],
+    ["echo `rm -rf ~`", "home folder"],
+    ["rm -rf {~,/}", "home folder"],
+    ["rm -rf {.,..}", "project folder or a folder above it"],
+    ['bash -c "rm -rf ~"', "home folder"],
+    ['sh -ec "cd / && rm -rf etc"', "top-level system folder"],
+    ['eval "rm -rf ~"', "home folder"],
+    ["find ~ -delete", "home folder"],
+    ["find / -name '*.log' -exec rm {} +", "root of the file system"],
+    ["find . -delete", "project folder or a folder above it"],
+    ["find -L ~ -name x -delete", "home folder"],
+    ["echo ~ | xargs rm -rf", "xargs rm -r"],
+    ["cd ~ && rm -rf Documents", "outside the project folder"],
+    ["cd .. && rm -rf proj2", "outside the project folder"],
+    ["cd $DIR && rm -rf build", "cd to a folder that is not known here"],
+    ["rm ~/.bashrc", "outside the project folder"],
+    ["rm /etc/passwd", "outside the project folder"],
+    ["rm -rf .git/*", ".git"],
+    ["rm .git/HEAD", ".git"],
+    ["/usr/bin/sudo rm -rf /", "sudo"],
+    ["env -u FOO rm -rf ~", "home folder"],
+    ["timeout -s KILL 10 rm -rf ~", "home folder"],
+    ["git --git-dir .git push --force", "Force-pushes"],
+    ["git push origin --delete main", "Deletes a branch or tag on the remote"],
+    ["git push origin :main", "Deletes a branch or tag on the remote"],
+    ["git branch -D feature", "git branch -D"],
+    ["git branch --delete --force feature", "git branch -D"],
+    ["git checkout -- .", "git checkout"],
+    ["git checkout .", "git checkout"],
+    ["git checkout main -- src/app.ts", "git checkout"],
+    ["git restore .", "git restore"],
+    ["git restore --staged --worktree a.ts", "git restore"],
+    ["git stash drop", "git stash"],
+    ["git stash clear", "git stash"],
+    ["rsync -a --delete src/ ~/", "home folder"],
+    ["mv ~ /tmp/old-home", "home folder"],
+    ["mv . ../elsewhere", "project folder or a folder above it"],
+    ["shred -u secrets.txt", "shred"],
+    ["truncate -s 0 /var/log/syslog", "truncate"],
+    ['su -c "apt install x"', "su"],
+    ["pkexec apt install x", "pkexec"],
+    ["rm -rf ~alice", "outside the project folder"],
+  ])("%s", (command, reason) => {
+    expect(asks(command)).toContain(reason)
+  })
+
+  test.each([
+    "rm *.o",
+    "rm -f *.log",
+    "rm -f .git/index.lock",
+    "rm src/old.ts tests/old.test.ts",
+    "cd build && rm -rf *",
+    "cd src && rm -rf generated",
+    "find . -name '*.pyc' -delete",
+    "find src -type f -name '*.orig' -exec rm -f {} +",
+    "find build -delete",
+    "find . -name '*.o' | xargs rm",
+    'bash -c "npm test"',
+    "bash scripts/build.sh",
+    "echo $(date) >> log.txt",
+    "{ echo a; echo b; } > out.txt",
+    "env FOO=1 npm test",
+    "timeout 30 npm test",
+    "git checkout main",
+    "git checkout -b feature/x",
+    "git restore --staged src/a.ts",
+    "git branch -d merged-feature",
+    "git stash",
+    "git stash pop",
+    "git push origin feature/x",
+    "mv old.ts new.ts",
+    "mv dist/app.js build/",
+    "rsync -a --delete dist/ build/",
+    "truncate -s 0 app.log",
+    "echo {a,b}.txt",
+  ])("still runs: %s", (command) => {
+    expect(asks(command)).toBeUndefined()
+  })
+})
+
 describe("auto mode guard: file writes", () => {
   test("writes inside the project run, outside ask", () => {
     expect(checkWritePaths(["/work/proj/src/a.ts"], ctx)).toBeUndefined()

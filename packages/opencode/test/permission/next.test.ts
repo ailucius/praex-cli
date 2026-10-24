@@ -666,6 +666,45 @@ it.instance(
 )
 
 it.instance(
+  "10-24 (audit C06): an always reply does not answer another request the guard flagged",
+  () =>
+    Effect.gen(function* () {
+      const manual: PermissionV1.Rule[] = [
+        { permission: "bash", pattern: "*", action: "ask" },
+        { permission: "destructive", pattern: "*", action: "ask" },
+      ]
+      const a = yield* ask({
+        id: PermissionV1.ID.make("per_c06a"),
+        sessionID: SessionID.make("session_c06"),
+        permission: "bash",
+        patterns: ["npm install"],
+        metadata: { command: "npm install" },
+        always: ["*"],
+        ruleset: manual,
+      }).pipe(Effect.forkScoped)
+      const b = yield* ask({
+        id: PermissionV1.ID.make("per_c06b"),
+        sessionID: SessionID.make("session_c06"),
+        permission: "bash",
+        patterns: ["rm -rf ~"],
+        metadata: { command: "rm -rf ~" },
+        always: [],
+        ruleset: manual,
+      }).pipe(Effect.forkScoped)
+
+      yield* waitForPending(2)
+      yield* reply({ requestID: PermissionV1.ID.make("per_c06a"), reply: "always" })
+      yield* Fiber.join(a)
+      const left = yield* list()
+      expect(left.map((item) => item.id)).toEqual([PermissionV1.ID.make("per_c06b")])
+      expect(left[0]?.metadata.guard).toContain("home folder")
+      yield* rejectAll()
+      yield* Fiber.await(b)
+    }),
+  { git: true },
+)
+
+it.instance(
   "ask - auto mode stops for git push -f and for writes outside the project",
   () =>
     Effect.gen(function* () {

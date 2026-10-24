@@ -91,11 +91,15 @@ function unsafeSyntax(input: string) {
       continue
     }
     if (char === "`" || (char === "$" && next === "(")) return true
-    if ((char === "<" || char === ">") && next === "(") return true
-    if (char === "<" && next === "<") return true
+    // 10-24 (audit C02): any input redirect ("< .env", "<<", "<(...)") reads a file the checks below never see
+    if (char === "<") return true
+    if (char === ">" && next === "(") return true
     if (char === ">") {
-      // "2>&1", ">&2": duplicating a descriptor writes nothing
-      if (next === "&") continue
+      // "2>&1", ">&2", ">&-": duplicating or closing a descriptor writes nothing; ">&file" writes file
+      if (next === "&") {
+        if (/^&[0-9-]+(?=$|[\s;|&)])/.test(input.slice(i + 1))) continue
+        return true
+      }
       let j = i + 1
       while (input[j] === ">" || input[j] === "|") j++
       while (input[j] === " " || input[j] === "\t") j++
@@ -118,14 +122,16 @@ function inside(target: string, root: string) {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
 }
 
-// .env files ask through the read tool too (agent defaults: "*.env" and "*.env.*" ask, .env.example not)
-const SECRET = /^\.env(\..+)?$/
+// .env files ask through the read tool too (agent defaults: "*.env" and "*.env.*" ask, .env.example not).
+// 10-24 (audit C04): also "prod.env", ".envrc", and globs that can name them (".env*", "*.env").
+const SECRET = /^(\.env[^/]*|.+\.env(\..+)?)$/
 
 function insideProject(word: Word, ctx: GuardContext) {
   if (word.dynamic) return false
   const text = expandHome(word.text, ctx.home)
   const base = path.basename(text)
-  if (SECRET.test(base) && base !== ".env.example") return false
+  const secret = [base, base.replace(/[*?[\]]/g, "")].some((name) => SECRET.test(name) && name !== ".env.example")
+  if (secret) return false
   const glob = text.search(/[*?[]/)
   const head = glob === -1 ? text : text.slice(0, glob)
   const target = path.resolve(ctx.cwd, head || ".")
@@ -154,6 +160,9 @@ function hasFlag(words: Word[], short: string[], long: string[]) {
   })
 }
 
+// 10-24 (audit C04): flags whose value names a file to read ("grep --file=.env", "sort --files0-from=/etc/x")
+const FILE_FLAG = /^--(file|files0-from|exclude-from|include-from|ignore-file|pre-glob)(=|$)/
+
 function readsOnly(words: Word[], ctx: GuardContext): boolean {
   const head = words[0]
   if (!head || head.dynamic) return false
@@ -161,6 +170,10 @@ function readsOnly(words: Word[], ctx: GuardContext): boolean {
   if (head.text.includes("/")) return false
   const name = head.text
   const args = words.slice(1)
+  if (args.some((word) => FILE_FLAG.test(word.text))) return false
+  // "-f FILE" reads FILE for grep/rg (patterns) and date (dates); "-F" (fixed strings) is fine
+  if (["grep", "egrep", "fgrep", "rg", "date"].includes(name) && args.some((word) => /^-[a-zA-Z]*f/.test(word.text)))
+    return false
 
   if (PLAIN.has(name)) {
     if (name === "printf" && args.some((word) => word.text === "-v")) return false
@@ -189,7 +202,8 @@ function readsOnly(words: Word[], ctx: GuardContext): boolean {
     if (!sub || !GIT_READ.has(sub)) return false
     const rest = args.slice(i + 1)
     if (rest.some((word) => word.dynamic)) return false
-    if (hasFlag(rest, [], ["--output", "--ext-diff"])) return false
+    // --no-index and --contents read files outside the repository
+    if (hasFlag(rest, [], ["--output", "--ext-diff", "--no-index", "--contents"])) return false
     // `git branch NAME` creates a branch; listing and inspecting flags only
     if (sub === "branch") {
       if (hasFlag(rest, ["d", "D", "m", "M", "c", "C", "u", "f"], ["--delete", "--move", "--copy", "--set-upstream-to", "--unset-upstream", "--edit-description", "--force", "--track"]))
@@ -206,14 +220,20 @@ function readsOnly(words: Word[], ctx: GuardContext): boolean {
 
   if (name === "find") {
     if (args.some((word) => FIND_WRITES.has(word.text))) return false
-    // paths come before the first expression
+    // paths come before the first expression, after the -H/-L/-P/-D/-O options and "--" (audit C04);
+    // no path means the current folder, which evaluate() keeps inside the project
+    let i = 0
+    while (i < args.length && /^-([HLP]|D|O\d*)$/.test(args[i]!.text)) i += args[i]!.text === "-D" ? 2 : 1
+    if (args[i]?.text === "--") i++
     const paths: Word[] = []
-    for (const word of args) {
+    for (const word of args.slice(i)) {
       if (word.text.startsWith("-") || word.text === "(" || word.text === "!") break
       paths.push(word)
     }
     return paths.every((word) => insideProject(word, ctx))
   }
+  // tree -o FILE writes FILE (audit C02)
+  if (name === "tree" && hasFlag(args, ["o"], ["--output"])) return false
   if (name === "sort" && hasFlag(args, ["o"], ["--output", "--compress-program"])) return false
   // `uniq IN OUT` writes OUT
   if (name === "uniq" && operands(args).length > 1) return false
@@ -222,9 +242,10 @@ function readsOnly(words: Word[], ctx: GuardContext): boolean {
 
   // grep and rg take the pattern first unless it comes from -e/-f
   const files = operands(args)
+  // ("rg --files DIR" lists files: no pattern)
   const patternFirst =
     (name === "grep" || name === "egrep" || name === "fgrep" || name === "rg") &&
-    !hasFlag(args, ["e", "f"], ["--regexp", "--file"])
+    !hasFlag(args, ["e", "f"], ["--regexp", "--file", "--files", "--type-list"])
   return (patternFirst ? files.slice(1) : files).every((word) => insideProject(word, ctx))
 }
 

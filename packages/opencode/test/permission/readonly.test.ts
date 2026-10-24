@@ -88,4 +88,50 @@ describe("read-only shell commands run without asking in manual mode (10-22)", (
       expect([command, ro(command)]).toEqual([command, false])
     expect(ro("cat .env.example")).toBe(true)
   })
+
+  test("10-24 (audit C02, C04): redirects, file flags and option tricks ask", () => {
+    for (const command of [
+      "echo pwned >&pwned.txt",
+      "echo pwned >&/tmp/pwn",
+      "ls &>out.txt",
+      "tree -o src/overwrite.ts",
+      "tree --output=x src",
+      "cat < /etc/passwd",
+      "cat < ~/.ssh/id_rsa",
+      "cat < .env",
+      "find -L /etc",
+      "find -- /etc/passwd",
+      "find -H / -name x",
+      "rg --files /etc",
+      "rg -l --regexp=foo /etc/passwd",
+      "grep -f/etc/passwd README.md",
+      "grep --file=.env README.md",
+      "sort --files0-from=/etc/passwd",
+      "date -f .env",
+      "git diff --no-index /etc/passwd /dev/null",
+      "git blame --contents=/etc/passwd README.md",
+      "cat .env*",
+      "cat prod.env",
+      "cat *.env",
+      "cat .envrc",
+    ])
+      expect([command, ro(command)]).toEqual([command, false])
+  })
+
+  test("10-24: ordinary reads still run", () => {
+    for (const command of [
+      "ls 2>&1",
+      "grep -rn foo src >&2",
+      "find -L src -name '*.ts'",
+      "find -- src -name x",
+      "rg --files src",
+      "grep -F 'a.b' src/x.ts",
+      "grep -rnF TODO src",
+      "cat src/environment.ts",
+      "cut -f 1 data.tsv",
+      "sort -f names.txt",
+      "tree -L 2 src",
+    ])
+      expect([command, ro(command)]).toEqual([command, true])
+  })
 })

@@ -22,15 +22,37 @@ export type GuardContext = {
   // Folders that count as the project (the instance directory and its worktree).
   roots: readonly string[]
   home: string
+  // set after "cd $DIR" or "cd -": relative paths can then not be resolved
+  unknownCwd?: boolean
 }
 
-type Word = { text: string; dynamic: boolean }
+// subs: the source of each command substitution ($(...), `...`, <(...)) inside the word, checked as commands
+type Word = { text: string; dynamic: boolean; subs?: string[] }
 type Command = Word[]
 type Pipeline = Command[]
 
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"])
 const DOWNLOADERS = new Set(["curl", "wget"])
 const WRAPPERS = new Set(["env", "nice", "nohup", "time", "command", "builtin", "exec", "stdbuf", "ionice", "timeout"])
+// wrapper options that take the next word as their value ("env -u NAME", "nice -n 10", "timeout -s KILL")
+const WRAPPER_VALUES: Record<string, string[]> = {
+  env: ["-u", "-C", "--unset", "--chdir"],
+  nice: ["-n", "--adjustment"],
+  ionice: ["-c", "-n", "-p", "-t", "--class", "--classdata"],
+  stdbuf: ["-i", "-o", "-e"],
+  timeout: ["-s", "-k", "--signal", "--kill-after"],
+}
+const ROOT_RUNNERS: Record<string, string> = {
+  su: "Runs a command as another user (su)",
+  runuser: "Runs a command as another user (runuser)",
+  pkexec: "Runs a command as root (pkexec)",
+}
+// git options that take the next word as their value
+const GIT_VALUES = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"])
+// find tests that narrow what -delete or -exec rm touches
+const FIND_FILTER =
+  /^-(i?name|i?path|i?wholename|i?regex|type|xtype|newer\w*|[acm]time|[acm]min|size|empty|user|group|perm|maxdepth|mindepth|prune|links|inum|samefile)$/
+const MAX_DEPTH = 6
 const DISK = /^(mkfs(\..+)?|mke2fs|mkswap|wipefs|fdisk|sfdisk|cfdisk|parted|sgdisk)$/
 
 // Splits a POSIX shell command into pipelines of simple commands. Quotes and escapes are
@@ -80,6 +102,7 @@ export function parseShell(input: string): Pipeline[] {
     const w = current()
     w.text += input.slice(start, i + 1)
     w.dynamic = true
+    ;(w.subs ??= []).push(input.slice(start + 1, i))
     return i
   }
 
@@ -172,7 +195,8 @@ export function parseShell(input: string): Pipeline[] {
       continue
     }
     if (char === ";" || char === "\n" || char === "(" || char === ")" || char === "{" || char === "}") {
-      if ((char === "{" || char === "}") && word) {
+      // "{" and "}" group commands only as separate words ("{ a; }"); "{a,b}" is brace expansion
+      if ((char === "{" || char === "}") && (word || (next !== undefined && !/[\s;&|()]/.test(next)))) {
         current().text += char
         continue
       }
@@ -206,8 +230,10 @@ function unwrap(command: Command): { words: Command; sudo: boolean } {
   let words = command
   let sudo = false
   while (words.length) {
-    const head = words[0]!.text
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(head)) {
+    const text = words[0]!.text
+    // "/usr/bin/sudo" is sudo
+    const head = path.basename(text)
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(text)) {
       words = words.slice(1)
       continue
     }
@@ -222,9 +248,12 @@ function unwrap(command: Command): { words: Command; sudo: boolean } {
       continue
     }
     if (WRAPPERS.has(head)) {
+      const values = WRAPPER_VALUES[head] ?? []
       words = words.slice(1)
-      while (words.length && (words[0]!.text.startsWith("-") || /^\d+[smhd]?$/.test(words[0]!.text)))
-        words = words.slice(1)
+      while (words.length && (words[0]!.text.startsWith("-") || /^\d+(\.\d+)?[smhd]?$/.test(words[0]!.text)))
+        words = words.slice(values.includes(words[0]!.text) ? 2 : 1)
+      // "env NAME=value cmd"
+      while (words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0]!.text)) words = words.slice(1)
       continue
     }
     break
@@ -240,7 +269,25 @@ function name(word: Word | undefined) {
 function expandHome(value: string, home: string) {
   if (value === "~") return home
   if (value.startsWith("~/")) return path.join(home, value.slice(2))
+  // "~name" is another user's home folder, next to ours
+  const other = value.match(/^~([A-Za-z0-9._-]+)(\/.*)?$/)
+  if (other) return path.join(path.dirname(home), other[1]!, other[2] ?? "")
   return value
+}
+
+// "{a,b}x" -> ["ax", "bx"], up to 32 results; words without a comma list stay as they are
+function braces(text: string): string[] {
+  const match = text.match(/^(.*?)\{([^{}]*,[^{}]*)\}(.*)$/)
+  if (!match) return [text]
+  return match[2]!
+    .split(",")
+    .flatMap((part) => braces(match[1]! + part + match[3]!))
+    .slice(0, 32)
+}
+
+function gitHistory(target: string) {
+  // .git/index.lock and other lock files are what a stuck git asks you to remove
+  return target.split(path.sep).includes(".git") && !target.endsWith(".lock")
 }
 
 function inside(target: string, root: string) {
@@ -251,14 +298,23 @@ function inside(target: string, root: string) {
 // Why deleting (or recursively changing) this path needs a look, if it does.
 function riskyTarget(word: Word, ctx: GuardContext, verb: "delete" | "change"): string | undefined {
   if (word.dynamic) return `${verb === "delete" ? "Deletes" : "Changes"} a path built from a variable that may be empty`
-  const text = expandHome(word.text, ctx.home)
+  for (const text of braces(word.text)) {
+    const reason = riskyPath(text, ctx, verb)
+    if (reason) return reason
+  }
+  return
+}
+
+function riskyPath(raw: string, ctx: GuardContext, verb: "delete" | "change"): string | undefined {
+  if (ctx.unknownCwd && !path.isAbsolute(raw) && !raw.startsWith("~"))
+    return `${verb === "delete" ? "Deletes" : "Changes"} a relative path after a cd to a folder that is not known here`
+  const text = expandHome(raw, ctx.home)
   // A glob deletes what its fixed head names: "build/*" is about build/, "*" about the cwd.
   const glob = text.search(/[*?[]/)
   const head = glob === -1 ? text : text.slice(0, glob)
   const target = path.resolve(ctx.cwd, head || ".")
   const what = verb === "delete" ? "Deletes" : "Changes permissions of"
-  if (verb === "delete" && path.basename(path.resolve(ctx.cwd, text)) === ".git")
-    return "Deletes a git repository's history (.git)"
+  if (verb === "delete" && gitHistory(path.resolve(ctx.cwd, text))) return "Deletes a git repository's history (.git)"
   if (target === path.parse(target).root) return `${what} the root of the file system`
   if (inside(ctx.home, target)) return `${what} your home folder or a folder above it`
   if (ctx.roots.some((root) => inside(root, target))) return `${what} the project folder or a folder above it`
@@ -297,20 +353,88 @@ function checkRm(args: Command, ctx: GuardContext) {
   const { short, long } = flags(args)
   const recursive = short.has("r") || short.has("R") || long.has("--recursive")
   const force = short.has("f") || long.has("--force")
-  if (!recursive && !force) return
   for (const target of operands(args)) {
-    const reason = riskyTarget(target, ctx, "delete")
-    if (reason) return reason
+    if (recursive) {
+      const reason = riskyTarget(target, ctx, "delete")
+      if (reason) return reason
+      continue
+    }
+    // Without -r rm deletes files only, never a folder: it needs a look for files outside the project,
+    // in .git, or (with -f) a path built from a variable.
+    if (target.dynamic) {
+      if (force) return "Deletes a path built from a variable that may be empty"
+      continue
+    }
+    for (const text of braces(target.text)) {
+      if (ctx.unknownCwd && !path.isAbsolute(text) && !text.startsWith("~"))
+        return "Deletes a relative path after a cd to a folder that is not known here"
+      const file = path.resolve(ctx.cwd, expandHome(text, ctx.home))
+      if (gitHistory(file)) return "Deletes a git repository's history (.git)"
+      const glob = file.search(/[*?[]/)
+      const folder = path.dirname(glob === -1 ? file : file.slice(0, glob) + "x")
+      if (!ctx.roots.some((root) => inside(folder, root))) return "Deletes files outside the project folder"
+    }
   }
   return
 }
 
-function checkGit(args: Command) {
-  // Skip global options: "-C dir", "-c key=value", "--git-dir=...".
+// find ... -delete, find ... -exec rm ...: the starting folders are what can be deleted. A filter
+// (-name, -type, -mtime ...) inside the project keeps it ordinary cleanup.
+function checkFind(args: Command, ctx: GuardContext, depth: number) {
+  let deletes = args.some((word) => word.text === "-delete")
+  for (let i = 0; i < args.length; i++) {
+    if (!["-exec", "-execdir", "-ok", "-okdir"].includes(args[i]!.text)) continue
+    const end = args.findIndex((word, j) => j > i && (word.text === ";" || word.text === "+"))
+    const exec = args.slice(i + 1, end === -1 ? undefined : end)
+    if (name(unwrap(exec).words[0]) === "rm") deletes = true
+    else {
+      const reason = checkCommand(exec, ctx, depth)
+      if (reason) return reason
+    }
+  }
+  if (!deletes) return
+  const paths: Word[] = []
+  let i = 0
+  while (i < args.length && /^-([HLP]|D|O\d*)$/.test(args[i]!.text)) i += args[i]!.text === "-D" ? 2 : 1
+  if (args[i]?.text === "--") i++
+  for (; i < args.length; i++) {
+    const text = args[i]!.text
+    if (text.startsWith("-") || text === "(" || text === "!") break
+    paths.push(args[i]!)
+  }
+  const filtered = args.some((word) => FIND_FILTER.test(word.text))
+  for (const start of paths.length ? paths : [{ text: ".", dynamic: false }]) {
+    if (!start.dynamic && filtered && !ctx.unknownCwd) {
+      const target = path.resolve(ctx.cwd, expandHome(start.text, ctx.home))
+      if (ctx.roots.some((root) => inside(target, root))) continue
+    }
+    const reason = riskyTarget(start, ctx, "delete")
+    if (reason) return `${reason} (find)`
+  }
+  return
+}
+
+// xargs runs a command on words read from its input, so its targets are unknown here.
+function checkXargs(args: Command, ctx: GuardContext, depth: number) {
   let i = 0
   while (i < args.length && args[i]!.text.startsWith("-")) {
     const option = args[i]!.text
-    i += option === "-C" || option === "-c" ? 2 : 1
+    i += ["-I", "-i", "-n", "-P", "-L", "-d", "-E", "-s", "-a"].includes(option) ? 2 : 1
+  }
+  const rest = args.slice(i)
+  if (name(unwrap(rest).words[0]) === "rm") {
+    const { short, long } = flags(rest.slice(1))
+    if (short.has("r") || short.has("R") || long.has("--recursive")) return "Deletes folders read from input (xargs rm -r)"
+  }
+  return rest.length ? checkCommand(rest, ctx, depth) : undefined
+}
+
+function checkGit(args: Command) {
+  // Skip global options: "-C dir", "-c key=value", "--git-dir .git", "--git-dir=...".
+  let i = 0
+  while (i < args.length && args[i]!.text.startsWith("-")) {
+    const option = args[i]!.text
+    i += GIT_VALUES.has(option) ? 2 : 1
   }
   const sub = args[i]?.text
   const rest = args.slice(i + 1)
@@ -323,9 +447,31 @@ function checkGit(args: Command) {
       long.has("--force-if-includes") ||
       operands(rest).some((word) => word.text.startsWith("+"))
     if (forced) return "Force-pushes, which can overwrite commits on the remote"
+    if (short.has("d") || long.has("--delete") || operands(rest).some((word) => /^:./.test(word.text)))
+      return "Deletes a branch or tag on the remote (git push --delete)"
   }
   if (sub === "reset" && long.has("--hard")) return "Discards uncommitted changes (git reset --hard)"
   if (sub === "clean" && (short.has("f") || long.has("--force"))) return "Deletes untracked files (git clean)"
+  if (
+    sub === "branch" &&
+    (short.has("D") || ((short.has("d") || long.has("--delete")) && (short.has("f") || long.has("--force"))))
+  )
+    return "Deletes a branch that may not be merged (git branch -D)"
+  if (sub === "checkout") {
+    const dashes = rest.findIndex((word) => word.text === "--")
+    const discards =
+      (dashes !== -1 && dashes < rest.length - 1) ||
+      operands(rest).some((word) => word.text === ".") ||
+      short.has("f") ||
+      long.has("--force")
+    if (discards) return "Discards uncommitted changes (git checkout)"
+  }
+  if (sub === "restore") {
+    const staged = short.has("S") || long.has("--staged")
+    const worktree = short.has("W") || long.has("--worktree")
+    if (!staged || worktree) return "Discards uncommitted changes (git restore)"
+  }
+  if (sub === "stash" && ["drop", "clear"].includes(rest[0]?.text ?? "")) return "Deletes stashed changes (git stash)"
   return
 }
 
@@ -340,12 +486,69 @@ function checkChmod(args: Command, ctx: GuardContext) {
   return
 }
 
-function checkCommand(command: Command, ctx: GuardContext): string | undefined {
+function checkCommand(command: Command, ctx: GuardContext, depth = 0): string | undefined {
+  if (depth > MAX_DEPTH) return "Runs commands nested too deeply to check"
+  // what runs inside $(...), `...` and <(...) runs too
+  for (const word of command)
+    for (const sub of word.subs ?? []) {
+      const reason = checkShellCommand(sub, ctx, depth + 1)
+      if (reason) return reason
+    }
   const { words, sudo } = unwrap(command)
   if (sudo) return "Runs a command as root (sudo)"
   const head = name(words[0])
   const args = words.slice(1)
+  if (ROOT_RUNNERS[head]) return ROOT_RUNNERS[head]
+  // a command given as a string: bash -c "...", eval "...", env -S "..."
+  if (SHELLS.has(head)) {
+    const flag = args.findIndex((word) => /^-[a-zA-Z]*c[a-zA-Z]*$/.test(word.text))
+    const script = flag === -1 ? undefined : args[flag + 1]
+    if (script) {
+      if (script.dynamic && !script.subs) return "Runs a command built from a variable"
+      const reason = checkShellCommand(script.text, ctx, depth + 1)
+      if (reason) return reason
+    }
+  }
+  if (head === "eval") {
+    if (args.some((word) => word.dynamic && !word.subs)) return "Runs a command built from a variable (eval)"
+    const reason = checkShellCommand(args.map((word) => word.text).join(" "), ctx, depth + 1)
+    if (reason) return reason
+  }
+  const split = command.findIndex((word) => word.text === "-S" || word.text === "--split-string")
+  if (split !== -1 && path.basename(command[0]?.text ?? "") === "env" && command[split + 1]) {
+    const reason = checkShellCommand(command[split + 1]!.text, ctx, depth + 1)
+    if (reason) return reason
+  }
   if (head === "rm") return checkRm(args, ctx)
+  if (head === "find") return checkFind(args, ctx, depth + 1)
+  if (head === "xargs") return checkXargs(args, ctx, depth + 1)
+  if (head === "shred") return "Overwrites files so they cannot be recovered (shred)"
+  if (head === "truncate") {
+    for (let i = 0; i < args.length; i++) {
+      const word = args[i]!
+      if (["-s", "-r", "--size", "--reference"].includes(word.text)) {
+        i++
+        continue
+      }
+      if (word.text.startsWith("-")) continue
+      const target = path.resolve(ctx.cwd, expandHome(word.text, ctx.home))
+      if (word.dynamic || !ctx.roots.some((root) => inside(target, root)))
+        return "Empties files outside the project folder (truncate)"
+    }
+  }
+  if (head === "mv") {
+    const list = operands(args)
+    const target = args.some((word) => word.text === "-t" || word.text.startsWith("--target-directory"))
+    for (const source of target ? list : list.slice(0, -1)) {
+      const reason = riskyTarget(source, ctx, "delete")
+      if (reason && !reason.includes("outside the project")) return reason.replace(/^Deletes/, "Moves")
+    }
+  }
+  if (head === "rsync" && args.some((word) => word.text.startsWith("--delete"))) {
+    const destination = operands(args).at(-1)
+    const reason = destination && !destination.text.includes(":") ? riskyTarget(destination, ctx, "delete") : undefined
+    if (reason) return `${reason} (rsync --delete)`
+  }
   if (head === "git") return checkGit(args)
   if (head === "chmod" || head === "chown" || head === "chgrp") return checkChmod(args, ctx)
   if (head === "dd" && args.some((word) => word.text.startsWith("of="))) return "Writes raw data to a file or disk (dd)"
@@ -356,15 +559,25 @@ function checkCommand(command: Command, ctx: GuardContext): string | undefined {
 }
 
 // Returns a one-line reason when a shell command is destructive or hard to undo.
-export function checkShellCommand(input: string, ctx: GuardContext): string | undefined {
+export function checkShellCommand(input: string, context: GuardContext, depth = 0): string | undefined {
+  let ctx = context
   for (const pipeline of parseShell(input)) {
     let downloaded = false
     for (const command of pipeline) {
-      const head = name(unwrap(command).words[0])
+      const { words } = unwrap(command)
+      const head = name(words[0])
       if (downloaded && SHELLS.has(head)) return "Runs a script downloaded from the internet"
       if (DOWNLOADERS.has(head)) downloaded = true
-      const reason = checkCommand(command, ctx)
+      const reason = checkCommand(command, ctx, depth)
       if (reason) return reason
+      // "cd ~ && rm -rf Documents": later relative paths start from the new folder
+      if (head === "cd" || head === "pushd") {
+        const target = operands(words.slice(1))[0]
+        if (!target) ctx = { ...ctx, cwd: ctx.home, unknownCwd: false }
+        else if (target.dynamic || target.text === "-") ctx = { ...ctx, unknownCwd: true }
+        else if (!ctx.unknownCwd || path.isAbsolute(target.text) || target.text.startsWith("~"))
+          ctx = { ...ctx, cwd: path.resolve(ctx.cwd, expandHome(target.text, ctx.home)), unknownCwd: false }
+      }
     }
   }
   return

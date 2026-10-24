@@ -218,6 +218,8 @@ export const layer = Layer.effect(
 
       for (const [id, item] of pending.entries()) {
         if (item.info.sessionID !== existing.info.sessionID) continue
+        // 10-24 (audit C06): an "always" for one request never answers a request the guard flagged
+        if (item.info.metadata?.guard) continue
         const ok = item.info.patterns.every(
           (pattern) => evaluate(item.info.permission, pattern, approved).action === "allow",
         )
