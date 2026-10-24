@@ -372,17 +372,24 @@ function addDocumentPolicy(response: Response, file: string) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
 }
 
+// 10-24 (audit C13): every window shares the default session, so its permission handlers must trust all
+// app windows; checking only the newest one broke clipboard and notifications in the others.
+const trustedContents = new Set<number>()
+
 function allowRendererPermissions(win: BrowserWindow) {
+  const id = win.webContents.id
+  trustedContents.add(id)
+  win.on("closed", () => trustedContents.delete(id))
   win.webContents.session.setPermissionRequestHandler((webContents, permission, callback, details) => {
     callback(
       rendererPermissions.has(permission) &&
         isTrustedRendererUrl(details.requestingUrl) &&
-        webContents.id === win.webContents.id,
+        trustedContents.has(webContents.id),
     )
   })
   win.webContents.session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
     if (!rendererPermissions.has(permission)) return false
-    if (webContents && webContents.id !== win.webContents.id) return false
+    if (webContents && !trustedContents.has(webContents.id)) return false
     return isTrustedRendererUrl(details.requestingUrl) || isTrustedRendererUrl(requestingOrigin)
   })
 }

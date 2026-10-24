@@ -55,6 +55,8 @@ async function readPipedStdin(hasPrompt: boolean): Promise<string | undefined> {
     : await firstRead
   clearTimeout(hint)
   if (!first) {
+    // let go of stdin: the pending read would otherwise keep the reader locked (audit C12)
+    await reader.cancel().catch(() => {})
     UI.println(
       UI.Style.TEXT_DIM +
         `Nothing on stdin after ${STDIN_WAIT_MS / 1000} s, continuing without it (use < /dev/null to skip the wait)` +

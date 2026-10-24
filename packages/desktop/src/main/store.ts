@@ -10,6 +10,8 @@ const cache = new Map<string, Store>()
 // in index.ts has executed, which would result in files being written to the default directory
 // (e.g. bad: %APPDATA%\@opencode-ai\desktop\opencode.settings vs good: %APPDATA%\ai.opencode.desktop.dev\opencode.settings).
 export function getStore(name = SETTINGS_STORE) {
+  // the name comes from the renderer over IPC and becomes a file name in userData (audit C13)
+  if (!/^[a-zA-Z0-9._-]+$/.test(name) || name.startsWith(".")) throw new Error(`invalid store name: ${name}`)
   const cached = cache.get(name)
   if (cached) return cached
   const next = new Store({
