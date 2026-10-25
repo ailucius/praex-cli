@@ -36,12 +36,15 @@ Server mode is opt-in only. When enabled, set `OPENCODE_SERVER_PASSWORD` to requ
 
 # Reporting Security Issues
 
-We appreciate your efforts to responsibly disclose your findings, and will make every effort to acknowledge your contributions.
+Praex is built on [OpenCode](https://github.com/anomalyco/opencode) (MIT). Report issues to the project that owns
+the code:
 
-To report a security issue, please use the GitHub Security Advisory ["Report a Vulnerability"](https://github.com/anomalyco/opencode/security/advisories/new) tab.
+- **Praex** (this repository, the Praex gateway and hosted models, sign-in and billing, the desktop app and its
+  downloads, Remote Control and the relay, or anything Praex changed): email davor@praex.ai (the contact in
+  https://praex.ai/.well-known/security.txt). Please do not open a public issue.
+- **Upstream OpenCode** (a problem that also exists in unmodified OpenCode): report it to OpenCode through their
+  [security advisory form](https://github.com/anomalyco/opencode/security/advisories/new) as well, and tell us so we
+  can ship their fix.
 
-The team will send a response indicating the next steps in handling your report. After the initial reply to your report, the security team will keep you informed of the progress towards a fix and full announcement, and may ask for additional information or guidance.
-
-## Escalation
-
-If you do not receive an acknowledgement of your report within 6 business days, you may send an email to security@anoma.ly
+We acknowledge reports within 6 business days and keep you informed until a fix ships. Fixes go to the latest
+release; please reproduce on it before reporting.
