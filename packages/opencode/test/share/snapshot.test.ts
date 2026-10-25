@@ -81,7 +81,7 @@ describe("snapshot helpers", () => {
     ["anthropic", "sk-" + "ant-api03-abcdefghijklmnopqrstuvwxyz-0123", "[redacted]"],
     ["google", "AI" + "zaSyA1234567890abcdefghijklmnopqrstuv", "[redacted]"],
     ["aws akia", "AKIA" + "IOSFODNN7EXAMPLE", "[redacted]"],
-    ["aws asia", "ASIAIOSFODNN7EXAMPLE", "[redacted]"],
+    ["aws asia", "ASIA" + "IOSFODNN7EXAMPLE", "[redacted]"],
     ["aws secret", "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "aws_secret_access_key = [redacted]"],
     ["aws secret json", `"SecretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"`, `"SecretAccessKey": "[redacted]"`],
     ["private key", "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk\n-----END OPENSSH PRIVATE KEY-----", "[redacted]"],
