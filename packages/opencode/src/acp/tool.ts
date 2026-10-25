@@ -353,7 +353,9 @@ function readDisplayText(metadata: unknown) {
 }
 
 function dataUrlImage(attachment: ToolAttachment) {
-  const match = stringValue(attachment.url)?.match(/^data:([^;,]+)(?:;[^,]*)*;base64,(.*)$/)
+  // Each parameter segment stops at the next ";" so the pattern cannot backtrack exponentially on a data URL
+  // with many ";" that does not match (an MCP tool controls its result's mime type). It matches the same URLs.
+  const match = stringValue(attachment.url)?.match(/^data:([^;,]+)(?:;[^,;]*)*;base64,(.*)$/)
   const mime = match?.[1] ?? stringValue(attachment.mime)
   if (!mime?.startsWith("image/")) return undefined
 

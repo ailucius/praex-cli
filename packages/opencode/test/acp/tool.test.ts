@@ -209,6 +209,17 @@ describe("acp tool conversion", () => {
     ])
   })
 
+  test("a data URL with many ';' that does not match returns at once", () => {
+    // An MCP image result becomes data:<mimeType>;base64,<data>, and the server picks both parts.
+    const url = "data:image/png" + ";".repeat(32) + "base64,AAAA\nBBBB"
+    const started = performance.now()
+    expect(extractImageAttachments([{ mime: "image/png", url }])).toEqual([])
+    expect(performance.now() - started).toBeLessThan(100)
+    expect(extractImageAttachments([{ mime: "image/png", url: "data:image/png;a=1;b=2;base64,QUJD" }])).toEqual([
+      { mimeType: "image/png", data: "QUJD" },
+    ])
+  })
+
   test("reads shell output snapshot from string metadata output", () => {
     expect(shellOutputSnapshot({ metadata: { output: "line 1\nline 2" } })).toBe("line 1\nline 2")
     expect(shellOutputSnapshot({ metadata: { output: 42 } })).toBeUndefined()
