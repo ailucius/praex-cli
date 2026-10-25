@@ -26,6 +26,11 @@ const HTML_SUCCESS = `<!DOCTYPE html>
 </body>
 </html>`
 
+// The error text comes from the callback URL's query (error, error_description), which any page can
+// send to this loopback port, so it is escaped before it goes into the page.
+const escapeHtml = (value: string) =>
+  value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!)
+
 const HTML_ERROR = (error: string) => `<!DOCTYPE html>
 <html>
 <head>
@@ -42,7 +47,7 @@ const HTML_ERROR = (error: string) => `<!DOCTYPE html>
   <div class="container">
     <h1>Authorization Failed</h1>
     <p>An error occurred during authorization.</p>
-    <div class="error">${error}</div>
+    <div class="error">${escapeHtml(error)}</div>
   </div>
 </body>
 </html>`

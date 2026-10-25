@@ -168,13 +168,17 @@ const HTML_SUCCESS = `<!doctype html>
   </body>
 </html>`
 
+// The message can be the callback URL's error_description, so it is escaped before it goes into the page.
+const escapeHtml = (value: string) =>
+  value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!)
+
 const htmlError = (message: string) => `<!doctype html>
 <html>
   <head><title>Praex - Snowflake Authorization Failed</title></head>
   <body style="font-family: system-ui; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; background:#111; color:#eee;">
     <div style="text-align:center; max-width:48rem; padding:2rem;">
       <h1 style="color:#ff7b72;">Authorization Failed</h1>
-      <pre style="white-space:pre-wrap; color:#ffb3ad; background:#2a1210; padding:1rem; border-radius:.5rem;">${message}</pre>
+      <pre style="white-space:pre-wrap; color:#ffb3ad; background:#2a1210; padding:1rem; border-radius:.5rem;">${escapeHtml(message)}</pre>
     </div>
   </body>
 </html>`

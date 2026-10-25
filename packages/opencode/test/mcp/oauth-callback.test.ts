@@ -31,4 +31,18 @@ describe("McpOAuthCallback.ensureRunning", () => {
     await McpOAuthCallback.ensureRunning("http://127.0.0.1:18000/custom/callback")
     expect(McpOAuthCallback.isRunning()).toBe(true)
   })
+
+  test("escapes the error text it shows on the error page", async () => {
+    await McpOAuthCallback.ensureRunning("http://127.0.0.1:18001/custom/callback")
+    const url = new URL("http://127.0.0.1:18001/custom/callback")
+    url.searchParams.set("state", "any-state")
+    url.searchParams.set("error", "access_denied")
+    url.searchParams.set("error_description", `<script>alert("x")</script><img src=x onerror='y'>`)
+    const res = await fetch(url)
+    const html = await res.text()
+    expect(res.status).toBe(200)
+    expect(html).not.toContain("<script>alert")
+    expect(html).not.toContain("<img src=x")
+    expect(html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;&lt;img src=x onerror=&#39;y&#39;&gt;")
+  })
 })
