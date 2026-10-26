@@ -12,7 +12,7 @@ export const KiloPlugin = PluginV2.define({
           if (item.provider.api.url !== "https://api.kilo.ai/api/gateway") continue
           evt.provider.update(item.provider.id, (provider) => {
             provider.request.headers["HTTP-Referer"] = "https://praex.ai/"
-            provider.request.headers["X-Title"] = "opencode"
+            provider.request.headers["X-Title"] = "Praex"
           })
         }
       }),

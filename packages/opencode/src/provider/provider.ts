@@ -444,7 +444,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {
           headers: {
             "HTTP-Referer": "https://praex.ai/",
-            "X-Title": "praex",
+            "X-Title": "Praex",
             "X-Source": "praex",
           },
         },
@@ -455,7 +455,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {
           headers: {
             "HTTP-Referer": "https://praex.ai/",
-            "X-Title": "praex",
+            "X-Title": "Praex",
           },
         },
       }),
@@ -465,7 +465,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {
           headers: {
             "HTTP-Referer": "https://praex.ai/",
-            "X-Title": "praex",
+            "X-Title": "Praex",
             "X-BILLING-INVOKE-ORIGIN": "Praex",
           },
         },
@@ -476,7 +476,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {
           headers: {
             "http-referer": "https://praex.ai/",
-            "x-title": "praex",
+            "x-title": "Praex",
           },
         },
       }),
@@ -582,7 +582,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {
           headers: {
             "HTTP-Referer": "https://praex.ai/",
-            "X-Title": "praex",
+            "X-Title": "Praex",
           },
         },
       }),
@@ -840,7 +840,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {
           headers: {
             "HTTP-Referer": "https://praex.ai/",
-            "X-Title": "praex",
+            "X-Title": "Praex",
           },
         },
       }),

@@ -1134,7 +1134,7 @@ it.instance(
     const providers = yield* list
     expect(providers[ProviderV2.ID.make("nvidia")].options.headers).toEqual({
       "HTTP-Referer": "https://praex.ai/",
-      "X-Title": "praex",
+      "X-Title": "Praex",
       "X-BILLING-INVOKE-ORIGIN": "Praex",
     })
   }),
@@ -1147,7 +1147,7 @@ it.instance(
     const providers = yield* list
     expect(providers[ProviderV2.ID.make("nvidia")].options.headers).toEqual({
       "HTTP-Referer": "https://praex.ai/",
-      "X-Title": "praex",
+      "X-Title": "Praex",
       "X-BILLING-INVOKE-ORIGIN": "Praex",
     })
   }),

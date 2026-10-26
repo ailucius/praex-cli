@@ -32,7 +32,7 @@ describe("ZenmuxPlugin", () => {
         })
       })
       const result = yield* catalog.provider.get(ProviderV2.ID.make("zenmux"))
-      expect(result.request.headers).toEqual({ "HTTP-Referer": "https://praex.ai/", "X-Title": "opencode" })
+      expect(result.request.headers).toEqual({ "HTTP-Referer": "https://praex.ai/", "X-Title": "Praex" })
       expect(Object.keys(result.request.headers).sort()).toEqual(["HTTP-Referer", "X-Title"])
     }),
   )
@@ -57,7 +57,7 @@ describe("ZenmuxPlugin", () => {
       expect((yield* catalog.provider.get(ProviderV2.ID.make("zenmux"))).request.headers).toEqual({
         Existing: "value",
         "HTTP-Referer": "https://praex.ai/",
-        "X-Title": "opencode",
+        "X-Title": "Praex",
       })
     }),
   )

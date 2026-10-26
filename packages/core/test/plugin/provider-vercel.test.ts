@@ -26,7 +26,7 @@ describe("VercelPlugin", () => {
       expect((yield* catalog.provider.get(ProviderV2.ID.make("vercel"))).request.headers).toEqual({
         Existing: "1",
         "http-referer": "https://praex.ai/",
-        "x-title": "opencode",
+        "x-title": "Praex",
       })
     }),
   )
