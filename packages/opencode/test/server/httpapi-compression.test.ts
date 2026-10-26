@@ -95,14 +95,19 @@ describe("HttpApi compression", () => {
     })
 
     test("when the response body is below the 1024-byte threshold", async () => {
-      // A bare config produces a tiny response (~few hundred bytes).
+      // 10-26 (audit R8-15): /path is a small JSON response (a few paths, ~200 bytes). A bare /config is not:
+      // the built-in praex-cloud provider entry alone is ~900 bytes, which puts it over the threshold.
       await using tmp = await tmpdir({ config: { formatter: false, lsp: false } })
-      const response = await app().request("/config", {
+      const response = await app().request("/path", {
         headers: { "x-opencode-directory": tmp.path, "accept-encoding": "gzip" },
       })
       expect(response.status).toBe(200)
+      // A compressible type, so only the size can keep it uncompressed.
+      expect(response.headers.get("content-type")).toContain("application/json")
       const body = new Uint8Array(await response.arrayBuffer())
-      expect(body.byteLength).toBeLessThan(1024)
+      // Measure the uncompressed body: a gzipped one would hide a response that grew past the threshold.
+      const raw = response.headers.get("content-encoding") === "gzip" ? gunzipSync(body) : body
+      expect(raw.byteLength).toBeLessThan(1024)
       expect(response.headers.get("content-encoding")).toBeNull()
     })
 

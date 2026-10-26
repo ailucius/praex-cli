@@ -18,6 +18,13 @@ function request(route: string, directory: string, init: RequestInit = {}) {
   )
 }
 
+const AnyEvent = Schema.Struct({
+  id: Schema.String,
+  type: Schema.String,
+  location: Schema.Struct({ directory: Schema.String }),
+  data: Schema.Unknown,
+})
+
 const Event = Schema.Struct({
   id: Schema.String,
   type: Schema.String,
@@ -28,10 +35,17 @@ const Event = Schema.Struct({
   data: Schema.Unknown,
 })
 
+// 10-26 (audit R8-15): core services publish some events with only a directory (file.watcher.updated,
+// integration.updated, catalog.updated), and they often arrive first. server.connected and the events
+// published through the instance (session.created) must name the project, so only they get the full check.
+const PROJECT_EVENTS = new Set(["server.connected", "session.created"])
+
 async function readEvent(reader: ReadableStreamDefaultReader<Uint8Array>) {
   const value = await reader.read()
   if (value.done) throw new Error("event stream closed")
-  return Schema.decodeUnknownSync(Event)(JSON.parse(new TextDecoder().decode(value.value).replace(/^data: /, "")))
+  const raw: unknown = JSON.parse(new TextDecoder().decode(value.value).replace(/^data: /, ""))
+  const event = Schema.decodeUnknownSync(AnyEvent)(raw)
+  return PROJECT_EVENTS.has(event.type) ? Schema.decodeUnknownSync(Event)(raw) : event
 }
 
 async function readEventType(reader: ReadableStreamDefaultReader<Uint8Array>, type: string) {
