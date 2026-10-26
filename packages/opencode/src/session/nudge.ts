@@ -69,6 +69,14 @@ const READ_ONLY = new Set(
 )
 const READ_ONLY_GIT = new Set(["status", "log", "diff", "show", "blame", "grep", "ls-files", "rev-parse", "describe"])
 const FIND_WRITES = new Set(["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"])
+// 10-26 (audit R8-11): a read-only command still writes when it is handed an output file, as a flag (sort -o f,
+// tree -o f, git diff --output=f) or as a second operand (uniq in out, xxd in out). The commands in NOT_A_FILE use
+// these flags for something else (grep -o, find -o, test -o, uname -o, df --output=fields, ...).
+const OUTPUT_FLAG = /^(?:--output(?:=|$)|--output-file|-[a-zA-Z]*o)/
+const NOT_A_FILE = new Set("grep egrep fgrep rg ls uname od hexdump xxd column df test [ echo printf find".split(" "))
+const OUTPUT_OPERAND = new Set(["uniq", "xxd"])
+// sed's w and W commands and the w flag of s: sed -n 'w out' in, sed '/x/w out' in, sed 's/a/b/gw out' in.
+const SED_WRITE = /(?:^|[\s'";{}\/\d$])[gpiImMe\d]*[wW]\s/
 
 export function changesSomething(tool: string, input: Record<string, unknown> | undefined): boolean {
   if (FILE_TOOLS.has(tool)) return true
@@ -81,11 +89,14 @@ export function changesSomething(tool: string, input: Record<string, unknown> | 
     const [name, sub] = words
     if (!name) return false
     if (!READ_ONLY.has(name)) return true
-    if (name === "git") return !READ_ONLY_GIT.has(sub ?? "")
-    if (name === "sed") return words.some((w) => /^(-i|--in-place)/.test(w) || /^-[a-zA-Z]*i/.test(w))
-    if (name === "sort") return words.some((w) => /^(-o|--output)/.test(w))
-    if (name === "awk") return /system\s*\(|print\s*>/.test(segment)
+    if (name === "git") return !READ_ONLY_GIT.has(sub ?? "") || words.some((w) => /^--output(=|$)/.test(w))
     if (name === "find") return words.some((w) => FIND_WRITES.has(w))
-    return false
+    if (name === "sed" && words.some((w) => /^(-i|--in-place)/.test(w) || /^-[a-zA-Z]*i/.test(w))) return true
+    if (name === "sed" && SED_WRITE.test(segment)) return true
+    if (name === "awk" && /system\s*\(|print\s*>|\binplace\b/.test(segment)) return true
+    if (!NOT_A_FILE.has(name) && words.slice(1).some((w) => OUTPUT_FLAG.test(w))) return true
+    // Operands, leaving out flags, flag values that are numbers (uniq -f 1, xxd -s 0x40) and input redirects.
+    const operands = words.slice(1).filter((w) => !/^-.|^<|^[+-]?(?:0x[\da-f]+|\d+)$/i.test(w))
+    return OUTPUT_OPERAND.has(name) && operands.length > 1
   })
 }
