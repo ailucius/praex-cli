@@ -338,6 +338,8 @@ export const {
         case "message.removed": {
           touchMessage(event.properties.sessionID, event.properties.messageID)
           const messages = store.message[event.properties.sessionID]
+          // 10-27 (audit9 R9-11): the session may never have been hydrated here; nothing to remove
+          if (!messages) break
           const result = search(messages, event.properties.messageID, (m) => m.id)
           if (result.found) {
             setStore(
@@ -394,6 +396,8 @@ export const {
         case "message.part.removed": {
           touchPart(event.properties.sessionID, event.properties.partID)
           const parts = store.part[event.properties.messageID]
+          // 10-27 (audit9 R9-11): the message may be unloaded or evicted from the 100-message window
+          if (!parts) break
           const result = search(parts, event.properties.partID, (p) => p.id)
           if (result.found) {
             setStore(
