@@ -354,11 +354,13 @@ const main = Effect.gen(function* () {
       void wslServers.initialize().catch((error) => logger.error("wsl server initialization failed", error))
     }
 
-    yield* Effect.promise(() => health.wait).pipe(
+    // 10-27 (audit9 R9-13): health.wait also rejects at its own deadline, on child exit or on stop;
+    // tryPromise sends that to the log below instead of an unlogged defect of the loading task
+    yield* Effect.tryPromise({ try: () => health.wait, catch: (error) => error }).pipe(
       Effect.timeout("30 seconds"),
       Effect.catch((e) =>
         Effect.sync(() => {
-          logger.error("sidecar health check failed", e.toString())
+          logger.error("sidecar health check failed", String(e))
         }),
       ),
     )

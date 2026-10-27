@@ -20,12 +20,16 @@ export type SidecarListener = { stop: () => Promise<void> }
 const SIDECAR_SERVICE_NAME = "praex server"
 const SIDECAR_START_STALL_TIMEOUT = 60_000
 const SIDECAR_STOP_TIMEOUT = 6_000
+// 10-27 (audit9 R9-13): absolute deadline for the startup health poll (index.ts also gives up at 30 s)
+const SIDECAR_HEALTH_TIMEOUT = 30_000
+const SIDECAR_HEALTH_INTERVAL = 100
 
 type SpawnLocalServerOptions = {
   userDataPath: string
   onStdout?: (message: string) => void
   onStderr?: (message: string) => void
   onExit?: (code: number) => void
+  healthTimeoutMs?: number
 }
 
 export function getDefaultServerUrl(): string | null {
@@ -141,25 +145,38 @@ export async function spawnLocalServer(
     throw error
   })
 
+  // 10-27 (audit9 R9-13): one cancellation scope for the startup health poll. It used to race an
+  // endless loop against the child's exit and the loser kept polling. Now the poll ends on success,
+  // child exit, the absolute deadline or stop(), and the abort also cancels the in-flight fetch.
+  const health = new AbortController()
+  let healthFailure: Error | undefined
+  const endHealth = (error: Error) => {
+    if (health.signal.aborted) return
+    healthFailure = error
+    health.abort()
+  }
+
   const wait = (async () => {
     const url = `http://${hostname}:${port}`
-    let healthy = false
-    const gone = exit.promise.then((code) => {
-      if (healthy) return
-      throw new Error(`Sidecar exited before health check passed with code ${code}`)
-    })
-
-    const ready = async () => {
-      while (true) {
-        await new Promise((resolve) => setTimeout(resolve, 100))
-        if (await checkHealth(url, password)) {
-          healthy = true
-          return
-        }
+    const timeoutMs = options.healthTimeoutMs ?? SIDECAR_HEALTH_TIMEOUT
+    const deadline = setTimeout(
+      () => endHealth(new Error(`Sidecar health check did not pass within ${timeoutMs}ms`)),
+      timeoutMs,
+    )
+    void exit.promise.then((code) =>
+      endHealth(new Error(`Sidecar exited before health check passed with code ${code}`)),
+    )
+    try {
+      while (!health.signal.aborted) {
+        await abortableDelay(SIDECAR_HEALTH_INTERVAL, health.signal)
+        if (health.signal.aborted) break
+        if (await checkHealth(url, password, health.signal)) return
       }
+      throw healthFailure ?? new Error("Sidecar health check stopped")
+    } finally {
+      clearTimeout(deadline)
+      health.abort()
     }
-
-    await Promise.race([ready(), gone])
   })()
 
   let stopping: Promise<void> | undefined
@@ -167,6 +184,7 @@ export async function spawnLocalServer(
   return {
     listener: {
       stop: () => {
+        endHealth(new Error("Sidecar stopped before health check passed"))
         if (stopping) return stopping
         if (exited) return Promise.resolve()
         child.postMessage({ type: "stop" })
@@ -183,7 +201,7 @@ export async function spawnLocalServer(
   }
 }
 
-export async function checkHealth(url: string, password?: string | null): Promise<boolean> {
+export async function checkHealth(url: string, password?: string | null, signal?: AbortSignal): Promise<boolean> {
   let healthUrl: URL
   try {
     healthUrl = new URL("/global/health", url)
@@ -201,7 +219,8 @@ export async function checkHealth(url: string, password?: string | null): Promis
     const res = await fetch(healthUrl, {
       method: "GET",
       headers,
-      signal: AbortSignal.timeout(3000),
+      // 10-27 (audit9 R9-13): the caller's signal ends the request when startup health is settled
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(3000)]) : AbortSignal.timeout(3000),
     })
     return res.ok
   } catch {
@@ -221,6 +240,19 @@ function createSidecarEnv(): Record<string, string> {
 
 function delay(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
+function abortableDelay(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    if (signal.aborted) return resolve()
+    const done = () => {
+      clearTimeout(timer)
+      signal.removeEventListener("abort", done)
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    signal.addEventListener("abort", done, { once: true })
+  })
 }
 
 function serializeError(error: unknown) {
