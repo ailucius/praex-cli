@@ -121,6 +121,45 @@ describe("HttpApi compression", () => {
     })
   })
 
+  // 10-27 (audit9 R8-14): Accept-Encoding was matched by substring, so q-values were ignored and
+  // `gzip;q=0` (explicitly unacceptable) still got gzip.
+  describe("Accept-Encoding quality values (audit9 R8-14)", () => {
+    test("gzip;q=0, deflate;q=1 gets deflate, never the excluded gzip", async () => {
+      await using tmp = await tmpdir({ config: fatConfig() })
+      const response = await app().request("/config", {
+        headers: { "x-opencode-directory": tmp.path, "accept-encoding": "gzip;q=0, deflate;q=1" },
+      })
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-encoding")).toBe("deflate")
+      const json = JSON.parse(new TextDecoder().decode(inflateSync(new Uint8Array(await response.arrayBuffer()))))
+      expect(json).toMatchObject({ username: "compression-test-user" })
+    })
+
+    const cases: [header: string, expected: string | null][] = [
+      ["GZIP;Q=0, Deflate", "deflate"],
+      ["gzip;q=0, deflate;q=0", null],
+      ["gzip ; q=0.0 , deflate", "deflate"],
+      ["deflate;q=1, gzip;q=0.5", "deflate"],
+      ["gzip;q=0.8, deflate;q=0.8", "gzip"],
+      ["*", "gzip"],
+      ["*;q=0.5, gzip;q=0", "deflate"],
+      ["*;q=0", null],
+      ["identity;q=1, gzip;q=0.5", null],
+      ["x-gzip", "gzip"],
+      ["gzip;q=bogus, deflate;q=0.1", "deflate"],
+    ]
+    for (const [header, expected] of cases) {
+      test(`Accept-Encoding "${header}" -> ${expected ?? "uncompressed"}`, async () => {
+        await using tmp = await tmpdir({ config: fatConfig() })
+        const response = await app().request("/config", {
+          headers: { "x-opencode-directory": tmp.path, "accept-encoding": header },
+        })
+        expect(response.status).toBe(200)
+        expect(response.headers.get("content-encoding")).toBe(expected)
+      })
+    }
+  })
+
   describe("streaming exclusions", () => {
     test("/event SSE is not compressed", async () => {
       await using tmp = await tmpdir({ config: { formatter: false, lsp: false } })

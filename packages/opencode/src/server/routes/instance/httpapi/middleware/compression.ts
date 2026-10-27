@@ -15,12 +15,44 @@ const THRESHOLD_BYTES = 1024
 
 type Encoding = "gzip" | "deflate"
 
+// Server preference when weights are equal.
+const SUPPORTED_ENCODINGS: Encoding[] = ["gzip", "deflate"]
+
+// 10-27 (audit9 R8-14): negotiate by quality value (RFC 9110 12.5.3). Substring matching ignored
+// q, so `gzip;q=0, deflate;q=1` still got gzip. q=0 excludes a coding, `*` weights every coding not
+// listed, an explicit identity weighted above every supported coding keeps the body uncompressed,
+// and a malformed q counts as q=0. A coding listed twice keeps its lowest weight.
 function pickEncoding(acceptEncoding: string | undefined): Encoding | undefined {
   if (!acceptEncoding) return undefined
-  const lower = acceptEncoding.toLowerCase()
-  if (lower.includes("gzip")) return "gzip"
-  if (lower.includes("deflate")) return "deflate"
-  return undefined
+  const weights = new Map<string, number>()
+  for (const entry of acceptEncoding.split(",")) {
+    const [token, ...params] = entry.split(";")
+    const coding = token.trim().toLowerCase()
+    if (!coding) continue
+    let q = 1
+    for (const param of params) {
+      const [key, value] = param.split("=")
+      if (key.trim().toLowerCase() !== "q") continue
+      const parsed = value === undefined || value.trim() === "" ? Number.NaN : Number(value.trim())
+      q = Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : 0
+    }
+    const name = coding === "x-gzip" ? "gzip" : coding
+    weights.set(name, Math.min(weights.get(name) ?? 1, q))
+  }
+
+  const wildcard = weights.get("*")
+  let best: Encoding | undefined
+  let bestWeight = 0
+  for (const encoding of SUPPORTED_ENCODINGS) {
+    const weight = weights.get(encoding) ?? wildcard ?? 0
+    if (weight > bestWeight) {
+      best = encoding
+      bestWeight = weight
+    }
+  }
+  const identity = weights.get("identity")
+  if (identity !== undefined && identity > bestWeight) return undefined
+  return best
 }
 
 function pathOf(url: string): string {
