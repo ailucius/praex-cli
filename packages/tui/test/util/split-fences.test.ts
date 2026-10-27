@@ -23,4 +23,12 @@ describe("splitFences", () => {
     const out = splitFences("````md\n```\ninner\n```\n````")
     expect(out).toEqual([{ type: "code", lang: "md", text: "```\ninner\n```" }])
   })
+  // 10-27: splitFences returns new objects on every streamed delta. Rendered with <For> (keyed by object), each delta
+  // remounted the <markdown> and the reply text blinked blank every other frame while streaming. <Index> keeps it.
+  test("the reply renders its segments by position, so streaming text never remounts", async () => {
+    const src = await Bun.file(new URL("../../src/routes/session/index.tsx", import.meta.url)).text()
+    const textPart = src.slice(src.indexOf("function TextPart("), src.indexOf("function ToolPart("))
+    expect(textPart).toContain("<Index each={segments()}>")
+    expect(textPart).not.toContain("<For each={segments()}>")
+  })
 })

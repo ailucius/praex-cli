@@ -5,6 +5,7 @@ import {
   createMemo,
   createSignal,
   For,
+  Index,
   Match,
   on,
   onCleanup,
@@ -1994,22 +1995,26 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
           setRoom(this.width - 3)
         }}
       >
-        <For each={segments()}>
+        {/* 10-27: <Index>, not <For>. splitFences returns new objects on every streamed delta, and <For> keys by
+            object, so each delta unmounted the <markdown> and mounted a fresh one that draws blank for a frame: the
+            reply text blinked on and off while streaming (founder: "flashing pixels"). <Index> keeps the renderable
+            at each position and only updates its content. */}
+        <Index each={segments()}>
           {(segment) => (
             <Switch>
-              <Match when={segment.type === "markdown"}>
+              <Match when={segment().type === "markdown"}>
                 <markdown
                   syntaxStyle={syntax()}
                   streaming={true}
                   internalBlockMode="top-level"
-                  content={softWrap(segment.text, room())}
+                  content={softWrap(segment().text, room())}
                   tableOptions={{ style: "grid" }}
                   conceal={ctx.conceal()}
                   fg={theme.markdownText}
                   bg={theme.background}
                 />
               </Match>
-              <Match when={segment.type === "code"}>
+              <Match when={segment().type === "code"}>
                 <box
                   flexDirection="column"
                   backgroundColor={theme.backgroundPanel}
@@ -2020,21 +2025,21 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
                   paddingRight={1}
                   flexShrink={0}
                 >
-                  <Show when={(segment as Extract<TextSegment, { type: "code" }>).lang}>
-                    <text fg={theme.textMuted}>{(segment as Extract<TextSegment, { type: "code" }>).lang}</text>
+                  <Show when={(segment() as Extract<TextSegment, { type: "code" }>).lang}>
+                    <text fg={theme.textMuted}>{(segment() as Extract<TextSegment, { type: "code" }>).lang}</text>
                   </Show>
                   <code
                     conceal={false}
                     fg={theme.text}
-                    filetype={(segment as Extract<TextSegment, { type: "code" }>).lang || undefined}
+                    filetype={(segment() as Extract<TextSegment, { type: "code" }>).lang || undefined}
                     syntaxStyle={syntax()}
-                    content={(segment as Extract<TextSegment, { type: "code" }>).text}
+                    content={(segment() as Extract<TextSegment, { type: "code" }>).text}
                   />
                 </box>
               </Match>
             </Switch>
           )}
-        </For>
+        </Index>
       </box>
     </Show>
   )
