@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   typecheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # 10-27: ubuntu-latest moved to 26.04, which has no node-gyp for the tree-sitter-powershell install script
     timeout-minutes: 20
     steps:
       - name: Checkout repository
@@ -32,7 +32,7 @@ jobs:
   # packages/core is green since audit 6 and runs in its own core-test job below. packages/tui is
   # green since 10-20 and runs below. The full packages/opencode suite (~7 min) is not run here yet.
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # 10-27: ubuntu-latest moved to 26.04, which has no node-gyp for the tree-sitter-powershell install script
     timeout-minutes: 20
     steps:
       - name: Checkout repository
@@ -71,7 +71,7 @@ jobs:
 
   # Core suite (packages/core, ~40 s locally), its own job so a core failure is easy to spot.
   core-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # 10-27: ubuntu-latest moved to 26.04, which has no node-gyp for the tree-sitter-powershell install script
     timeout-minutes: 15
     steps:
       - name: Checkout repository
@@ -85,7 +85,7 @@ jobs:
         run: bun test --timeout 30000
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # 10-27: ubuntu-latest moved to 26.04, which has no node-gyp for the tree-sitter-powershell install script
     timeout-minutes: 30
     steps:
       - name: Checkout repository
