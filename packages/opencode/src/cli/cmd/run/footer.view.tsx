@@ -9,9 +9,8 @@
 // The view itself is stateless except for derived memos.
 /** @jsxImportSource @opentui/solid */
 import { useTerminalDimensions } from "@opentui/solid"
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal, on, onCleanup } from "solid-js"
 import "opentui-spinner/solid"
-import { createColors, createFrames } from "@opencode-ai/tui/ui/spinner"
 import {
   RUN_SUBAGENT_PANEL_ROWS,
   RunCommandMenuBody,
@@ -55,6 +54,17 @@ import type {
 } from "./types"
 import type { RunTheme } from "./theme"
 import { modelInfo } from "./variant.shared"
+
+// Busy indicator while a turn runs: one glyph that grows and shrinks (the shapes all sit in the same cell, so nothing
+// shifts), ~8 frames a second. Exported for the footer test.
+export const BUSY_FRAMES = ["·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"]
+export const BUSY_INTERVAL_MS = 120
+
+// "12s", "3m 05s": how long the current turn has been running, shown next to the busy glyph.
+export function busyElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`
+}
 
 const EMPTY_BORDER = {
   topLeft: "",
@@ -252,21 +262,21 @@ export function RunFooterView(props: RunFooterViewProps) {
   const runTheme = createMemo(() => props.theme())
   const theme = createMemo(() => runTheme().footer)
   const block = createMemo(() => runTheme().block)
-  const spin = createMemo(() => {
-    return {
-      frames: createFrames({
-        color: theme().highlight,
-        style: "blocks",
-        inactiveFactor: 0.6,
-        minAlpha: 0.3,
-      }),
-      color: createColors({
-        color: theme().highlight,
-        style: "blocks",
-        inactiveFactor: 0.6,
-        minAlpha: 0.3,
-      }),
-    }
+  // 10-27 (founder: "flashing pixels when the model is streaming"): the 8-cell blocks scanner repainted every 40 ms,
+  // flipping each cell between a tiny and a full square while its colour faded, which reads as flicker in Konsole and
+  // kept the footer redrawing 25 times a second. One glyph that breathes, in one colour, at ~8 frames a second.
+  const spin = createMemo(() => ({ frames: BUSY_FRAMES, color: theme().highlight }))
+  // Elapsed time of the running turn, ticking once a second (the glyph above already repaints faster).
+  const [busySince, setBusySince] = createSignal<number>()
+  const [now, setNow] = createSignal(Date.now())
+  createEffect(on(busy, (running) => setBusySince(running ? Date.now() : undefined)))
+  const ticker = setInterval(() => {
+    if (busySince() !== undefined) setNow(Date.now())
+  }, 1000)
+  onCleanup(() => clearInterval(ticker))
+  const elapsed = createMemo(() => {
+    const since = busySince()
+    return since === undefined ? "" : busyElapsed(now() - since)
   })
   const permission = createMemo<Extract<FooterView, { type: "permission" }> | undefined>(() => {
     const view = active()
@@ -405,7 +415,7 @@ export function RunFooterView(props: RunFooterViewProps) {
     }
 
     if (busy()) {
-      return armed() ? "again to interrupt" : "interrupt"
+      return armed() ? "again to interrupt" : "to interrupt"
     }
 
     if (stateStatus().length > 0) {
@@ -839,12 +849,14 @@ export function RunFooterView(props: RunFooterViewProps) {
                 >
                   <Show when={busy() && !exiting()}>
                     <box flexShrink={0}>
-                      <spinner color={spin().color} frames={spin().frames} interval={40} />
+                      <spinner color={spin().color} frames={spin().frames} interval={BUSY_INTERVAL_MS} />
                     </box>
                   </Show>
 
                   <text fg={statusColor()} wrapMode="none" truncate flexGrow={1} flexShrink={1}>
                     <Show when={busy() && !exiting()} fallback={statusText()}>
+                      <span style={{ fg: theme().text }}>Working {elapsed()}</span>
+                      <span style={{ fg: theme().muted }}> · </span>
                       <Show when={interruptLabel()}>
                         {(label) => <span style={{ fg: armed() ? statusColor() : theme().muted }}>{label()} </span>}
                       </Show>
