@@ -72,6 +72,8 @@ jobs:
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          # github/ is upstream OpenCode's GitHub Action, which Praex neither ships nor runs
+          skip-dirs: github
           exit-code: '1'
           format: table
 
