@@ -32,3 +32,16 @@ describe("splitFences", () => {
     expect(textPart).not.toContain("<For each={segments()}>")
   })
 })
+
+// 10-27 Tide design (founder's pick): replies open with the tide ∿ in the user's ▎ column; a quick clean finish shows no
+// "Done" line, a turn from 20 s on shows "✓ 1m 12s · Velox III" with a gold check.
+describe("Tide reply design", () => {
+  test("replies carry the tide mark and quick turns drop the done line", async () => {
+    const src = await Bun.file(new URL("../../src/routes/session/index.tsx", import.meta.url)).text()
+    const textPart = src.slice(src.indexOf("function TextPart("), src.indexOf("function ToolPart("))
+    expect(textPart).toContain("<ReplyMark live={!props.message.time.completed} />")
+    const { DONE_LINE_MIN_MS } = await import("../../src/routes/session/index")
+    expect(DONE_LINE_MIN_MS).toBe(20_000)
+    expect(src).not.toContain("Done${duration()")
+  })
+})

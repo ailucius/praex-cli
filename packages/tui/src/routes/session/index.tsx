@@ -26,7 +26,7 @@ import { useSync } from "../../context/sync"
 import { useEvent } from "../../context/event"
 import { HairlineGutter, PromptGutter, SplitBorder } from "../../ui/border"
 import { useTuiPaths, useTuiTerminalEnvironment } from "../../context/runtime"
-import { Spinner } from "../../component/spinner"
+import { Spinner, TIDE_GLYPH } from "../../component/spinner"
 import { createSyntaxStyleMemo, generateSubtleSyntax, tint, useTheme } from "../../context/theme"
 import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, TextAttributes, RGBA } from "@opentui/core"
 import { Prompt, type PromptRef } from "../../component/prompt"
@@ -1681,12 +1681,10 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
     // 10-22: a reply that hit the output limit stops mid-sentence; it is not done.
     if (props.message.finish === "length")
       return { glyph: "◼", color: theme.textMuted, text: `${agent}Cut off at the length limit · ${name}` }
-    // A finished turn is history, not the live thing: a soft check, the rest in grey.
-    return {
-      glyph: "✓",
-      color: tint(theme.textMuted, theme.success, 0.55),
-      text: `${agent}Done${duration() ? ` in ${formatTook(duration())}` : ""} · ${name}`,
-    }
+    // 10-27 (Tide design, founder's pick): a quick clean finish shows nothing, the reply's ∿ already marks it. A long
+    // turn gets "✓ 1m 12s · Velox III" with a laurel-gold check, the rest in grey.
+    if (duration() < DONE_LINE_MIN_MS) return
+    return { glyph: "✓", color: theme.accent, text: `${agent}${formatTook(duration())} · ${name}` }
   })
 
   // The subagent keys are offered while a task in this step works; a finished task row is
@@ -1976,6 +1974,22 @@ export function splitFences(input: string): TextSegment[] {
   return out
 }
 
+// 10-27 (Tide design, founder's pick): Praex's replies open with the tide ∿ in the same column as the user's ▎, so the
+// conversation reads down one spine; thoughts and tool rows stay indented as detail. The tide breathes while the reply
+// streams and settles to a quieter purple when it is done.
+export const DONE_LINE_MIN_MS = 20_000
+
+function ReplyMark(props: { live: boolean }) {
+  const { theme } = useTheme()
+  return (
+    <box width={2} flexShrink={0}>
+      <Show when={props.live} fallback={<text fg={tint(theme.textMuted, theme.primary, 0.6)}>{TIDE_GLYPH}</text>}>
+        <Spinner glyph={theme.primary} />
+      </Show>
+    </box>
+  )
+}
+
 function TextPart(props: { last: boolean; part: TextPart; message: AssistantMessage }) {
   const ctx = use()
   const { theme, syntax } = useTheme()
@@ -1986,60 +2000,67 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
     <Show when={props.part.text.trim()}>
       <box
         id={`text-${props.part.messageID}-${props.part.id}`}
-        paddingLeft={3}
+        paddingLeft={1}
         marginTop={1}
         flexShrink={0}
-        flexDirection="column"
-        gap={1}
-        onSizeChange={function () {
-          setRoom(this.width - 3)
-        }}
+        flexDirection="row"
       >
-        {/* 10-27: <Index>, not <For>. splitFences returns new objects on every streamed delta, and <For> keys by
+        <ReplyMark live={!props.message.time.completed} />
+        <box
+          flexGrow={1}
+          flexShrink={1}
+          flexDirection="column"
+          gap={1}
+          onSizeChange={function () {
+            setRoom(this.width)
+          }}
+        >
+          {/* 10-27: <Index>, not <For>. splitFences returns new objects on every streamed delta, and <For> keys by
             object, so each delta unmounted the <markdown> and mounted a fresh one that draws blank for a frame: the
             reply text blinked on and off while streaming (founder: "flashing pixels"). <Index> keeps the renderable
             at each position and only updates its content. */}
-        <Index each={segments()}>
-          {(segment) => (
-            <Switch>
-              <Match when={segment().type === "markdown"}>
-                <markdown
-                  syntaxStyle={syntax()}
-                  streaming={true}
-                  internalBlockMode="top-level"
-                  content={softWrap(segment().text, room())}
-                  tableOptions={{ style: "grid" }}
-                  conceal={ctx.conceal()}
-                  fg={theme.markdownText}
-                  bg={theme.background}
-                />
-              </Match>
-              <Match when={segment().type === "code"}>
-                <box
-                  flexDirection="column"
-                  backgroundColor={theme.backgroundPanel}
-                  border={["left"]}
-                  borderColor={theme.border}
-                  customBorderChars={SplitBorder.customBorderChars}
-                  paddingLeft={1}
-                  paddingRight={1}
-                  flexShrink={0}
-                >
-                  <Show when={(segment() as Extract<TextSegment, { type: "code" }>).lang}>
-                    <text fg={theme.textMuted}>{(segment() as Extract<TextSegment, { type: "code" }>).lang}</text>
-                  </Show>
-                  <code
-                    conceal={false}
-                    fg={theme.text}
-                    filetype={(segment() as Extract<TextSegment, { type: "code" }>).lang || undefined}
+          <Index each={segments()}>
+            {(segment) => (
+              <Switch>
+                <Match when={segment().type === "markdown"}>
+                  <markdown
                     syntaxStyle={syntax()}
-                    content={(segment() as Extract<TextSegment, { type: "code" }>).text}
+                    streaming={true}
+                    internalBlockMode="top-level"
+                    content={softWrap(segment().text, room())}
+                    tableOptions={{ style: "grid" }}
+                    conceal={ctx.conceal()}
+                    fg={theme.markdownText}
+                    bg={theme.background}
                   />
-                </box>
-              </Match>
-            </Switch>
-          )}
-        </Index>
+                </Match>
+                <Match when={segment().type === "code"}>
+                  <box
+                    flexDirection="column"
+                    backgroundColor={theme.backgroundPanel}
+                    border={["left"]}
+                    borderColor={theme.border}
+                    customBorderChars={SplitBorder.customBorderChars}
+                    paddingLeft={1}
+                    paddingRight={1}
+                    flexShrink={0}
+                  >
+                    <Show when={(segment() as Extract<TextSegment, { type: "code" }>).lang}>
+                      <text fg={theme.textMuted}>{(segment() as Extract<TextSegment, { type: "code" }>).lang}</text>
+                    </Show>
+                    <code
+                      conceal={false}
+                      fg={theme.text}
+                      filetype={(segment() as Extract<TextSegment, { type: "code" }>).lang || undefined}
+                      syntaxStyle={syntax()}
+                      content={(segment() as Extract<TextSegment, { type: "code" }>).text}
+                    />
+                  </box>
+                </Match>
+              </Switch>
+            )}
+          </Index>
+        </box>
       </box>
     </Show>
   )
