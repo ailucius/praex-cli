@@ -12,6 +12,7 @@ import { readJson, writeJsonAtomic } from "../util/persistence"
 import { useTheme } from "./theme"
 import { useToast } from "../ui/toast"
 import { useRoute } from "./route"
+import { useKV } from "./kv"
 
 export type LocalTheme = {
   secondary: RGBA
@@ -534,22 +535,24 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         ],
         auto: [{ permission: "*", pattern: "*", action: "allow" as const }, GUARD],
       }
+      // 10-28 (founder: "I have automode on and it still asks"): the mode used to reset to manual on every launch.
+      // It is kept in the TUI's kv state now, so auto stays on until it is switched off.
+      const kv = useKV()
+      const [stored, setStored] = kv.signal<string>("permission_mode", "manual")
+      const current = () => permissionModeOf(stored())
       const [store, setStore] = createStore({
-        current: "manual" as keyof typeof RULES,
         synced: {} as Record<string, string | undefined>,
       })
       return {
-        current() {
-          return store.current
-        },
+        current,
         cycle() {
-          setStore("current", store.current === "manual" ? "auto" : "manual")
+          setStored(() => (current() === "manual" ? "auto" : "manual"))
         },
         // 10-22: resolves once the session carries the current mode's rules (true), or false when the update
         // failed. The prompt awaits it before a session's first message: the route change that runs sync()
         // happens after the send, so a new session's first edits used to run with the agent's blanket allow.
         async ensure(sessionID: string) {
-          const mode = store.current
+          const mode = current()
           if (store.synced[sessionID] === mode) return true
           const result: unknown = await sdk.client.session
             .update({ sessionID, permission: RULES[mode] })
@@ -559,7 +562,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           return ok
         },
         sync(sessionID: string) {
-          const mode = store.current
+          const mode = current()
           if (store.synced[sessionID] === mode) return
           setStore("synced", sessionID, mode)
           sdk.client.session
@@ -617,3 +620,8 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     return result
   },
 })
+
+// A stored mode from kv.json: anything but "auto" (missing, old or hand-edited values) is manual.
+export function permissionModeOf(value: unknown): "manual" | "auto" {
+  return value === "auto" ? "auto" : "manual"
+}

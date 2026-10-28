@@ -294,6 +294,40 @@ description: ${description}
     expect(Skill.hiddenBelow(root, path.join(root, "skills", "synced", "abc", "docx", "SKILL.md"))).toBe(false)
   })
 
+  // 10-28: Velox loaded the synced "chrome-browser" skill and told the founder to connect the Claude in Chrome extension.
+  test("claudeAppSynced marks the Claude apps' synced skills, nothing else", () => {
+    const root = path.join("/home", "u", ".claude")
+    expect(Skill.claudeAppSynced(root, path.join(root, "skills", "synced", "abc", "chrome-browser", "SKILL.md"))).toBe(true)
+    expect(Skill.claudeAppSynced(root, path.join(root, "skills", "my-skill", "SKILL.md"))).toBe(false)
+    expect(Skill.claudeAppSynced(root, path.join(root, "skills", "my-skill", "synced", "SKILL.md"))).toBe(false)
+    const agents = path.join("/home", "u", ".agents")
+    expect(Skill.claudeAppSynced(agents, path.join(agents, "skills", "synced", "x", "SKILL.md"))).toBe(false)
+  })
+
+  it.live("skips the Claude apps' synced skills and keeps the user's own", () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const body = (name: string) => `---
+name: ${name}
+description: The ${name} skill.
+---
+
+# ${name}
+`
+          yield* Effect.promise(() => Bun.write(path.join(dir, ".claude", "skills", "mine", "SKILL.md"), body("mine")))
+          yield* Effect.promise(() =>
+            Bun.write(path.join(dir, ".claude", "skills", "synced", "acct", "chrome-browser", "SKILL.md"), body("chrome-browser")),
+          )
+
+          const skill = yield* Skill.Service
+          const names = (yield* skill.all()).filter((s) => s.location !== "<built-in>").map((s) => s.name)
+          expect(names).toEqual(["mine"])
+        }),
+      { git: true },
+    ),
+  )
+
   it.live("discovers global skills from ~/.claude/skills/ directory", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireRelease(

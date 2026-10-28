@@ -720,7 +720,8 @@ it.instance(
       yield* rejectAll()
       yield* Fiber.await(push)
 
-      const outside = path.join(os.tmpdir(), "praex-guard-test", "x.txt")
+      // 10-28: not the temp folder, where scratch writes now run in auto mode
+      const outside = path.join(path.parse(os.tmpdir()).root, "etc", "praex-guard-test", "x.txt")
       const write = yield* ask({
         sessionID: SessionID.make("session_test"),
         permission: "edit",

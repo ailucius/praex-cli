@@ -24,7 +24,20 @@ export type GuardContext = {
   home: string
   // set after "cd $DIR" or "cd -": relative paths can then not be resolved
   unknownCwd?: boolean
+  // 10-28: the system temp folders. Writing or deleting files INSIDE them is scratch work and does not stop auto mode
+  // (founder: auto mode asked for /tmp/praex/validate_config.mjs); the folders themselves stay guarded.
+  scratch?: readonly string[]
 }
+
+export function scratchDirs(home = os.homedir()): string[] {
+  const dirs = process.platform === "win32" ? [os.tmpdir()] : [os.tmpdir(), "/tmp", "/var/tmp"]
+  // a TMPDIR set to the file system root, the home folder or a folder above it is not scratch space
+  return [...new Set(dirs.map((dir) => path.resolve(dir)))].filter((dir) => dir !== path.parse(dir).root && !inside(home, dir))
+}
+
+// Strictly inside a temp folder (the folder itself does not count).
+const inScratch = (target: string, ctx: GuardContext) =>
+  (ctx.scratch ?? []).some((dir) => target !== dir && inside(target, dir))
 
 // subs: the source of each command substitution ($(...), `...`, <(...)) inside the word, checked as commands
 type Word = { text: string; dynamic: boolean; subs?: string[] }
@@ -319,6 +332,7 @@ function riskyPath(raw: string, ctx: GuardContext, verb: "delete" | "change"): s
   if (inside(ctx.home, target)) return `${what} your home folder or a folder above it`
   if (ctx.roots.some((root) => inside(root, target))) return `${what} the project folder or a folder above it`
   if (target.split(path.sep).filter(Boolean).length <= 1) return `${what} a top-level system folder`
+  if (inScratch(target, ctx)) return
   if (!ctx.roots.some((root) => inside(target, root))) return `${what} files outside the project folder`
   return
 }
@@ -587,6 +601,7 @@ export function checkShellCommand(input: string, context: GuardContext, depth = 
 export function checkWritePaths(paths: readonly string[], ctx: GuardContext): string | undefined {
   for (const file of paths) {
     const target = path.resolve(ctx.cwd, expandHome(file, ctx.home))
+    if (inScratch(target, ctx)) continue
     if (!ctx.roots.some((root) => inside(target, root))) return `Writes outside the project folder (${file})`
   }
   return
@@ -632,7 +647,7 @@ export const evaluate = Effect.fn("Permission.guard")(function* (
   const instance = yield* InstanceRef
   if (!instance) return
   const roots = [instance.directory, ...(instance.worktree && instance.worktree !== "/" ? [instance.worktree] : [])]
-  const verdict = check(request, { cwd: instance.directory, roots, home: os.homedir() })
+  const verdict = check(request, { cwd: instance.directory, roots, home: os.homedir(), scratch: scratchDirs() })
   if (!verdict) return
   const rule = rules.findLast((rule) => Wildcard.match(verdict.pattern, rule.pattern))
   if (!rule || rule.action === "allow") return

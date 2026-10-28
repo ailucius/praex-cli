@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { check, checkShellCommand, checkWritePaths, parseShell } from "../../src/permission/guard"
+import { check, checkShellCommand, checkWritePaths, parseShell, scratchDirs } from "../../src/permission/guard"
 
 const ctx = { cwd: "/work/proj", roots: ["/work/proj"], home: "/home/dev" }
 const asks = (command: string, context = ctx) => checkShellCommand(command, context)
@@ -209,6 +209,41 @@ describe("auto mode guard: file writes", () => {
       ),
     )?.toMatchObject({ reason: "Writes outside the project folder (/etc/x)" })
     expect(check({ permission: "read", patterns: ["/etc/hosts"] }, ctx)).toBeUndefined()
+  })
+})
+
+// 10-28 (founder: "I have automode on and it still asks for permission"): auto mode stopped for a scratch file in /tmp.
+describe("10-28: scratch work in the temp folders keeps running", () => {
+  const tmp = { ...ctx, scratch: ["/tmp", "/var/tmp"] }
+  test("writes and deletes inside a temp folder run", () => {
+    expect(checkWritePaths(["/tmp/praex/validate_config.mjs"], tmp)).toBeUndefined()
+    expect(checkWritePaths(["/var/tmp/x.json"], tmp)).toBeUndefined()
+    expect(asks("rm -rf /tmp/praex", tmp)).toBeUndefined()
+    expect(asks("rm -rf build", { ...tmp, cwd: "/tmp/scratch" })).toBeUndefined()
+  })
+  test("the temp folders themselves, and everything else outside the project, still ask", () => {
+    expect(asks("rm -rf /tmp", tmp)).toContain("top-level system folder")
+    expect(asks("rm -rf /var/tmp", tmp)).toContain("outside the project folder")
+    expect(asks("rm -rf /tmp/../etc", tmp)).toBeDefined()
+    expect(checkWritePaths(["/tmp/../etc/hosts"], tmp)).toContain("outside the project folder")
+    expect(checkWritePaths(["/etc/hosts"], tmp)).toContain("outside the project folder")
+    expect(asks("rm -rf ~", tmp)).toContain("home folder")
+  })
+  test("a TMPDIR at the root or the home folder is not scratch space", () => {
+    for (const dir of scratchDirs("/home/dev")) {
+      expect(dir).not.toBe("/")
+      expect(dir === "/home/dev" || dir === "/home").toBe(false)
+    }
+    const prev = process.env.TMPDIR
+    try {
+      process.env.TMPDIR = "/home/dev"
+      expect(scratchDirs("/home/dev")).not.toContain("/home/dev")
+      process.env.TMPDIR = "/"
+      expect(scratchDirs("/home/dev")).not.toContain("/")
+    } finally {
+      if (prev === undefined) delete process.env.TMPDIR
+      else process.env.TMPDIR = prev
+    }
   })
 })
 

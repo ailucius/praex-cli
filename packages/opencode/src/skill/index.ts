@@ -154,6 +154,18 @@ export function hiddenBelow(root: string, match: string) {
     .some((segment) => segment.startsWith("."))
 }
 
+/**
+ * 10-28 (founder: Praex told him to "start the session with the Claude in Chrome extension connected"): skills that the
+ * Claude apps sync from a claude.ai account land in .claude/skills/synced/. They are written for Claude's own apps and
+ * route work to features Praex does not have (Claude in Chrome, the desktop browser pane, computer use, connectors,
+ * artifacts), so Praex leaves that folder out. The user's own skills in .claude/skills still load.
+ */
+export function claudeAppSynced(root: string, match: string) {
+  if (path.basename(root) !== CLAUDE_EXTERNAL_DIR) return false
+  const rel = path.relative(root, match).split(path.sep)
+  return rel[0] === "skills" && rel[1] === "synced"
+}
+
 const scan = Effect.fnUntraced(function* (
   state: ScanState,
   root: string,
@@ -180,7 +192,7 @@ const scan = Effect.fnUntraced(function* (
   )
 
   for (const match of matches) {
-    if (hiddenBelow(root, match)) continue
+    if (hiddenBelow(root, match) || claudeAppSynced(root, match)) continue
     state.matches.add(match)
     state.dirs.add(path.dirname(match))
   }
