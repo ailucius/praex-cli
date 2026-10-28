@@ -21,6 +21,9 @@ import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
+import * as Background from "./shell/background"
+import { EffectBridge } from "@/effect/bridge"
+import type { TaskPromptOps } from "./task"
 
 export { Parameters } from "./shell/prompt"
 
@@ -607,6 +610,54 @@ export const ShellTool = Tool.define(
       }
     })
 
+    // 10-28: background=true (see ./shell/background). Starts, answers at once, and reports the exit to the session.
+    const runInBackground = Effect.fn("ShellTool.background")(function* (
+      shell: string,
+      cwd: string,
+      params: Parameters,
+      ctx: Tool.Context,
+    ) {
+      const ops = ctx.extra?.promptOps as TaskPromptOps | undefined
+      const bridge = yield* EffectBridge.make()
+      const env = yield* shellEnv(ctx, cwd)
+      const started = Background.start({
+        shell,
+        command: params.command,
+        cwd,
+        env,
+        onExit: (exit) => {
+          // stopped with a signal: usually the agent's own kill, and it already knows
+          if (exit.signal || !ops) return
+          const text = [
+            `<background_command pid="${started.pid}" state="exited" code="${exit.code}">`,
+            `<description>${params.description}</description>`,
+            `<log>${started.log}</log>`,
+            "<last_output>",
+            exit.tail || "(no output)",
+            "</last_output>",
+            "</background_command>",
+          ].join("\n")
+          bridge.fork(
+            ops
+              .prompt({ sessionID: ctx.sessionID, agent: ctx.agent, parts: [{ type: "text", synthetic: true, text }] })
+              .pipe(Effect.ignore),
+          )
+        },
+      })
+      const output = [
+        `Started in the background: ${params.description}`,
+        `pid: ${started.pid}`,
+        `log: ${started.log}`,
+        `Read the log to check on it. Stop it with: ${Background.stopHint(started.pid)}`,
+        "You get a message when it exits on its own; do not wait for it with sleep.",
+      ].join("\n")
+      return {
+        title: params.description,
+        metadata: { output, exit: null, description: params.description, truncated: false },
+        output,
+      }
+    })
+
     return () =>
       Effect.gen(function* () {
         const cfg = yield* config.get()
@@ -640,6 +691,8 @@ export const ShellTool = Tool.define(
                   yield* ask(ctx, scan, { ...params, cwd })
                 }),
               )
+
+              if (params.background) return yield* runInBackground(shell, cwd, params, ctx)
 
               return yield* run(
                 {

@@ -190,6 +190,70 @@ describe("tool.shell", () => {
     ),
   )
 
+  // 10-28: background=true answers at once and tells the session when the command exits on its own
+  if (process.platform !== "win32") it.live("runs a command in the background and reports its exit", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          const prompts: Array<{ sessionID: string; parts: ReadonlyArray<{ type: string; text?: string; synthetic?: boolean }> }> = []
+          const promptOps = {
+            cancel: () => Effect.void,
+            resolvePromptParts: () => Effect.succeed([]),
+            prompt: (input: (typeof prompts)[number]) => Effect.sync(() => (prompts.push(input), {} as never)),
+          }
+          const bash = yield* initBash()
+          const t0 = Date.now()
+          const result = yield* bash.execute(
+            { command: "echo started; sleep 0.4; echo finished", description: "Run a slow job", background: true },
+            { ...ctx, extra: { promptOps } },
+          )
+          expect(Date.now() - t0).toBeLessThan(3000)
+          expect(result.metadata.exit).toBeNull()
+          expect(result.output).toContain("Started in the background: Run a slow job")
+          expect(result.output).toMatch(/pid: \d+/)
+          expect(result.output).toContain("kill -- -")
+          yield* Effect.promise(async () => {
+            for (let i = 0; i < 200 && prompts.length === 0; i++) await new Promise((r) => setTimeout(r, 25))
+          })
+          expect(prompts.length).toBe(1)
+          expect(prompts[0]!.sessionID).toBe(ctx.sessionID)
+          const part = prompts[0]!.parts[0]!
+          expect(part.synthetic).toBe(true)
+          expect(part.text).toContain('state="exited" code="0"')
+          expect(part.text).toContain("started\nfinished")
+        }),
+      )
+    }),
+  )
+
+  if (process.platform !== "win32") it.live("a background command stopped with a signal is not reported", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          let prompted = 0
+          const promptOps = {
+            cancel: () => Effect.void,
+            resolvePromptParts: () => Effect.succeed([]),
+            prompt: () => Effect.sync(() => (prompted++, {} as never)),
+          }
+          const bash = yield* initBash()
+          const result = yield* bash.execute(
+            { command: "sleep 30", description: "Start a server", background: true },
+            { ...ctx, extra: { promptOps } },
+          )
+          const pid = Number(/pid: (\d+)/.exec(result.output)?.[1])
+          process.kill(-pid, "SIGTERM")
+          yield* Effect.promise(() => new Promise((r) => setTimeout(r, 400)))
+          expect(prompted).toBe(0)
+        }),
+      )
+    }),
+  )
+
   it.live("falls back from terminal-only configured shell", () =>
     Effect.gen(function* () {
       const tmp = yield* tmpdirScoped({ config: { shell: "fish" } })
