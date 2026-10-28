@@ -120,7 +120,7 @@ export const layer: Layer.Layer<Service, never, FSUtil.Service | AppProcess.Serv
               "-z",
             ],
             {
-              cwd: state.directory,
+              cwd: state.worktree,
               stdin: feed(files),
             },
           )
@@ -136,7 +136,7 @@ export const layer: Layer.Layer<Service, never, FSUtil.Service | AppProcess.Serv
               ...args(["rm", "--cached", "-f", "--ignore-unmatch", "--pathspec-from-file=-", "--pathspec-file-nul"]),
             ],
             {
-              cwd: state.directory,
+              cwd: state.worktree,
               stdin: feed(files),
             },
           )
@@ -147,7 +147,7 @@ export const layer: Layer.Layer<Service, never, FSUtil.Service | AppProcess.Serv
           const result = yield* git(
             [...cfg, ...args(["add", "--all", "--sparse", "--pathspec-from-file=-", "--pathspec-file-nul"])],
             {
-              cwd: state.directory,
+              cwd: state.worktree,
               stdin: feed(files),
             },
           )
@@ -231,6 +231,9 @@ export const layer: Layer.Layer<Service, never, FSUtil.Service | AppProcess.Serv
           }
         })
 
+        // 10-28: every path here is relative to the repo root (diff-files prints them that way, ls-files with
+        // --full-name), and the commands that read them run from the root. In a session started in a subfolder, add
+        // used to read root paths from the subfolder and failed as a whole, so nothing in that step was snapshotted.
         const add = Effect.fnUntraced(function* () {
           yield* sync()
           const [diff, other] = yield* Effect.all(
@@ -238,7 +241,7 @@ export const layer: Layer.Layer<Service, never, FSUtil.Service | AppProcess.Serv
               git([...quote, ...args(["diff-files", "--name-only", "-z", "--", "."])], {
                 cwd: state.directory,
               }),
-              git([...quote, ...args(["ls-files", "--others", "--exclude-standard", "-z", "--", "."])], {
+              git([...quote, ...args(["ls-files", "--others", "--exclude-standard", "--full-name", "-z", "--", "."])], {
                 cwd: state.directory,
               }),
             ],
@@ -277,7 +280,7 @@ export const layer: Layer.Layer<Service, never, FSUtil.Service | AppProcess.Serv
             (yield* Effect.all(
               allow.map((item) =>
                 fs
-                  .stat(path.join(state.directory, item))
+                  .stat(path.join(state.worktree, item))
                   .pipe(Effect.catch(() => Effect.void))
                   .pipe(
                     Effect.map((stat) => {

@@ -417,6 +417,35 @@ it.instance(
   { git: true },
 )
 
+// 10-28: Praex started in a subfolder of a repo. git diff-files lists paths from the repo root while add, check-ignore
+// and the size check read them from the subfolder, so editing a tracked file made the whole add fail ("could not open
+// directory 'packages/opencode/packages/opencode/...'") and nothing in that step reached the snapshot.
+it.live(
+  "a session started in a subfolder snapshots edited, new and ignored files correctly",
+  Effect.gen(function* () {
+    const dir = yield* scopedGitTmpdir()
+    yield* write(`${dir}/.gitignore`, "*.log\n")
+    yield* write(`${dir}/pkg/sub/a.txt`, "A")
+    yield* exec(dir, ["git", "add", "."])
+    yield* exec(dir, ["git", "commit", "-m", "init"])
+    yield* Effect.gen(function* () {
+      const snapshot = yield* Snapshot.Service
+      const before = yield* snapshot.track()
+      expect(before).toBeTruthy()
+      yield* write(`${dir}/pkg/sub/a.txt`, "A changed")
+      yield* write(`${dir}/pkg/sub/new.txt`, "new")
+      yield* write(`${dir}/pkg/sub/run.log`, "log")
+      const patch = yield* snapshot.patch(before!)
+      expect(patch.files).toContain(fwd(dir, "pkg/sub/a.txt"))
+      expect(patch.files).toContain(fwd(dir, "pkg/sub/new.txt"))
+      expect(patch.files).not.toContain(fwd(dir, "pkg/sub/run.log"))
+      yield* snapshot.revert([patch])
+      expect(yield* readText(`${dir}/pkg/sub/a.txt`)).toBe("A")
+      expect(yield* exists(`${dir}/pkg/sub/new.txt`)).toBe(false)
+    }).pipe(provideInstance(`${dir}/pkg`))
+  }),
+)
+
 it.live(
   "source project gitignore is respected - ignored files are not snapshotted",
   Effect.gen(function* () {
