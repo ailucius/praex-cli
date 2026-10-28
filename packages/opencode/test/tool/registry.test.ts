@@ -55,6 +55,15 @@ const replacements = [
 ]
 
 const it = testEffect(LayerNode.buildLayer(root, { replacements }))
+// 10-28: background subagents are on by default; this one switches them off
+const withoutBackground = testEffect(
+  LayerNode.buildLayer(root, {
+    replacements: [
+      LayerNode.replace(Config.node, configLayer),
+      LayerNode.replace(RuntimeFlags.node, RuntimeFlags.layer({ experimentalBackgroundSubagents: false })),
+    ],
+  }),
+)
 const withBrokenPlugin = testEffect(
   LayerNode.buildLayer(root, {
     replacements: [...replacements, LayerNode.replace(Plugin.node, brokenPluginLayer)],
@@ -75,7 +84,7 @@ describe("tool.registry", () => {
     }),
   )
 
-  it.instance("hides task background parameter unless experimental background subagents are enabled", () =>
+  withoutBackground.instance("hides task background parameter unless experimental background subagents are enabled", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service
       const agent = yield* Agent.Service

@@ -85,6 +85,45 @@ it.instance("plan agent denies edits except .opencode/plans/*", () =>
   }),
 )
 
+// 10-28: the TUI's modes add session rules after the agent's; auto's blanket allow used to lift the plan agent's limits
+const AUTO: PermissionV1.Ruleset = [
+  { permission: "*", pattern: "*", action: "allow" },
+  { permission: "destructive", pattern: "*", action: "ask" },
+]
+const MANUAL: PermissionV1.Ruleset = [
+  ...["edit", "bash", "task", "webfetch", "websearch"].map((permission) => ({ permission, pattern: "*", action: "ask" as const })),
+  { permission: "readonly", pattern: "*", action: "allow" },
+  { permission: "destructive", pattern: "*", action: "ask" },
+]
+
+it.instance("auto and manual modes keep the plan agent's limits and its plan-file exception", () =>
+  Effect.gen(function* () {
+    const plan = yield* load((svc) => svc.get("plan"))
+    for (const mode of [AUTO, MANUAL]) {
+      const rules = Permission.withSession(plan!.permission, mode)
+      expect(Permission.evaluate("edit", "src/cart.ts", rules).action).toBe("deny")
+      expect(Permission.evaluate("edit", ".praex/plans/1-x.md", rules).action).toBe("allow")
+      expect(Permission.evaluate("task", "general", rules).action).toBe("deny")
+      // what the plan agent itself allows still follows the mode
+      expect(Permission.evaluate("bash", "ls", rules).action).toBe(mode === AUTO ? "allow" : "ask")
+      expect(Permission.evaluate("plan_exit", "*", rules).action).toBe("allow")
+    }
+    // the plan file of a session in a git project is where the agent may write
+    expect(Permission.disabled(["edit", "write", "plan_exit"], Permission.withSession(plan!.permission, AUTO)).size).toBe(0)
+  }),
+)
+
+it.instance("auto mode leaves the build agent's tools as the mode says, without the plan agent's exit", () =>
+  Effect.gen(function* () {
+    const build = yield* load((svc) => svc.get("build"))
+    const rules = Permission.withSession(build!.permission, AUTO)
+    expect(Permission.evaluate("edit", "src/cart.ts", rules).action).toBe("allow")
+    expect(Permission.evaluate("question", "*", rules).action).toBe("allow")
+    expect(Permission.evaluate("plan_exit", "*", rules).action).toBe("deny")
+    expect(Permission.withSession(build!.permission)).toEqual([...build!.permission])
+  }),
+)
+
 it.instance("plan agent denies the general subagent by default", () =>
   Effect.gen(function* () {
     const plan = yield* load((svc) => svc.get("plan"))

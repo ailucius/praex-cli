@@ -897,7 +897,9 @@ describe("session.llm.stream", () => {
   )
 
   it.instance(
-    "keeps tools enabled by prompt permissions",
+    // 10-28: an agent's deny now holds against session and prompt rules (Permission.withSession: auto mode's blanket
+    // allow had lifted the plan agent's edit deny), so a prompt allow no longer brings back a tool the agent denies
+    "an agent's deny holds against prompt permissions",
     () =>
       Effect.gen(function* () {
         const fixture = loadFixture(alibabaQwenFixture.providerID, alibabaQwenFixture.modelID)
@@ -950,7 +952,7 @@ describe("session.llm.stream", () => {
 
         const capture = yield* Effect.promise(() => request)
         const tools = capture.body.tools as Array<{ function?: { name?: string } }> | undefined
-        expect(tools?.some((item) => item.function?.name === "question")).toBe(true)
+        expect(tools?.some((item) => item.function?.name === "question") ?? false).toBe(false)
       }),
     {
       config: () => ({

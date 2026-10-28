@@ -111,7 +111,10 @@ export const layer = Layer.effect(
       let needsAsk = false
 
       for (const pattern of request.patterns) {
-        const rule = evaluate(request.permission, pattern, ruleset, saved, approved)
+        // 10-28: a deny in the agent, config or session rules holds even after an earlier "Allow always" (an edit
+        // approved in build mode no longer lets the plan agent edit)
+        const own = evaluate(request.permission, pattern, ruleset)
+        const rule = own.action === "deny" ? own : evaluate(request.permission, pattern, ruleset, saved, approved)
         yield* Effect.logInfo("evaluated", { permission: request.permission, pattern, action: rule })
         if (rule.action === "deny") {
           return yield* new PermissionV1.DeniedError({
@@ -285,6 +288,24 @@ export function fromConfig(permission: ConfigPermissionV1.Info) {
 
 export function merge(...rulesets: PermissionV1.Ruleset[]): PermissionV1.Rule[] {
   return rulesets.flat()
+}
+
+// 10-28: an agent's rules followed by the session's (the TUI's manual/auto mode). Matching is last-wins, so auto mode's
+// blanket allow used to lift an agent's own limits: the plan agent could edit any file. Every permission the agent
+// denies gets all of its rules for that permission again after the session's, so the deny holds and so do its
+// exceptions (the plan agent may still write its plan file). A deny the agent itself lifts with a later "*" rule (the
+// build agent allows question) is not a limit and is left alone; so are the session's asks and allows everywhere else.
+export function withSession(agent: PermissionV1.Ruleset, session: PermissionV1.Ruleset = []): PermissionV1.Rule[] {
+  if (!session.length) return [...agent]
+  const limited = new Set<string>()
+  agent.forEach((rule, i) => {
+    if (rule.action !== "deny") return
+    const lifted = agent
+      .slice(i + 1)
+      .some((later) => later.permission === rule.permission && later.pattern === "*" && later.action !== "deny")
+    if (!lifted) limited.add(rule.permission)
+  })
+  return [...agent, ...session, ...agent.filter((rule) => limited.has(rule.permission))]
 }
 
 export function disabled(tools: string[], ruleset: PermissionV1.Ruleset): Set<string> {

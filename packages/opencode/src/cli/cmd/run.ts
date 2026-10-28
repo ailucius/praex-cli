@@ -42,6 +42,8 @@ function pick(value: string | undefined): ModelInput | undefined {
 // read when it starts within a few seconds and skipped with a note when nothing comes. Without one it
 // is the prompt, so the run waits for it and says so.
 const STDIN_WAIT_MS = 3000
+// How long a run waits, after its last background subagent ended, for that result to start a new turn.
+const BACKGROUND_GRACE_MS = 20_000
 async function readPipedStdin(hasPrompt: boolean): Promise<string | undefined> {
   const reader = Bun.stdin.stream().getReader()
   const decoder = new TextDecoder()
@@ -701,8 +703,42 @@ export const RunCommand = effectCmd({
           const toggles = new Map<string, boolean>()
           let error: string | undefined
           let retried: number | undefined
+          // 10-28: a subagent the model started in the background reports back as a new turn when it ends. The run
+          // waits for those turns instead of exiting at the first idle and dropping them. `idleAt` is when the
+          // session last went idle while subagents were out; once they have all ended and no new turn starts within
+          // BACKGROUND_GRACE_MS (a cancelled subagent sends nothing back), the run exits.
+          const pending = new Set<string>()
+          let idleAt: number | undefined
 
           for await (const event of events.stream) {
+            if (idleAt !== undefined && pending.size === 0 && Date.now() - idleAt > BACKGROUND_GRACE_MS) break
+
+            if (event.type === "message.part.updated") {
+              const part = event.properties.part
+              if (
+                part.sessionID === sessionID &&
+                part.type === "tool" &&
+                part.tool === "task" &&
+                part.state.status === "completed" &&
+                part.state.metadata?.background === true &&
+                typeof part.state.metadata.sessionId === "string"
+              )
+                pending.add(part.state.metadata.sessionId)
+            }
+            if (event.type === "session.status" && pending.has(event.properties.sessionID)) {
+              if (event.properties.status.type === "idle") {
+                pending.delete(event.properties.sessionID)
+                if (idleAt !== undefined) idleAt = Date.now()
+              }
+              continue
+            }
+            if (
+              event.type === "session.status" &&
+              event.properties.sessionID === sessionID &&
+              event.properties.status.type === "busy"
+            )
+              idleAt = undefined
+
             if (
               event.type === "message.updated" &&
               event.properties.sessionID === sessionID &&
@@ -796,7 +832,9 @@ export const RunCommand = effectCmd({
               event.properties.sessionID === sessionID &&
               event.properties.status.type === "idle"
             ) {
-              break
+              if (pending.size === 0) break
+              idleAt = Date.now()
+              continue
             }
 
             // A model that is waking up (or a provider that keeps failing) would otherwise look

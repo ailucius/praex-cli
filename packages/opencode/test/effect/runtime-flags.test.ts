@@ -64,6 +64,22 @@ describe("RuntimeFlags", () => {
     }),
   )
 
+  it.effect("10-28: background subagents and plan mode are on unless switched off; the LSP tool stays off", () =>
+    Effect.gen(function* () {
+      const defaults = yield* readFlags.pipe(Effect.provide(fromConfig({})))
+      expect(defaults.experimentalBackgroundSubagents).toBe(true)
+      expect(defaults.experimentalPlanMode).toBe(true)
+      expect(defaults.experimentalLspTool).toBe(false)
+      const off = yield* readFlags.pipe(
+        Effect.provide(
+          fromConfig({ OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: "false", OPENCODE_EXPERIMENTAL_PLAN_MODE: "false" }),
+        ),
+      )
+      expect(off.experimentalBackgroundSubagents).toBe(false)
+      expect(off.experimentalPlanMode).toBe(false)
+    }),
+  )
+
   it.effect("defaultLayer parses OPENCODE_EXPERIMENTAL_LSP_TY", () =>
     Effect.gen(function* () {
       const flags = yield* readFlags.pipe(

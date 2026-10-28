@@ -42,6 +42,7 @@ import { LocalProvider, useLocal } from "./context/local"
 import { DialogModel } from "./component/dialog-model"
 import { useConnected } from "./component/use-connected"
 import { DialogMcp } from "./component/dialog-mcp"
+import { DialogBrowser } from "./component/dialog-browser"
 import { DialogStatus } from "./component/dialog-status"
 import { DialogThemeList } from "./component/dialog-theme-list"
 import { DialogHelp } from "./ui/dialog-help"
@@ -750,6 +751,16 @@ function App(props: {
         slashName: "mcps",
         run: () => {
           dialog.replace(() => <DialogMcp />)
+        },
+      },
+      {
+        name: "browser.connect",
+        title: "Connect a browser (your Chrome or a separate window)",
+        category: "Agent",
+        slashName: "browser",
+        slashAliases: ["chrome"],
+        run: () => {
+          dialog.replace(() => <DialogBrowser />)
         },
       },
       {

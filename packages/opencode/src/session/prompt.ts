@@ -371,7 +371,7 @@ export const layer = Layer.effect(
               .ask({
                 ...req,
                 sessionID,
-                ruleset: Permission.merge(taskAgent.permission, session.permission ?? []),
+                ruleset: Permission.withSession(taskAgent.permission, session.permission),
               })
               .pipe(Effect.orDie),
         })

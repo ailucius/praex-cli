@@ -705,6 +705,47 @@ it.instance(
 )
 
 it.instance(
+  "10-28: a deny in the rules holds after an earlier always reply for the same command",
+  () =>
+    Effect.gen(function* () {
+      const first = yield* ask({
+        id: PermissionV1.ID.make("per_1028a"),
+        sessionID: SessionID.make("session_1028"),
+        permission: "bash",
+        patterns: ["make build"],
+        metadata: {},
+        always: ["*"],
+        ruleset: [{ permission: "bash", pattern: "*", action: "ask" }],
+      }).pipe(Effect.forkScoped)
+      yield* waitForPending(1)
+      yield* reply({ requestID: PermissionV1.ID.make("per_1028a"), reply: "always" })
+      yield* Fiber.join(first)
+      // the always reply answers the next ask by itself
+      yield* ask({
+        sessionID: SessionID.make("session_1028"),
+        permission: "bash",
+        patterns: ["make build"],
+        metadata: {},
+        always: [],
+        ruleset: [{ permission: "bash", pattern: "*", action: "ask" }],
+      })
+      // but not one the rules deny (the plan agent after an approval in build mode)
+      const err = yield* fail(
+        ask({
+          sessionID: SessionID.make("session_1028"),
+          permission: "bash",
+          patterns: ["make build"],
+          metadata: {},
+          always: [],
+          ruleset: [{ permission: "bash", pattern: "*", action: "deny" }],
+        }),
+      )
+      expect(err).toBeInstanceOf(PermissionV1.DeniedError)
+    }),
+  { git: true },
+)
+
+it.instance(
   "ask - auto mode stops for git push -f and for writes outside the project",
   () =>
     Effect.gen(function* () {

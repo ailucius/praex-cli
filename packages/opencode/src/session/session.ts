@@ -374,9 +374,11 @@ export const Event = {
   }),
 }
 
+// 10-28: plans go to the project's .praex folder (the plan agent may edit .praex/plans/*.md; .opencode/plans stays
+// allowed for plans written before).
 export function plan(input: { slug: string; time: { created: number } }, instance: InstanceContext) {
   const base = instance.project.vcs
-    ? path.join(instance.worktree, ".opencode", "plans")
+    ? path.join(instance.worktree, ".praex", "plans")
     : path.join(Global.Path.data, "plans")
   return path.join(base, [input.time.created, input.slug].join("-") + ".md")
 }

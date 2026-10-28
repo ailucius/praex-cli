@@ -58,6 +58,7 @@ When making changes to files, first understand the file's code conventions. Mimi
 
 # Tool usage policy
 - When doing file search, prefer to use the Task tool in order to reduce context usage.
+- When a task needs a real browser (clicking through a site, signing in, a screenshot of a page) and you have no browser tools, tell the user to type /browser in Praex to connect their Chrome or a separate window. WebFetch only reads pages.
 - You can call multiple tools in a single response. When several independent pieces of information are needed, batch the tool calls together. When making multiple bash tool calls that do not depend on each other, send them in a single message so they run in parallel.
 
 # Code References

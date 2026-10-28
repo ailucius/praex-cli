@@ -519,8 +519,8 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       // short list of destructive or hard-to-undo actions (rm -rf outside the project, sudo,
       // git push --force, writes outside the project, curl | sh, ...). Both modes carry the
       // guard rule: subagents inherit it (not the manual asks), so a subagent stops for
-      // `rm -rf ~` in either mode. Headless `praex run` is untouched. Known v1 softening:
-      // session rules also out-rank the plan agent's edit deny.
+      // `rm -rf ~` in either mode. Headless `praex run` is untouched. An agent's own denies (the plan agent's
+      // edit deny) still hold in both modes: Permission.withSession puts them back after these rules (10-28).
       // write.ts + apply_patch.ts ask as "edit"; shell.ts asks as "bash" (ShellID.ToolID)
       const SENSITIVE = ["edit", "bash", "task", "webfetch", "websearch"]
       const GUARD = { permission: "destructive", pattern: "*", action: "ask" as const }

@@ -169,7 +169,7 @@ const createToolContext = Effect.fn("Cli.debug.agent.createToolContext")(functio
   }
   yield* sessionSvc.updateMessage(message)
 
-  const ruleset = Permission.merge(agent.permission, session.permission ?? [])
+  const ruleset = Permission.withSession(agent.permission, session.permission)
 
   return {
     sessionID: session.id,
