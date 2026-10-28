@@ -190,6 +190,33 @@ describe("tool.shell", () => {
     ),
   )
 
+  // 10-28: out of memory, the kernel kills the agent's commands before Praex (Terminal-Bench lost 10 trials to this)
+  if (process.platform === "linux") each("commands are the first to go when memory runs out", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const own = (yield* Effect.promise(() => Bun.file("/proc/self/oom_score_adj").text())).trim()
+        const result = yield* run({ command: "cat /proc/self/oom_score_adj", description: "Read the OOM score" })
+        expect(result.metadata.exit).toBe(0)
+        expect(result.output.trim()).toBe("1000")
+        expect((yield* Effect.promise(() => Bun.file("/proc/self/oom_score_adj").text())).trim()).toBe(own)
+      }),
+    ),
+  )
+
+  if (process.platform !== "win32") each("says a killed command probably ran out of memory", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const result = yield* run({ command: "sh -c 'kill -9 $$'; exit $?", description: "Kill a child" })
+        expect(result.metadata.exit).toBe(137)
+        expect(result.output).toContain("ran out of memory")
+        const ok = yield* run({ command: "echo Killed", description: "Print the word" })
+        expect(ok.output).not.toContain("ran out of memory")
+      }),
+    ),
+  )
+
   // 10-28: background=true answers at once and tells the session when the command exits on its own
   if (process.platform !== "win32") it.live("runs a command in the background and reports its exit", () =>
     Effect.gen(function* () {

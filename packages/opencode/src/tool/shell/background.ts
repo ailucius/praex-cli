@@ -9,6 +9,7 @@ import path from "node:path"
 import { Shell } from "@opencode-ai/core/shell"
 import { TRUNCATION_DIR } from "../truncation-dir"
 import { ToolID } from "../schema"
+import * as Oom from "./oom"
 
 export type Exit = { code: number | null; signal: NodeJS.Signals | null; tail: string }
 
@@ -72,7 +73,7 @@ export function start(input: {
     child =
       win && Shell.ps(input.shell)
         ? spawn(input.shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", input.command], options)
-        : spawn(input.command, { ...options, shell: input.shell, detached: !win })
+        : spawn(Oom.wrap(input.shell, input.command), { ...options, shell: input.shell, detached: !win })
   } finally {
     fs.closeSync(fd)
   }

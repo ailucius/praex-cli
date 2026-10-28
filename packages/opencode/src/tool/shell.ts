@@ -22,6 +22,7 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
 import * as Background from "./shell/background"
+import * as Oom from "./shell/oom"
 import { EffectBridge } from "@/effect/bridge"
 import type { TaskPromptOps } from "./task"
 
@@ -311,7 +312,7 @@ function cmd(shell: string, command: string, cwd: string, env: NodeJS.ProcessEnv
     })
   }
 
-  return ChildProcess.make(command, [], {
+  return ChildProcess.make(Oom.wrap(shell, command), [], {
     shell,
     cwd,
     env,
@@ -581,6 +582,7 @@ export const ShellTool = Tool.define(
       }
       if (aborted) meta.push("User aborted the command")
       const raw = list.map((item) => item.text).join("")
+      if (!aborted && !expired && Oom.killed(code, raw)) meta.push(Oom.KILLED_HINT)
       const end = tail(raw, limits.maxLines, limits.maxBytes)
       if (end.cut) cut = true
       if (!file && end.cut) {
