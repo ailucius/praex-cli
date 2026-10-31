@@ -453,8 +453,8 @@ export async function SnowflakeCortexAuthPlugin(_input: PluginInput): Promise<Ho
                     const text = decoder.decode(value, { stream: true })
                     ctrl.enqueue(encoder.encode(text.replace(/"role"\s*:\s*""/g, '"role":"assistant"')))
                   },
-                  cancel() {
-                    reader.cancel()
+                  cancel(reason) {
+                    return reader.cancel(reason)
                   },
                 })
                 return new Response(stream, { headers: response.headers, status: response.status })
