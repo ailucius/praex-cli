@@ -1,0 +1,83 @@
+#!/usr/bin/env node
+"use strict"
+
+// npm launcher for praex. The real program is a prebuilt binary shipped in a
+// per-platform package (praex-linux-x64, praex-darwin-arm64, ...) that npm
+// installs as an optional dependency. This file finds that binary and runs it.
+
+const childProcess = require("child_process")
+const fs = require("fs")
+const path = require("path")
+
+const pkg = require("../package.json")
+const key = process.platform + "-" + process.arch
+const exe = process.platform === "win32" ? "praex.exe" : "praex"
+const name = "praex-" + (process.platform === "win32" ? "windows" : process.platform) + "-" + process.arch
+const supported = Object.keys(pkg.optionalDependencies || {})
+
+function fail(lines) {
+  for (const line of lines) console.error(line)
+  process.exit(1)
+}
+
+function findBinary() {
+  if (process.env.PRAEX_BIN_PATH) return process.env.PRAEX_BIN_PATH
+  if (!supported.includes(name)) {
+    fail([
+      "praex: there is no npm build for " + key + " yet.",
+      "Builds exist for: " + supported.map((s) => s.replace(/^praex-/, "")).join(", ") + ".",
+      "See https://praex.ai/download for other ways to install.",
+    ])
+  }
+  let dir
+  try {
+    dir = path.dirname(require.resolve(name + "/package.json"))
+  } catch {
+    const musl = process.platform === "linux" && fs.existsSync("/etc/alpine-release")
+    fail([
+      "praex: the platform package " + name + " is not installed.",
+      musl
+        ? "This looks like a musl system (Alpine). praex ships glibc builds only for now."
+        : "This happens when optional dependencies are skipped (--omit=optional, --no-optional).",
+      "Reinstall with: npm install -g praex",
+    ])
+  }
+  const binary = path.join(dir, "bin", exe)
+  if (!fs.existsSync(binary)) fail(["praex: binary missing at " + binary + ". Reinstall with: npm install -g praex"])
+  return binary
+}
+
+const binary = findBinary()
+
+// Updates for npm installs come from npm (npm install -g praex@latest), so the
+// binary's own in-place updater stays off unless the user sets this variable.
+const env = Object.assign({}, process.env)
+if (env.PRAEX_DISABLE_AUTOUPDATE === undefined && env.OPENCODE_DISABLE_AUTOUPDATE === undefined) {
+  env.PRAEX_DISABLE_AUTOUPDATE = "1"
+}
+
+const child = childProcess.spawn(binary, process.argv.slice(2), { stdio: "inherit", env, windowsHide: false })
+
+const signals = ["SIGINT", "SIGTERM", "SIGHUP"]
+const forwarders = {}
+for (const signal of signals) {
+  forwarders[signal] = () => {
+    try {
+      child.kill(signal)
+    } catch {
+      // The child may already have exited.
+    }
+  }
+  process.on(signal, forwarders[signal])
+}
+
+child.on("error", (error) => fail(["praex: could not start " + binary + ": " + error.message]))
+
+child.on("exit", (code, signal) => {
+  for (const s of signals) process.removeListener(s, forwarders[s])
+  if (signal) {
+    process.kill(process.pid, signal)
+    return
+  }
+  process.exit(typeof code === "number" ? code : 0)
+})
