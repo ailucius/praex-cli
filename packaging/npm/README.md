@@ -1,11 +1,11 @@
-# praex
+# @praex/cli
 
 Praex is an open source (MIT) AI coding agent for the terminal. It reads your codebase, edits files, runs commands, and keeps sessions you can come back to. Use it with your own key for any major provider or with a model running on your own machine. No Praex account is needed for either.
 
 ## Install
 
 ```bash
-npm install -g praex
+npm install -g @praex/cli
 praex
 ```
 
@@ -21,7 +21,7 @@ curl -fsSL https://praex.ai/install.sh | bash
 ## Update
 
 ```bash
-npm install -g praex@latest
+npm install -g @praex/cli@latest
 ```
 
 Installs from npm leave updates to npm, so the built in updater stays off. Set `PRAEX_DISABLE_AUTOUPDATE=0` to turn it back on.

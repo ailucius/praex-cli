@@ -39,17 +39,17 @@ function findBinary() {
       musl
         ? "This looks like a musl system (Alpine). praex ships glibc builds only for now."
         : "This happens when optional dependencies are skipped (--omit=optional, --no-optional).",
-      "Reinstall with: npm install -g praex",
+      "Reinstall with: npm install -g @praex/cli",
     ])
   }
   const binary = path.join(dir, "bin", exe)
-  if (!fs.existsSync(binary)) fail(["praex: binary missing at " + binary + ". Reinstall with: npm install -g praex"])
+  if (!fs.existsSync(binary)) fail(["praex: binary missing at " + binary + ". Reinstall with: npm install -g @praex/cli"])
   return binary
 }
 
 const binary = findBinary()
 
-// Updates for npm installs come from npm (npm install -g praex@latest), so the
+// Updates for npm installs come from npm (npm install -g @praex/cli@latest), so the
 // binary's own in-place updater stays off unless the user sets this variable.
 const env = Object.assign({}, process.env)
 if (env.PRAEX_DISABLE_AUTOUPDATE === undefined && env.OPENCODE_DISABLE_AUTOUPDATE === undefined) {

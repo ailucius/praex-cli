@@ -17,7 +17,7 @@
 //   --smoke          install the packed tarballs into a temp prefix and run `praex --version`
 //
 // Layout: one package per platform (praex-<os>-<arch>, holding bin/praex) plus
-// the main package `praex`, which lists them as optionalDependencies so npm
+// the main package `@praex/cli` (npm refused the bare name `praex` as too similar to `rax`), which lists them as optionalDependencies so npm
 // installs only the one matching the machine. No postinstall script, no
 // download at install time.
 
@@ -170,19 +170,19 @@ function buildPlatform(args, version, p, pkgRoot) {
     [
       `# ${p.pkg}`,
       "",
-      `The praex binary for ${p.label}. Do not install this package directly. Install \`praex\` instead:`,
+      `The praex binary for ${p.label}. Do not install this package directly. Install \`@praex/cli\` instead:`,
       "",
       "```bash",
-      "npm install -g praex",
+      "npm install -g @praex/cli",
       "```",
       "",
-      "See https://praex.ai and the [praex package](https://www.npmjs.com/package/praex).",
+      "See https://praex.ai and the [@praex/cli package](https://www.npmjs.com/package/@praex/cli).",
       "",
     ].join("\n"),
   )
   writeJson(path.join(dir, "package.json"), {
     name: p.pkg,
-    description: `The praex binary for ${p.label}. Install the praex package instead of this one.`,
+    description: `The praex binary for ${p.label}. Install @praex/cli instead of this one.`,
     ...common(args, version),
     os: [p.os],
     cpu: [p.cpu],
@@ -202,7 +202,7 @@ function buildMain(args, version, platforms, pkgRoot) {
   fs.copyFileSync(path.join(here, "README.md"), path.join(dir, "README.md"))
   copyLegal(dir)
   writeJson(path.join(dir, "package.json"), {
-    name: "praex",
+    name: "@praex/cli",
     description: DESCRIPTION,
     ...common(args, version),
     keywords: ["praex", "ai", "coding-agent", "cli", "terminal", "llm"],
@@ -248,10 +248,10 @@ function smoke(tarballs, version) {
     console.log(`smoke: no package for ${process.platform}-${process.arch} in this release, skipping`)
     return
   }
-  const mainTgz = tarballs.find((t) => path.basename(t) === `praex-${version}.tgz`)
+  const mainTgz = tarballs.find((t) => path.basename(t) === `praex-cli-${version}.tgz`)
   const prefix = fs.mkdtempSync(path.join(os.tmpdir(), "praex-smoke-"))
   try {
-    // Install the two local tarballs the way `npm install -g praex` would, into
+    // Install the two local tarballs the way `npm install -g @praex/cli` would, into
     // a throwaway prefix. Other platform packages are not on the registry yet,
     // and npm skips them because their os/cpu do not match this machine.
     run("npm", ["install", "-g", "--prefix", prefix, "--no-audit", "--no-fund", mainTgz, hostTgz], { stdio: "inherit" })
@@ -290,11 +290,11 @@ async function main() {
 
   if (args.smoke) smoke(tarballs, version)
 
-  // Platform packages first, so `praex` never points at versions that are not on npm yet.
+  // Platform packages first, so `@praex/cli` never points at versions that are not on npm yet.
   for (const [i, p] of platforms.entries()) publish(args, tarballs[i], p.pkg, version)
-  publish(args, mainTgz, "praex", version)
+  publish(args, mainTgz, "@praex/cli", version)
 
-  console.log(args.publish ? `published praex@${version}` : `dry run done; tarballs in ${tgzDir}; nothing was published`)
+  console.log(args.publish ? `published @praex/cli@${version}` : `dry run done; tarballs in ${tgzDir}; nothing was published`)
 }
 
 main().catch((err) => {

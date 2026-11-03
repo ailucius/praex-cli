@@ -25,6 +25,15 @@ Praex is an open source (MIT) AI coding agent for the terminal. It reads your co
 curl -fsSL https://praex.ai/install.sh | bash
 ```
 
+Or with a package manager:
+
+```bash
+npm i -g @praex/cli
+brew install downoff/tap/praex
+```
+
+npm and Homebrew installs leave updates to npm and Homebrew (`npm i -g @praex/cli@latest`, `brew upgrade praex`).
+
 Prebuilt binaries for Linux x64 and macOS (Apple Silicon and Intel), with SHA256 checksums, are also on the [Releases](https://github.com/ailucius/praex-cli/releases) page.
 
 ## Use your own key
