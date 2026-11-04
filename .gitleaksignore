@@ -3,3 +3,23 @@ afa57acfda894e0ebf3c637dd710310b705c0a2f:packages/http-recorder/test/record-repl
 afa57acfda894e0ebf3c637dd710310b705c0a2f:packages/http-recorder/test/record-replay.test.ts:generic-api-key:92
 afa57acfda894e0ebf3c637dd710310b705c0a2f:packages/http-recorder/test/record-replay.test.ts:generic-api-key:146
 afa57acfda894e0ebf3c637dd710310b705c0a2f:packages/http-recorder/test/record-replay.test.ts:gcp-api-key:71
+
+# 4 Nov 2026: the nightly full-history scan. All checked: fake tokens in redaction tests, upstream fixtures and examples,
+# and the Firebase web API key in praex-cloud.ts, which is public by design (it is served on praex.ai).
+7c14a7d9240fe9f0b66fa0e0eb750f84a49f1c16:packages/opencode/test/share/snapshot.test.ts:generic-api-key:40
+7c14a7d9240fe9f0b66fa0e0eb750f84a49f1c16:packages/opencode/test/share/snapshot.test.ts:jwt:62
+804214af1c02d6562596218ddaa09ee7db0f1eb0:packages/opencode/src/plugin/praex-cloud.ts:gcp-api-key:14
+ba96946bae8ef31e69c76a01ae564b36fdaecd14:packages/app/src/pages/layout.tsx:generic-api-key:1072
+ba96946bae8ef31e69c76a01ae564b36fdaecd14:packages/app/src/pages/layout.tsx:generic-api-key:1079
+ba96946bae8ef31e69c76a01ae564b36fdaecd14:packages/console/app/package.json:generic-api-key:9
+ba96946bae8ef31e69c76a01ae564b36fdaecd14:packages/docs/ai-tools/cursor.mdx:curl-auth-header:127
+ba96946bae8ef31e69c76a01ae564b36fdaecd14:packages/http-recorder/test/record-replay.test.ts:gcp-api-key:138
+ba96946bae8ef31e69c76a01ae564b36fdaecd14:packages/http-recorder/test/record-replay.test.ts:generic-api-key:136
+ba96946bae8ef31e69c76a01ae564b36fdaecd14:packages/http-recorder/test/record-replay.test.ts:generic-api-key:159
+ba96946bae8ef31e69c76a01ae564b36fdaecd14:packages/http-recorder/test/record-replay.test.ts:generic-api-key:628
+ba96946bae8ef31e69c76a01ae564b36fdaecd14:packages/opencode/src/plugin/digitalocean.ts:generic-api-key:7
+ba96946bae8ef31e69c76a01ae564b36fdaecd14:packages/sdk/js/src/v2/gen/sdk.gen.ts:generic-api-key:5136
+f7a2f5eca9e9d547901660ac8e4b6befaf9fa8b5:packages/opencode/test/share/snapshot.test.ts:curl-auth-header:72
+f7a2f5eca9e9d547901660ac8e4b6befaf9fa8b5:packages/opencode/test/share/snapshot.test.ts:generic-api-key:41
+f7a2f5eca9e9d547901660ac8e4b6befaf9fa8b5:packages/opencode/test/share/snapshot.test.ts:generic-api-key:89
+f7a2f5eca9e9d547901660ac8e4b6befaf9fa8b5:packages/opencode/test/share/snapshot.test.ts:generic-api-key:91

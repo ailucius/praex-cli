@@ -1,0 +1,7 @@
+# Paths whose matches are examples, not secrets (checked 4 Nov 2026):
+# the docs' proxy example (a user and password on proxy.example.com) and the GitLab
+# provider page (the GitLab detector matches plain words there) in every language,
+# and the HTTP recorder's redaction test (example.test).
+^packages/web/src/content/docs/([a-z]{2}(-[a-z]{2})?/)?network\.mdx$
+^packages/web/src/content/docs/([a-z]{2}(-[a-z]{2})?/)?providers\.mdx$
+^packages/http-recorder/test/record-replay\.test\.ts$
