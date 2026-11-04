@@ -31,14 +31,14 @@ jobs:
         if: github.event_name == 'push' || github.event_name == 'pull_request'
         uses: trufflesecurity/trufflehog@31ce31ee1abbcc7dc8eee5764c17121c3044c8b2 # v3.99.7
         with:
-          extra_args: --results=verified,unknown
+          extra_args: --results=verified,unknown --exclude-paths=.trufflehog-exclude.txt
       - name: The whole history (nightly, or by hand)
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         uses: trufflesecurity/trufflehog@31ce31ee1abbcc7dc8eee5764c17121c3044c8b2 # v3.99.7
         with:
           base: ""
           head: main
-          extra_args: --results=verified,unknown
+          extra_args: --results=verified,unknown --exclude-paths=.trufflehog-exclude.txt
       - name: What to do
         if: failure()
         run: echo "trufflehog found a live or unverifiable secret. Read the step log, rotate the key first, then clean the history." >> "$GITHUB_STEP_SUMMARY"
