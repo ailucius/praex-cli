@@ -94,6 +94,19 @@ const BLOCKED = [/^\/(api\/)?pty(\/|$)/i, /^\/(api\/)?session\/[^/]+\/shell(\/|$
 // phone's toggle); it starts nothing the user did not set up on this machine.
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
 const NO_WRITE = [/^\/(api\/)?(global\/)?config(\/|$)/i, /^\/(api\/)?mcp\/?$/i]
+// 11-13: more writes that go around the agent's permission prompts, refused the same way (any
+// method other than a read). POST /vcs/apply runs `git apply` on a patch from the request, so
+// it could drop a plugin (.opencode/plugins) or a praex.json with commands into the project,
+// and the next instance load would run them. Moving a session (control plane) and creating,
+// warping or removing a workspace apply patches and reset files across directories. Reloading
+// the project (POST /instance/dispose) and upgrading the CLI (POST /global/upgrade) are done at
+// the computer. Reads stay open (GET /vcs, /vcs/diff, the workspace list and status).
+const HOST_ONLY = [
+  /^\/(api\/)?vcs\/apply(\/|$)/i,
+  /^\/(api\/)?instance\/dispose(\/|$)/i,
+  /^\/(api\/)?experimental\/(control-plane|workspace)(\/|$)/i,
+  /^\/(api\/)?global\/upgrade(\/|$)/i,
+]
 // 10-20: routes the phone uses for ordinary things whose body can also carry a command, so the
 // body is read instead of refusing the route: project edit (name and icon are fine, a startup
 // script in commands.start is not), worktree create (a startCommand runs in a shell), and
@@ -111,6 +124,7 @@ const BODY_RULES: BodyRule[] = [
 export type PathCheck = { ok: true; url: string } | { ok: false; status: 400 | 403; message: string }
 
 const CONFIG_REFUSED = "Settings that can run commands can only be changed on the computer, not over Remote Control."
+const HOST_ONLY_REFUSED = "This can only be done on the computer, not over Remote Control."
 
 function parseBody(body: Uint8Array | undefined): { ok: true; value: unknown } | { ok: false } {
   if (!body || body.byteLength === 0) return { ok: true, value: {} }
@@ -146,6 +160,7 @@ export function checkRemotePath(path: unknown, method = "GET", body?: Uint8Array
     if (BLOCKED.some((re) => re.test(flat)))
       return { ok: false, status: 403, message: "The terminal and shell are not available over Remote Control." }
     if (write && NO_WRITE.some((re) => re.test(flat))) return { ok: false, status: 403, message: CONFIG_REFUSED }
+    if (write && HOST_ONLY.some((re) => re.test(flat))) return { ok: false, status: 403, message: HOST_ONLY_REFUSED }
     if (write) {
       for (const rule of BODY_RULES) {
         if (!rule.re.test(flat)) continue

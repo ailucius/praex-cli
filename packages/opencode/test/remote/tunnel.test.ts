@@ -216,6 +216,46 @@ describe("RemoteTunnel", () => {
     ])
   })
 
+  // 11-13: patch apply, project reload, session/workspace moves and upgrade, end to end
+  test("patch apply, reload, moves and upgrade are refused over the wire, reads still pass", async () => {
+    const { relay, tunnel, seen } = make()
+    await tunnel.start()
+    const ws = relay.sockets[0]
+    const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64")
+    const send = (id: string, method: string, path: string, body?: unknown) =>
+      ws.send(JSON.stringify({ t: "req", id, method, path, headers: { "content-type": "application/json" }, body: body === undefined ? undefined : b64(body), auth: { idToken: "test:alice" } }))
+    const plugin = "--- /dev/null\n+++ b/.opencode/plugins/x.ts\n@@ -0,0 +1 @@\n+Bun.spawn(['touch','/tmp/pwned'])\n"
+    const refused: Array<[string, string, unknown?]> = [
+      ["POST", "/vcs/apply", { patch: plugin }],
+      ["post", "/vcs/apply?directory=%2Ftmp", { patch: plugin }],
+      ["POST", "/instance/dispose"],
+      ["POST", "/experimental/control-plane/move-session", { sessionID: "ses_1", destination: { directory: "/tmp" } }],
+      ["POST", "/experimental/workspace", { type: "worktree", branch: null }],
+      ["POST", "/experimental/workspace/warp", { id: null, sessionID: "ses_1", copyChanges: true }],
+      ["DELETE", "/experimental/workspace/wrk_1"],
+      ["POST", "/global/upgrade", { target: "0.0.1" }],
+    ]
+    for (const [i, [method, path, body]] of refused.entries()) {
+      send(`h${i}`, method, path, body)
+      const res = await collect(relay, `h${i}`)
+      expect({ method, path, status: res.status }).toEqual({ method, path, status: 403 })
+      expect(JSON.parse(res.body).error).toContain("only be done on the computer")
+    }
+    expect(seen).toHaveLength(0)
+
+    send("v1", "GET", "/vcs/diff")
+    expect((await collect(relay, "v1")).status).toBe(200)
+    send("v2", "GET", "/experimental/workspace")
+    expect((await collect(relay, "v2")).status).toBe(200)
+    send("v3", "POST", "/session/x/message", { parts: [] })
+    expect((await collect(relay, "v3")).status).toBe(200)
+    expect(seen.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      "GET /vcs/diff",
+      "GET /experimental/workspace",
+      "POST /session/x/message",
+    ])
+  })
+
   test("streams a long response and stops it on cancel", async () => {
     let cancelled = false
     const { relay, tunnel } = make({
@@ -556,6 +596,51 @@ describe("checkRemotePath", () => {
     expect(statusOf("PUT", "/auth/evil", new TextEncoder().encode('{"type":"api","type":"wellknown"}'))).toBe(403)
     expect(statusOf("DELETE", "/auth/openai")).toBe(200)
     expect(statusOf("GET", "/provider/auth")).toBe(200)
+  })
+
+  // 11-13: writes that go around the permission prompts, refused for any non-read method
+  test("patch apply, reload, session and workspace moves and upgrade are refused, however they are spelled", () => {
+    const paths = [
+      "/vcs/apply",
+      "/vcs/apply/",
+      "/vcs/apply?directory=%2Ftmp",
+      "/VCS/Apply",
+      "/vcs/%61pply",
+      "/vcs/%2561pply",
+      "/vcs//apply",
+      "/session/../vcs/apply",
+      "/vcs/x/../apply",
+      "/api/vcs/apply",
+      "/instance/dispose",
+      "/instance/dispose?directory=%2Ftmp",
+      "/%69nstance/dispose",
+      "/x/..//instance/dispose",
+      "/experimental/control-plane/move-session",
+      "/experimental/control-plane/",
+      "/experimental/%63ontrol-plane/move-session",
+      "/experimental/workspace",
+      "/experimental/workspace/",
+      "/experimental/workspace/warp",
+      "/experimental/workspace/sync-list",
+      "/experimental/workspace/wrk_1",
+      "/experimental//workspace",
+      "/experimental/worktree/../workspace",
+      "/global/upgrade",
+      "/global/upgrade/",
+      "/global/%75pgrade",
+      "/api/global/upgrade",
+    ]
+    for (const method of ["POST", "PUT", "PATCH", "DELETE", "PURGE"])
+      for (const path of paths) expect({ method, path, status: statusOf(method, path) }).toEqual({ method, path, status: 403 })
+    const r = checkRemotePath("/vcs/apply", "POST", json({ patch: "" }))
+    expect(r).toEqual({ ok: false, status: 403, message: "This can only be done on the computer, not over Remote Control." })
+  })
+
+  test("vcs, workspace and global reads, and neighbouring writes, still pass", () => {
+    for (const path of ["/vcs", "/vcs/status", "/vcs/diff", "/vcs/diff/raw", "/experimental/workspace", "/experimental/workspace/status", "/experimental/workspace/adapter", "/global/health", "/path"])
+      for (const method of ["GET", "HEAD", "OPTIONS"]) expect({ method, path, status: statusOf(method, path) }).toEqual({ method, path, status: 200 })
+    for (const path of ["/vcs/applyx", "/vcs/diff", "/instance/disposex", "/experimental/workspaces", "/experimental/worktree/reset", "/global/upgrades", "/session/x/message", "/session/x/prompt_async", "/permission/per_1/reply", "/session/x/abort"])
+      expect({ path, status: statusOf("POST", path, json({ parts: [] })) }).toEqual({ path, status: 200 })
   })
 })
 
