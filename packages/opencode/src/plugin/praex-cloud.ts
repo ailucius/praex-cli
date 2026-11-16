@@ -193,7 +193,8 @@ function waitForCallback(state: string): Promise<TokenResponse> {
 const GATEWAY_BASE_URL = "https://praex-gateway-384599766402.us-central1.run.app/v1"
 const TIER_LIMITS = { context: 32768, output: 8192 }
 // input: what the model reads (gateway /v1/models since 10-22); "image" turns on image attachments for it.
-export type HostedModel = { name: string; plan?: string; reasoning?: boolean; input?: string[]; limit: { context: number; output: number } }
+// levels (gateway /v1/models since 16 Nov): the thinking levels the model takes, offered as variants (reasoning_effort).
+export type HostedModel = { name: string; plan?: string; reasoning?: boolean; input?: string[]; levels?: string[]; limit: { context: number; output: number } }
 export type HostedLineup = Record<string, HostedModel>
 // Offline / first-run fallback only; the live gateway list always wins. Mirrors the gateway
 // lineup as of 2026-10-22: Velox III (free, id velox-ii-baked), Faber II (Pro, on demand), Lucia II (Max).
@@ -218,6 +219,7 @@ export function parseLineup(body: unknown): HostedLineup | undefined {
       ...(typeof m.plan === "string" && m.plan ? { plan: m.plan } : {}),
       ...(m.reasoning === true ? { reasoning: true } : {}),
       ...(Array.isArray(m.input) ? { input: m.input.filter((x: unknown) => typeof x === "string") } : {}),
+      ...(Array.isArray(m.levels) ? { levels: m.levels.filter((x: unknown) => typeof x === "string" && LEVELS.includes(x)) } : {}),
       limit: {
         context: Number.isFinite(context) && context > 0 ? context : TIER_LIMITS.context,
         output: Number.isFinite(output) && output > 0 ? output : TIER_LIMITS.output,
@@ -498,6 +500,12 @@ export function freeModelID(lineup: HostedLineup) {
 // The gateway may name a tier plainly ("Velox II") and carry its plan separately. The picker labels
 // and orders tiers by a "· <plan>" suffix (tierRank in tui dialog-model), so add one when it is missing.
 const PLAN_LABEL: Record<string, string> = { free: "Free", pro: "Pro", max: "Max" }
+// 16 Nov (founder: "the thinking level should match what the user chooses, like Claude"): the levels the gateway
+// lists for a model become its variants; every other effort name stays switched off.
+const LEVELS = ["none", "low", "medium", "high"]
+function levelVariants(levels: string[]) {
+  return { ...NO_EFFORT_VARIANTS, ...Object.fromEntries(levels.map((l) => [l, { reasoningEffort: l }])) }
+}
 const NO_EFFORT_VARIANTS = Object.fromEntries(
   ["none", "minimal", "low", "medium", "high", "xhigh", "max"].map((effort) => [effort, { disabled: true }]),
 )
@@ -523,9 +531,11 @@ export function hostedProvider(user: Record<string, any> | undefined, lineup: Ho
           {
             name: displayName(m),
             limit: { ...m.limit },
-            // Thinking tiers say so in the pickers; their level stays the gateway's default for now
-            // (the level picker is queued), so the effort variants this would add are switched off.
-            ...(m.reasoning ? { reasoning: true, variants: NO_EFFORT_VARIANTS } : {}),
+            // Thinking tiers say so in the pickers. 16 Nov: a model the gateway lists with levels offers them as
+            // variants (none, low, medium, high); no variant chosen = the gateway's default for that tier. A gateway
+            // without levels keeps the old behaviour: the effort variants stay switched off.
+            ...(m.reasoning ? { reasoning: true } : {}),
+            ...(m.levels?.length ? { variants: levelVariants(m.levels) } : m.reasoning ? { variants: NO_EFFORT_VARIANTS } : {}),
             // 10-22: Velox III reads images; the gateway checks them (inline PNG/JPEG/WebP/GIF, 3 MB each).
             ...(m.input?.includes("image") ? { attachment: true, modalities: { input: ["text", "image"], output: ["text"] } } : {}),
           },

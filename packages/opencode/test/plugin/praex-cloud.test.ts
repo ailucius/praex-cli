@@ -92,6 +92,23 @@ describe("praex-cloud hosted lineup", () => {
     expect(p.models["z"].name).toBe("Z")
   })
 
+  test("16 Nov: models listed with levels offer them as variants, the rest stay off", () => {
+    const l = parseLineup({
+      data: [
+        { id: "velox-ii-baked", name: "Velox III", plan: "free", reasoning: false, levels: ["none", "low", "medium", "high"] },
+        { id: "faber-ii", name: "Faber II · Pro", plan: "pro", reasoning: true, levels: ["none", "low", "medium", "high", "turbo"] },
+      ],
+    })!
+    expect(l["faber-ii"].levels).toEqual(["none", "low", "medium", "high"])
+    const p = hostedProvider(undefined, l)
+    for (const id of ["velox-ii-baked", "faber-ii"]) {
+      const v = p.models[id].variants as Record<string, any>
+      for (const lv of ["none", "low", "medium", "high"]) expect(v[lv]).toEqual({ reasoningEffort: lv })
+      for (const off of ["minimal", "xhigh", "max"]) expect(v[off].disabled).toBe(true)
+    }
+    expect(p.models["velox-ii-baked"].reasoning).toBeUndefined()
+  })
+
   test("thinking tiers are flagged reasoning with the effort variants switched off", () => {
     const l = parseLineup({
       data: [
