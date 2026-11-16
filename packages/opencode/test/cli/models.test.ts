@@ -7,7 +7,7 @@ describe("praex models lines", () => {
     const models = Object.entries(hostedProvider(undefined, BAKED_LINEUP).models).sort(([a], [b]) => a.localeCompare(b))
     expect(modelLines("praex-cloud", models)).toEqual([
       "praex-cloud/faber-ii        Faber II · Pro",
-      "praex-cloud/lucia-ii        Lucia II · Max",
+      "praex-cloud/lucia-iii       Lucia III · Max",
       "praex-cloud/velox-ii-baked  Velox III · Free",
     ])
   })

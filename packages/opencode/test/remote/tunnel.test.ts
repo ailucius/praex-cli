@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { GRANT_EXPIRED, GRANT_TTL_MS, grantTtlFromEnv, RemoteTunnel, SignedOutError, checkRemotePath, type RemoteStatus } from "../../src/remote/tunnel"
+import { GRANT_EXPIRED, GRANT_TTL_MS, grantTtlFromEnv, RemoteTunnel, SignedOutError, checkRemotePath, checkRemoteDirectory, type RemoteStatus } from "../../src/remote/tunnel"
 import { fakePhoneVerifier, uidOf } from "../../src/remote/verify"
 import { relayConfig } from "../../src/remote"
 
@@ -119,10 +119,10 @@ describe("RemoteTunnel", () => {
     const { grant } = await relay.next((f) => f.id === "a")
 
     const body = Buffer.from('{"text":"hi"}').toString("base64")
-    ws.send(JSON.stringify({ t: "req", id: "r1", method: "POST", path: "/session/x/message?directory=%2Ftmp", headers: { "content-type": "application/json" }, body, auth: { grant } }))
+    ws.send(JSON.stringify({ t: "req", id: "r1", method: "POST", path: "/session/x/message?directory=praex-cli", headers: { "content-type": "application/json" }, body, auth: { grant } }))
     const r1 = await collect(relay, "r1")
     expect(r1.status).toBe(200)
-    expect(JSON.parse(r1.body)).toEqual({ path: "/session/x/message?directory=%2Ftmp", method: "POST", body: '{"text":"hi"}' })
+    expect(JSON.parse(r1.body)).toEqual({ path: "/session/x/message?directory=praex-cli", method: "POST", body: '{"text":"hi"}' })
     expect(seen[0].headers.get("content-type")).toBe("application/json")
 
     ws.send(JSON.stringify({ t: "req", id: "r2", method: "GET", path: "/session", headers: {}, auth: { grant: "forged".padEnd(43, "x") } }))
@@ -170,11 +170,11 @@ describe("RemoteTunnel", () => {
     expect((await collect(relay, "bs")).status).toBe(400)
     expect(seen).toHaveLength(0)
 
-    ws.send(JSON.stringify({ t: "req", id: "ok", method: "GET", path: "/session/x/../y/message?directory=%2Ftmp", headers: {}, auth: { idToken: "test:alice" } }))
+    ws.send(JSON.stringify({ t: "req", id: "ok", method: "GET", path: "/session/x/../y/message?directory=praex-cli", headers: {}, auth: { idToken: "test:alice" } }))
     const ok = await collect(relay, "ok")
     expect(ok.status).toBe(200)
     // the request served is the normalised one that was checked
-    expect(JSON.parse(ok.body).path).toBe("/session/y/message?directory=%2Ftmp")
+    expect(JSON.parse(ok.body).path).toBe("/session/y/message?directory=praex-cli")
   })
 
   // 10-20: config writes over Remote Control, end to end through the frame handler
@@ -585,7 +585,8 @@ describe("checkRemotePath", () => {
     expect(statusOf("POST", "/experimental/worktree", json({ name: "w" }))).toBe(200)
     expect(statusOf("POST", "/experimental/worktree", json({ name: "w", startCommand: "id" }))).toBe(403)
     expect(statusOf("POST", "/experimental/worktree/", json({ startCommand: "id" }))).toBe(403)
-    expect(statusOf("POST", "/experimental/worktree/reset", json({ directory: "/tmp/w" }))).toBe(200)
+    // 16 Nov (audit 11): reset runs git reset --hard, git clean and the start script: host only
+    expect(statusOf("POST", "/experimental/worktree/reset", json({ directory: "/tmp/w" }))).toBe(403)
   })
 
   test("provider auth: API keys and OAuth pass, a well-known config source is refused", () => {
@@ -639,7 +640,7 @@ describe("checkRemotePath", () => {
   test("vcs, workspace and global reads, and neighbouring writes, still pass", () => {
     for (const path of ["/vcs", "/vcs/status", "/vcs/diff", "/vcs/diff/raw", "/experimental/workspace", "/experimental/workspace/status", "/experimental/workspace/adapter", "/global/health", "/path"])
       for (const method of ["GET", "HEAD", "OPTIONS"]) expect({ method, path, status: statusOf(method, path) }).toEqual({ method, path, status: 200 })
-    for (const path of ["/vcs/applyx", "/vcs/diff", "/instance/disposex", "/experimental/workspaces", "/experimental/worktree/reset", "/global/upgrades", "/session/x/message", "/session/x/prompt_async", "/permission/per_1/reply", "/session/x/abort"])
+    for (const path of ["/vcs/applyx", "/vcs/diff", "/instance/disposex", "/experimental/workspaces", "/global/upgrades", "/session/x/message", "/session/x/prompt_async", "/permission/per_1/reply", "/session/x/abort"])
       expect({ path, status: statusOf("POST", path, json({ parts: [] })) }).toEqual({ path, status: 200 })
   })
 })
@@ -656,5 +657,38 @@ describe("config and tokens", () => {
     expect(uidOf(`x.${p}.y`)).toBe("u9")
     expect(uidOf("test:alice", true)).toBe("alice")
     expect(uidOf("test:alice")).toBeUndefined()
+  })
+})
+
+describe("16 Nov audit 11: host-only worktree, copy and dispose routes; directories pinned to the project", () => {
+  const status = (m: string, p: string, b?: unknown) => {
+    const r = checkRemotePath(p, m, b === undefined ? undefined : new TextEncoder().encode(JSON.stringify(b)))
+    return r.ok ? 200 : r.status
+  }
+  test("removing a worktree, resetting one, copying a project and disposing everything are refused", () => {
+    expect(status("DELETE", "/experimental/worktree", { directory: "/home/u/.ssh" })).toBe(403)
+    expect(status("DELETE", "/experimental/worktree/")).toBe(403)
+    expect(status("POST", "/experimental/worktree/reset", { directory: "/tmp/w" })).toBe(403)
+    expect(status("POST", "/experimental/project/prj_1/copy", {})).toBe(403)
+    expect(status("POST", "/global/dispose")).toBe(403)
+    expect(status("POST", "/api/global/dispose")).toBe(403)
+    // still open: creating a worktree without a start command, and reading the worktree list
+    expect(status("POST", "/experimental/worktree", { name: "w" })).toBe(200)
+    expect(status("GET", "/experimental/worktree")).toBe(200)
+  })
+  test("a request may only name the project folder, a folder inside it, or a worktree folder", () => {
+    const root = "/home/u/proj"
+    const trees = "/home/u/.local/share/praex/worktree"
+    const ok = (url: string, headers?: Record<string, string>) => checkRemoteDirectory("http://opencode.internal" + url, headers, root, trees)
+    expect(ok("/session")).toBe(true)
+    expect(ok("/session?directory=%2Fhome%2Fu%2Fproj")).toBe(true)
+    expect(ok("/file/content?directory=/home/u/proj/sub&path=a.ts")).toBe(true)
+    expect(ok("/session?directory=/home/u/.local/share/praex/worktree/prj_1/w1")).toBe(true)
+    expect(ok("/file/content?directory=/home/u/.ssh&path=id_ed25519")).toBe(false)
+    expect(ok("/file/content?directory=/home/u/proj/../.ssh")).toBe(false)
+    expect(ok("/file/content?directory=/home/u/projX")).toBe(false)
+    expect(ok("/config?location%5Bdirectory%5D=/home/u/Downloads/x")).toBe(false)
+    expect(ok("/config", { "X-Opencode-Directory": "/home/u/.local/share/praex" })).toBe(false)
+    expect(ok("/config", { "x-opencode-directory": "/home/u/proj" })).toBe(true)
   })
 })

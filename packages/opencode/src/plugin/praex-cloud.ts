@@ -197,11 +197,11 @@ const TIER_LIMITS = { context: 32768, output: 8192 }
 export type HostedModel = { name: string; plan?: string; reasoning?: boolean; input?: string[]; levels?: string[]; limit: { context: number; output: number } }
 export type HostedLineup = Record<string, HostedModel>
 // Offline / first-run fallback only; the live gateway list always wins. Mirrors the gateway
-// lineup as of 2026-10-22: Velox III (free, id velox-ii-baked), Faber II (Pro, on demand), Lucia II (Max).
+// lineup as of 2026-11-16: Velox III (free, id velox-ii-baked), Faber II (Pro), Lucia III (Max, id lucia-iii).
 export const BAKED_LINEUP: HostedLineup = {
   "velox-ii-baked": { name: "Velox III", plan: "free", input: ["text", "image"], limit: { context: 131072, output: TIER_LIMITS.output } }, // 10-22: Velox III fleet, 128k, reads images
   "faber-ii": { name: "Faber II · Pro", plan: "pro", limit: { ...TIER_LIMITS } }, // on demand, paying Pro only
-  "lucia-ii": { name: "Lucia II · Max", plan: "max", limit: { ...TIER_LIMITS } },
+  "lucia-iii": { name: "Lucia III · Max", plan: "max", limit: { context: 262144, output: TIER_LIMITS.output } }, // 16 Nov: mirrors the gateway (audit 11 CLI-09)
 }
 const LINEUP_TIMEOUT_MS = 1500 // first launch with no cache blocks at most this long
 const LINEUP_TTL_MS = 60 * 60 * 1000 // cache is served immediately; older than this = refresh in the background

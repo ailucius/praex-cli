@@ -302,6 +302,22 @@ describe("Worktree", () => {
       { git: true },
     )
 
+    it.instance(
+      "16 Nov audit 11: an existing folder that is not a worktree of the project is refused and kept",
+      () =>
+        Effect.gen(function* () {
+          const test = yield* TestInstance
+          const svc = yield* Worktree.Service
+          const keep = path.join(test.directory, "keep-me")
+          yield* Effect.promise(() => import("fs/promises").then((f) => f.mkdir(keep, { recursive: true })))
+          const exit = yield* Effect.exit(svc.remove({ directory: keep }))
+          expect(Exit.isFailure(exit)).toBe(true)
+          const still = yield* Effect.promise(() => import("fs/promises").then((f) => f.stat(keep).then(() => true, () => false)))
+          expect(still).toBe(true)
+        }),
+      { git: true },
+    )
+
     it.instance("fails with NotGitError for non-git directories", () =>
       Effect.gen(function* () {
         const test = yield* TestInstance

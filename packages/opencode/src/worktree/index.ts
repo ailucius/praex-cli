@@ -421,7 +421,14 @@ export const layer: Layer.Layer<
       const entry = yield* locateWorktree(entries, directory)
 
       if (!entry?.path) {
+        // 16 Nov (audit 11 P0-CLI-02): a path git does not list as a worktree is only cleaned up when it lies inside
+        // this project's own worktree folder (a leftover of an earlier remove). Any other path is refused, so a remove
+        // call can never delete an arbitrary directory.
+        const base = yield* canonical(pathSvc.join(Global.Path.data, "worktree", ctx.project.id))
         const directoryExists = yield* fs.exists(directory).pipe(Effect.orDie)
+        if (directoryExists && !directory.startsWith(base + pathSvc.sep)) {
+          return yield* new RemoveFailedError({ message: "That folder is not a worktree of this project." })
+        }
         if (directoryExists) {
           yield* stopFsmonitor(directory)
           yield* cleanDirectory(directory)

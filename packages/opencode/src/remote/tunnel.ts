@@ -12,6 +12,9 @@
 // make-before-break: a new one registers the same session key, the old one drains.
 
 import { randomBytes, timingSafeEqual } from "node:crypto"
+import { realpathSync } from "node:fs"
+import path from "node:path"
+import { Global } from "@opencode-ai/core/global"
 import type { PhoneVerifier } from "./verify"
 
 export type RemoteStatus =
@@ -106,7 +109,14 @@ const HOST_ONLY = [
   /^\/(api\/)?instance\/dispose(\/|$)/i,
   /^\/(api\/)?experimental\/(control-plane|workspace)(\/|$)/i,
   /^\/(api\/)?global\/upgrade(\/|$)/i,
+  // 16 Nov (audit 11 P0-CLI-02, P1-CLI-01): resetting a worktree runs git reset --hard, git clean and the project's
+  // start script; copying a project writes files across the disk; disposing every instance is done at the computer
+  /^\/(api\/)?experimental\/worktree\/reset(\/|$)/i,
+  /^\/(api\/)?experimental\/project\/[^/]+\/copy(\/|$)/i,
+  /^\/(api\/)?global\/dispose(\/|$)/i,
 ]
+// 16 Nov (audit 11 P0-CLI-02): removing a worktree deletes a folder; done at the computer.
+const HOST_ONLY_DELETE = [/^\/(api\/)?experimental\/worktree\/?$/i]
 // 10-20: routes the phone uses for ordinary things whose body can also carry a command, so the
 // body is read instead of refusing the route: project edit (name and icon are fine, a startup
 // script in commands.start is not), worktree create (a startCommand runs in a shell), and
@@ -161,6 +171,8 @@ export function checkRemotePath(path: unknown, method = "GET", body?: Uint8Array
       return { ok: false, status: 403, message: "The terminal and shell are not available over Remote Control." }
     if (write && NO_WRITE.some((re) => re.test(flat))) return { ok: false, status: 403, message: CONFIG_REFUSED }
     if (write && HOST_ONLY.some((re) => re.test(flat))) return { ok: false, status: 403, message: HOST_ONLY_REFUSED }
+    if (method === "DELETE" && HOST_ONLY_DELETE.some((re) => re.test(flat)))
+      return { ok: false, status: 403, message: HOST_ONLY_REFUSED }
     if (write) {
       for (const rule of BODY_RULES) {
         if (!rule.re.test(flat)) continue
@@ -187,6 +199,44 @@ export function checkRemotePath(path: unknown, method = "GET", body?: Uint8Array
   }
   // still decoding after several rounds: nothing legitimate is encoded that deep
   return bad
+}
+
+const DIRECTORY_REFUSED = "Over Remote Control only this project's folder is available."
+const worktreeRoot = () => path.join(Global.Path.data, "worktree")
+const realOrSelf = (p: string) => {
+  try {
+    return realpathSync(p)
+  } catch {
+    return path.resolve(p)
+  }
+}
+/**
+ * Every directory a remote request names (?directory=, ?location[directory]=, any ...[directory]= query key, and the
+ * x-opencode-directory header) must be the project folder Remote Control was started in, a folder inside it, or a
+ * folder inside this machine's worktree folder. Symlinks are resolved first.
+ */
+export function checkRemoteDirectory(url: string, headers: unknown, root: string, worktreeRoot: string): boolean {
+  const names: string[] = []
+  try {
+    for (const [k, v] of new URL(url).searchParams) if (k === "directory" || /\[directory\]$/.test(k)) names.push(v)
+  } catch {
+    return false
+  }
+  if (headers && typeof headers === "object") {
+    for (const [k, v] of Object.entries(headers as Record<string, unknown>))
+      if (k.toLowerCase() === "x-opencode-directory" && typeof v === "string") names.push(v)
+  }
+  if (!names.length) return true
+  const base = realOrSelf(root)
+  const trees = realOrSelf(worktreeRoot)
+  return names.every((n) => {
+    let d = n
+    try {
+      d = decodeURIComponent(n)
+    } catch {}
+    const r = realOrSelf(d)
+    return r === base || r.startsWith(base + path.sep) || r.startsWith(trees + path.sep)
+  })
 }
 
 export const randomKey = (bytes = 16) => randomBytes(bytes).toString("base64url")
@@ -491,6 +541,10 @@ export class RemoteTunnel {
     const body = typeof f.body === "string" && method !== "GET" && method !== "HEAD" ? Buffer.from(f.body, "base64") : undefined
     const target = checkRemotePath(f.path, method, body)
     if (!target.ok) return this.reply(conn, id, target.status, target.message)
+    // 16 Nov (audit 11 P0-CLI-01): a request may only name this project's folder (or a worktree of it) as its
+    // directory, so Remote Control can not read files or load plugins from anywhere else on the computer
+    if (!checkRemoteDirectory(target.url, f.headers, this.opts.meta().directory, worktreeRoot()))
+      return this.reply(conn, id, 403, DIRECTORY_REFUSED)
 
     const ctrl = new AbortController()
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined

@@ -56,7 +56,7 @@ describe("praex-cloud hosted lineup", () => {
     expect(p.models["velox-ii-baked"].name).toBe("Velox III · Free")
     expect(p.models["velox-ii-baked"].limit.context).toBe(131072)
     expect(p.models["faber-ii"].name).toBe("Faber II · Pro")
-    expect(p.models["lucia-ii"].name).toBe("Lucia II · Max")
+    expect(p.models["lucia-iii"].name).toBe("Lucia III · Max")
   })
 
   test("10-22: a model whose lineup input lists image accepts image attachments; the others do not", () => {
