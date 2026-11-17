@@ -1,8 +1,9 @@
 diff --git a/src/download.ts b/src/download.ts
-index 3454256..6dca25a 100644
+index 74918f3d27917197f4dce589937d0d8fa9956226..e63f5c276ffc7681a050c0b47a61699a9465ae81 100644
 --- a/src/download.ts
 +++ b/src/download.ts
-@@ -7,7 +7,7 @@
+@@ -6,8 +6,8 @@
+  * 2. Local dev build (target/release or target/debug)
   */
  
 +declare const FFF_LIBC: "gnu" | "musl";
