@@ -1,0 +1,58 @@
+# Publishes the npm packages (@praex/cli + one praex-<os>-<arch> package per platform) for a praex
+# GitHub release, with npm trusted publishing: npm checks this workflow's GitHub OIDC token against the
+# trusted publisher set on each package (repo ailucius/praex-cli, workflow npm-publish.yml), so no npm
+# token is stored anywhere and no 2FA prompt is needed. npm adds provenance automatically.
+# Runs when a release is published (praex-web/release.sh creates it), or by hand for a given tag.
+# build.mjs downloads the release assets, checks them against SHA256SUMS, packs, smoke-tests an install
+# and publishes; versions already on npm are skipped, so a rerun is safe.
+name: npm-publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish, e.g. v0.1.46"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # CLI releases are tagged vX.Y.Z; desktop tags (desktop-v*) are not npm releases
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC)
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 # zizmor: ignore[cache-poisoning]
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      # trusted publishing needs npm 11.5.1 or newer
+      - name: npm with trusted publishing support
+        run: npm install -g npm@11 && npm --version
+
+      - name: Check the tag
+        run: |
+          case "$TAG" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "not a release tag: $TAG"; exit 1;; esac
+
+      - name: Build, verify and smoke-test the packages
+        run: node packaging/npm/build.mjs "$TAG" --smoke
+
+      - name: Publish
+        run: node packaging/npm/build.mjs "$TAG" --publish
