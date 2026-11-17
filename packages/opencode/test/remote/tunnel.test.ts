@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { GRANT_EXPIRED, GRANT_TTL_MS, grantTtlFromEnv, RemoteTunnel, SignedOutError, checkRemotePath, checkRemoteDirectory, type RemoteStatus } from "../../src/remote/tunnel"
+import { GRANT_EXPIRED, GRANT_TTL_MS, grantTtlFromEnv, RemoteTunnel, SignedOutError, checkRemotePath, checkRemoteDirectory, DIRECTORY_REFUSED, projectWorktreeFolder, type RemoteStatus } from "../../src/remote/tunnel"
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs"
+import os from "node:os"
+import nodePath from "node:path"
 import { fakePhoneVerifier, uidOf } from "../../src/remote/verify"
 import { relayConfig } from "../../src/remote"
 
@@ -82,6 +85,7 @@ function make(opts: Partial<ConstructorParameters<typeof RemoteTunnel>[0]> = {})
     credential: async () => ({ token: "test:alice", uid: "alice" }),
     verifyPhone: fakePhoneVerifier,
     meta: () => ({ name: "laptop", directory: "praex-cli", title: "Fix the build" }),
+    scope: () => ({ roots: ["/tmp/praex-cli"] }),
     onStatus: (s) => statuses.push(s),
     ...opts,
   })
@@ -119,10 +123,10 @@ describe("RemoteTunnel", () => {
     const { grant } = await relay.next((f) => f.id === "a")
 
     const body = Buffer.from('{"text":"hi"}').toString("base64")
-    ws.send(JSON.stringify({ t: "req", id: "r1", method: "POST", path: "/session/x/message?directory=praex-cli", headers: { "content-type": "application/json" }, body, auth: { grant } }))
+    ws.send(JSON.stringify({ t: "req", id: "r1", method: "POST", path: "/session/x/message?directory=/tmp/praex-cli", headers: { "content-type": "application/json" }, body, auth: { grant } }))
     const r1 = await collect(relay, "r1")
     expect(r1.status).toBe(200)
-    expect(JSON.parse(r1.body)).toEqual({ path: "/session/x/message?directory=praex-cli", method: "POST", body: '{"text":"hi"}' })
+    expect(JSON.parse(r1.body)).toEqual({ path: "/session/x/message?directory=/tmp/praex-cli", method: "POST", body: '{"text":"hi"}' })
     expect(seen[0].headers.get("content-type")).toBe("application/json")
 
     ws.send(JSON.stringify({ t: "req", id: "r2", method: "GET", path: "/session", headers: {}, auth: { grant: "forged".padEnd(43, "x") } }))
@@ -170,11 +174,11 @@ describe("RemoteTunnel", () => {
     expect((await collect(relay, "bs")).status).toBe(400)
     expect(seen).toHaveLength(0)
 
-    ws.send(JSON.stringify({ t: "req", id: "ok", method: "GET", path: "/session/x/../y/message?directory=praex-cli", headers: {}, auth: { idToken: "test:alice" } }))
+    ws.send(JSON.stringify({ t: "req", id: "ok", method: "GET", path: "/session/x/../y/message?directory=/tmp/praex-cli", headers: {}, auth: { idToken: "test:alice" } }))
     const ok = await collect(relay, "ok")
     expect(ok.status).toBe(200)
     // the request served is the normalised one that was checked
-    expect(JSON.parse(ok.body).path).toBe("/session/y/message?directory=praex-cli")
+    expect(JSON.parse(ok.body).path).toBe("/session/y/message?directory=/tmp/praex-cli")
   })
 
   // 10-20: config writes over Remote Control, end to end through the frame handler
@@ -428,6 +432,7 @@ describe("RemoteTunnel handshake deadline", () => {
       credential: async () => ({ token: "test:alice", uid: "alice" }),
       verifyPhone: fakePhoneVerifier,
       meta: () => ({ name: "laptop", directory: "praex-cli" }),
+      scope: () => ({ roots: ["/tmp/praex-cli"] }),
       onStatus: (s) => statuses.push(s),
       log: (line) => logs.push(line),
       ...opts,
@@ -678,7 +683,8 @@ describe("16 Nov audit 11: host-only worktree, copy and dispose routes; director
   })
   test("a request may only name the project folder, a folder inside it, or a worktree folder", () => {
     const root = "/home/u/proj"
-    const trees = "/home/u/.local/share/praex/worktree"
+    // 17 Nov (audit 12 A12-02): the project's own worktree folder, not the machine-wide one
+    const trees = "/home/u/.local/share/praex/worktree/prj_1"
     const ok = (url: string, headers?: Record<string, string>) => checkRemoteDirectory("http://opencode.internal" + url, headers, root, trees)
     expect(ok("/session")).toBe(true)
     expect(ok("/session?directory=%2Fhome%2Fu%2Fproj")).toBe(true)
@@ -690,5 +696,172 @@ describe("16 Nov audit 11: host-only worktree, copy and dispose routes; director
     expect(ok("/config?location%5Bdirectory%5D=/home/u/Downloads/x")).toBe(false)
     expect(ok("/config", { "X-Opencode-Directory": "/home/u/.local/share/praex" })).toBe(false)
     expect(ok("/config", { "x-opencode-directory": "/home/u/proj" })).toBe(true)
+  })
+})
+
+describe("17 Nov audit 12 A12-01: session permission rules can not be widened over Remote Control", () => {
+  const status = (m: string, p: string, b?: unknown) => {
+    const r = checkRemotePath(p, m, b === undefined ? undefined : new TextEncoder().encode(JSON.stringify(b)))
+    return r.ok ? 200 : r.status
+  }
+  const allowAll = [{ permission: "*", pattern: "*", action: "allow" }]
+  const guard = { permission: "destructive", pattern: "*", action: "ask" }
+  const updatePaths = ["/session/ses_1", "/session/ses_1/", "/api/session/ses_1", "/SESSION/ses_1", "/%73ession/ses_1", "/session/x/../ses_1", "/session//ses_1", "/session/ses_1?directory=%2Ftmp"]
+  const createPaths = ["/session", "/session/", "/api/session", "/Session", "/%73ession", "/session/x/..", "/session?directory=%2Ftmp"]
+
+  test("a session update that sets permission is refused on every spelling, whatever the rules say", () => {
+    for (const path of updatePaths) {
+      for (const permission of [allowAll, [guard], [{ permission: "bash", pattern: "*", action: "deny" }], "allow", { bash: "allow" }])
+        expect({ path, permission, status: status("PATCH", path, { permission }) }).toEqual({ path, permission, status: 403 })
+      expect({ path, status: status("PATCH", path, { title: "t", permission: allowAll }) }).toEqual({ path, status: 403 })
+    }
+    const r = checkRemotePath("/session/ses_1", "PATCH", new TextEncoder().encode(JSON.stringify({ permission: allowAll })))
+    expect(r).toEqual({ ok: false, status: 403, message: expect.stringContaining("Permission rules") })
+    // duplicate keys: JSON.parse keeps the last one, as the server does
+    expect(status("PATCH", "/session/ses_1", undefined)).toBe(200)
+    expect(checkRemotePath("/session/ses_1", "PATCH", new TextEncoder().encode('{"permission":[],"permission":[{"permission":"*","pattern":"*","action":"allow"}]}')).ok).toBe(false)
+  })
+
+  test("title, archive and metadata edits, and removing a session, still pass", () => {
+    for (const path of updatePaths) {
+      expect({ path, status: status("PATCH", path, { title: "Renamed" }) }).toEqual({ path, status: 200 })
+      expect({ path, status: status("PATCH", path, { time: { archived: 1 } }) }).toEqual({ path, status: 200 })
+      expect({ path, status: status("PATCH", path, { metadata: { pinned: true } }) }).toEqual({ path, status: 200 })
+      expect({ path, status: status("PATCH", path, { title: "t", permission: [] }) }).toEqual({ path, status: 200 })
+      expect({ path, status: status("DELETE", path) }).toEqual({ path, status: 200 })
+    }
+  })
+
+  test("creating a session: allow rules are refused, ask and deny rules (the app's guard rule) pass", () => {
+    for (const path of createPaths) {
+      for (const permission of [allowAll, [guard, ...allowAll], [{ permission: "destructive", pattern: "*", action: "allow" }], [{ permission: "bash", pattern: "*" }], "allow", [null], {}])
+        expect({ path, permission, status: status("POST", path, { permission }) }).toEqual({ path, permission, status: 403 })
+      expect({ path, status: status("POST", path, { permission: [guard] }) }).toEqual({ path, status: 200 })
+      expect({ path, status: status("POST", path, { permission: [guard, { permission: "bash", pattern: "*", action: "deny" }] }) }).toEqual({ path, status: 200 })
+      expect({ path, status: status("POST", path, { title: "New" }) }).toEqual({ path, status: 200 })
+      expect({ path, status: status("POST", path) }).toEqual({ path, status: 200 })
+    }
+  })
+
+  test("a prompt may turn tools off but not on", () => {
+    for (const path of ["/session/ses_1/message", "/session/ses_1/prompt_async", "/api/session/ses_1/message", "/session/ses_1/prompt_async/", "/%73ession/ses_1/message", "/session/ses_1/PROMPT_ASYNC"]) {
+      const parts = [{ type: "text", text: "hi" }]
+      expect({ path, status: status("POST", path, { parts, tools: { bash: true } }) }).toEqual({ path, status: 403 })
+      expect({ path, status: status("POST", path, { parts, tools: { websearch: false, bash: true } }) }).toEqual({ path, status: 403 })
+      expect({ path, status: status("POST", path, { parts, tools: { bash: "yes" } }) }).toEqual({ path, status: 403 })
+      expect({ path, status: status("POST", path, { parts, tools: { websearch: false, webfetch: false } }) }).toEqual({ path, status: 200 })
+      expect({ path, status: status("POST", path, { parts }) }).toEqual({ path, status: 200 })
+    }
+    expect(status("GET", "/session/ses_1/message")).toBe(200)
+  })
+
+  test("replaying sync events (which can carry a session's rules) is refused; other sync calls pass", () => {
+    const events = [{ id: "e1", aggregateID: "ses_1", seq: 0, type: "session.updated", data: { sessionID: "ses_1", info: { permission: allowAll } } }]
+    for (const path of ["/sync/replay", "/sync/replay/", "/api/sync/replay", "/%73ync/replay", "/sync/x/../replay"])
+      expect({ path, status: status("POST", path, { directory: "/tmp/p", events }) }).toEqual({ path, status: 403 })
+    expect(status("POST", "/sync/history", {})).toBe(200)
+  })
+
+  test("over the wire: widening is refused before dispatch, a rename goes through", async () => {
+    const { relay, tunnel, seen } = make()
+    await tunnel.start()
+    const ws = relay.sockets[0]
+    const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64")
+    const send = (id: string, method: string, path: string, body?: unknown) =>
+      ws.send(JSON.stringify({ t: "req", id, method, path, headers: { "content-type": "application/json" }, body: body === undefined ? undefined : b64(body), auth: { idToken: "test:alice" } }))
+    send("w1", "PATCH", "/session/ses_1", { permission: allowAll })
+    send("w2", "POST", "/session", { permission: allowAll })
+    send("w3", "POST", "/session/ses_1/prompt_async", { parts: [], tools: { bash: true } })
+    for (const id of ["w1", "w2", "w3"]) expect((await collect(relay, id)).status).toBe(403)
+    expect(seen.length).toBe(0)
+    send("w4", "PATCH", "/session/ses_1", { title: "Renamed" })
+    send("w5", "POST", "/session", { permission: [guard] })
+    for (const id of ["w4", "w5"]) expect((await collect(relay, id)).status).toBe(200)
+    expect(seen.length).toBe(2)
+  })
+})
+
+describe("17 Nov audit 12 A12-02: only this project's own worktrees are reachable", () => {
+  test("projectWorktreeFolder is <data>/worktree/<project id>, and nothing for a project without one", () => {
+    expect(projectWorktreeFolder("prj_1", "/data")).toBe(nodePath.join("/data", "worktree", "prj_1"))
+    expect(projectWorktreeFolder("global", "/data")).toBeUndefined()
+    expect(projectWorktreeFolder(undefined, "/data")).toBeUndefined()
+    expect(projectWorktreeFolder("", "/data")).toBeUndefined()
+    expect(projectWorktreeFolder("..", "/data")).toBeUndefined()
+    expect(projectWorktreeFolder("../prj_2", "/data")).toBeUndefined()
+  })
+
+  test("another project's worktree is refused, this project's is allowed", () => {
+    const root = "/home/u/proj"
+    const mine = "/home/u/.local/share/praex/worktree/prj_1"
+    const ok = (url: string, worktrees: string | null = mine, headers?: Record<string, string>) =>
+      checkRemoteDirectory("http://opencode.internal" + url, headers, [root], worktrees ?? undefined)
+    expect(ok("/session?directory=/home/u/.local/share/praex/worktree/prj_1/w1")).toBe(true)
+    expect(ok("/file/content?directory=/home/u/.local/share/praex/worktree/prj_1/w1/src&path=a.ts")).toBe(true)
+    expect(ok("/session", mine, { "x-opencode-directory": "/home/u/.local/share/praex/worktree/prj_1/w1" })).toBe(true)
+    expect(ok("/session?directory=/home/u/.local/share/praex/worktree/prj_2/w1")).toBe(false)
+    expect(ok("/session", mine, { "X-Opencode-Directory": "/home/u/.local/share/praex/worktree/prj_2/w1" })).toBe(false)
+    expect(ok("/session?directory=%2Fhome%2Fu%2F.local%2Fshare%2Fpraex%2Fworktree%2Fprj_2%2Fw1")).toBe(false)
+    expect(ok("/session?directory=/home/u/.local/share/praex/worktree/prj_1/../prj_2/w1")).toBe(false)
+    expect(ok("/session?directory=/home/u/.local/share/praex/worktree/prj_10/w1")).toBe(false)
+    expect(ok("/session?directory=/home/u/.local/share/praex/worktree")).toBe(false)
+    // a project without worktrees (no git) has no worktree folder at all
+    expect(ok("/session?directory=/home/u/.local/share/praex/worktree/prj_1/w1", null)).toBe(false)
+    expect(ok("/session?directory=/home/u/proj", null)).toBe(true)
+  })
+
+  test("relative folders are refused, and a relative root (a folder's name) allows nothing", () => {
+    expect(checkRemoteDirectory("http://opencode.internal/session?directory=proj", undefined, ["/home/u/proj"], undefined)).toBe(false)
+    expect(checkRemoteDirectory("http://opencode.internal/session?directory=" + encodeURIComponent(nodePath.resolve("proj")), undefined, "proj", undefined)).toBe(false)
+    expect(checkRemoteDirectory("http://opencode.internal/session", undefined, "proj", undefined)).toBe(true)
+  })
+
+  test("a symlink inside this project's worktree folder that points at another project's worktree is refused", () => {
+    const data = mkdtempSync(nodePath.join(os.tmpdir(), "praex-rc-a12-"))
+    try {
+      const mine = nodePath.join(data, "worktree", "prj_1")
+      const theirs = nodePath.join(data, "worktree", "prj_2", "w1")
+      mkdirSync(nodePath.join(mine, "w1"), { recursive: true })
+      mkdirSync(theirs, { recursive: true })
+      symlinkSync(theirs, nodePath.join(mine, "link"))
+      const ok = (dir: string) => checkRemoteDirectory("http://opencode.internal/session?directory=" + encodeURIComponent(dir), undefined, ["/nonexistent/proj"], mine)
+      expect(ok(nodePath.join(mine, "w1"))).toBe(true)
+      expect(ok(theirs)).toBe(false)
+      expect(ok(nodePath.join(mine, "link"))).toBe(false)
+    } finally {
+      rmSync(data, { recursive: true, force: true })
+    }
+  })
+
+  test("over the wire: the scope's folder and own worktrees pass, another project's worktree gets the accurate refusal", async () => {
+    const trees = "/tmp/praex-data/worktree/prj_1"
+    const { relay, tunnel, seen } = make({ scope: async () => ({ roots: ["/tmp/praex-cli"], worktrees: trees }) })
+    await tunnel.start()
+    const ws = relay.sockets[0]
+    const send = (id: string, path: string, headers: Record<string, string> = {}) =>
+      ws.send(JSON.stringify({ t: "req", id, method: "GET", path, headers, auth: { idToken: "test:alice" } }))
+    send("d1", "/session", { "x-opencode-directory": "/tmp/praex-cli" })
+    send("d2", "/session?directory=/tmp/praex-data/worktree/prj_1/w1")
+    send("d3", "/session?directory=/tmp/praex-data/worktree/prj_2/w1")
+    send("d4", "/session", { "x-opencode-directory": "/tmp/praex-data/worktree/prj_2/w1" })
+    expect((await collect(relay, "d1")).status).toBe(200)
+    expect((await collect(relay, "d2")).status).toBe(200)
+    for (const id of ["d3", "d4"]) {
+      const r = await collect(relay, id)
+      expect(r.status).toBe(403)
+      expect(JSON.parse(r.body)).toEqual({ error: DIRECTORY_REFUSED })
+    }
+    expect(seen.length).toBe(2)
+  })
+
+  test("over the wire: a scope that fails to load allows no folder at all", async () => {
+    const { relay, tunnel, seen } = make({ scope: async () => { throw new Error("lookup failed") } })
+    await tunnel.start()
+    const ws = relay.sockets[0]
+    ws.send(JSON.stringify({ t: "req", id: "f1", method: "GET", path: "/session?directory=/tmp/praex-cli", headers: {}, auth: { idToken: "test:alice" } }))
+    expect((await collect(relay, "f1")).status).toBe(403)
+    ws.send(JSON.stringify({ t: "req", id: "f2", method: "GET", path: "/global/health", headers: {}, auth: { idToken: "test:alice" } }))
+    expect((await collect(relay, "f2")).status).toBe(200)
+    expect(seen.length).toBe(1)
   })
 })

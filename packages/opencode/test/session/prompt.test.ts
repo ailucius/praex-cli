@@ -1116,7 +1116,8 @@ it.instance("subtask child inherits parent session external_directory allow", ()
   }),
 )
 
-noLLMServer.instance("prompt tools replace previous prompt tool rules", () =>
+// 17 Nov (audit 12): prompt tools merge onto the session's rules; they may only turn a tool off, never on
+noLLMServer.instance("prompt tools merge onto earlier rules and can only turn tools off", () =>
   Effect.gen(function* () {
     const prompt = yield* SessionPrompt.Service
     const sessions = yield* Session.Service
@@ -1138,8 +1139,70 @@ noLLMServer.instance("prompt tools replace previous prompt tool rules", () =>
     })
 
     const reloaded = yield* sessions.get(session.id)
-    expect(reloaded.permission).toEqual([{ permission: "read", pattern: "*", action: "allow" }])
-    expect(Permission.evaluate("bash", "anything", reloaded.permission ?? []).action).toBe("ask")
+    // the earlier deny stays and `read: true` adds no allow rule
+    expect(reloaded.permission).toEqual([{ permission: "bash", pattern: "*", action: "deny" }])
+    expect(Permission.evaluate("bash", "anything", reloaded.permission ?? []).action).toBe("deny")
+    expect(Permission.evaluate("read", "anything", reloaded.permission ?? []).action).toBe("ask")
+
+    // the same toggle sent again does not grow the list
+    yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      tools: { bash: false },
+      parts: [{ type: "text", text: "third" }],
+    })
+    expect((yield* sessions.get(session.id)).permission).toEqual([{ permission: "bash", pattern: "*", action: "deny" }])
+  }),
+)
+
+noLLMServer.instance("manual-mode ask rules and the destructive guard survive a prompt with web search off", () =>
+  Effect.gen(function* () {
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    // what the TUI's manual mode pushes onto a session (packages/tui/src/context/local.tsx)
+    const manual = [
+      ...["edit", "bash", "task", "webfetch", "websearch"].map((permission) => ({
+        permission,
+        pattern: "*",
+        action: "ask" as const,
+      })),
+      { permission: "readonly", pattern: "*", action: "allow" as const },
+      { permission: "destructive", pattern: "*", action: "ask" as const },
+    ]
+    const session = yield* sessions.create({ title: "Manual mode", permission: manual })
+
+    yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      tools: { websearch: false, webfetch: false },
+      parts: [{ type: "text", text: "no web please" }],
+    })
+
+    const rules = (yield* sessions.get(session.id)).permission ?? []
+    expect(rules).toEqual([
+      ...manual,
+      { permission: "websearch", pattern: "*", action: "deny" },
+      { permission: "webfetch", pattern: "*", action: "deny" },
+    ])
+    expect(Permission.evaluate("bash", "rm -rf build", rules).action).toBe("ask")
+    expect(Permission.evaluate("edit", "src/a.ts", rules).action).toBe("ask")
+    expect(Permission.evaluate("destructive", "*", rules).action).toBe("ask")
+    expect(Permission.evaluate("websearch", "anything", rules).action).toBe("deny")
+    expect(Permission.evaluate("webfetch", "https://example.com", rules).action).toBe("deny")
+
+    // turning a tool back on through the map loosens nothing
+    yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      tools: { bash: true, websearch: true },
+      parts: [{ type: "text", text: "on again" }],
+    })
+    const after = (yield* sessions.get(session.id)).permission ?? []
+    expect(after).toEqual(rules)
+    expect(Permission.evaluate("bash", "rm -rf build", after).action).toBe("ask")
   }),
 )
 

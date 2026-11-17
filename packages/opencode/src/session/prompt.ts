@@ -1154,13 +1154,25 @@ export const layer = Layer.effect(
       const message = yield* createUserMessage(input)
       yield* sessions.touch(input.sessionID)
 
-      const permissions: PermissionV1.Rule[] = []
-      for (const [t, enabled] of Object.entries(input.tools ?? {})) {
-        permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
-      }
-      if (permissions.length > 0) {
-        session.permission = permissions
-        yield* sessions.setPermission({ sessionID: session.id, permission: permissions })
+      // 17 Nov (audit 12): the deprecated `tools` map used to REPLACE the session's rules, so a prompt sent with web
+      // search off ({ websearch: false, webfetch: false }, the app's toggle) dropped the TUI's manual-mode ask rules and
+      // the destructive-action guard, and the default agent's "*": allow then ran everything without asking. A `tools`
+      // entry may now only turn a tool off: each false adds a deny after the session's own rules (last match wins), and
+      // a true changes nothing. No existing rule is removed or loosened; an identical earlier deny is moved to the end
+      // instead of repeated, so the list does not grow with every prompt (the moved copy still wins, so nothing loosens).
+      const denies: PermissionV1.Rule[] = Object.entries(input.tools ?? {})
+        .filter(([, enabled]) => enabled === false)
+        .map(([permission]) => ({ permission, pattern: "*", action: "deny" as const }))
+      if (denies.length > 0) {
+        const same = (a: PermissionV1.Rule, b: PermissionV1.Rule) =>
+          a.permission === b.permission && a.pattern === b.pattern && a.action === b.action
+        const current = session.permission ?? []
+        const merged = [...current.filter((rule) => !denies.some((deny) => same(rule, deny))), ...denies]
+        const changed = merged.length !== current.length || merged.some((rule, i) => !same(rule, current[i]))
+        if (changed) {
+          session.permission = merged
+          yield* sessions.setPermission({ sessionID: session.id, permission: merged })
+        }
       }
 
       if (input.noReply === true) return message

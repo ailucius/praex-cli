@@ -38,6 +38,11 @@ export type TunnelOptions = {
   credential: (opts?: { force?: boolean }) => Promise<Credential>
   verifyPhone: PhoneVerifier
   meta: () => { name: string; directory: string; title?: string; version?: string; path?: string }
+  /**
+   * The folders a request may name (checkRemoteDirectory). Not meta().directory: that is the folder's name for the
+   * phone's list, not a path.
+   */
+  scope: () => RemoteScope | Promise<RemoteScope>
   onStatus: (s: RemoteStatus) => void
   rotateMs?: number
   drainMs?: number
@@ -114,6 +119,9 @@ const HOST_ONLY = [
   /^\/(api\/)?experimental\/worktree\/reset(\/|$)/i,
   /^\/(api\/)?experimental\/project\/[^/]+\/copy(\/|$)/i,
   /^\/(api\/)?global\/dispose(\/|$)/i,
+  // 17 Nov (audit 12 A12-01): replaying sync events writes session events as given, and a session.updated event can
+  // carry any permission rules; it is the control plane's route between this machine's own servers, not the phone's
+  /^\/(api\/)?sync\/replay(\/|$)/i,
 ]
 // 16 Nov (audit 11 P0-CLI-02): removing a worktree deletes a folder; done at the computer.
 const HOST_ONLY_DELETE = [/^\/(api\/)?experimental\/worktree\/?$/i]
@@ -122,13 +130,44 @@ const HOST_ONLY_DELETE = [/^\/(api\/)?experimental\/worktree\/?$/i]
 // script in commands.start is not), worktree create (a startCommand runs in a shell), and
 // provider auth (a "wellknown" entry makes this machine load that server's remote config,
 // which can add local MCP commands; API keys and OAuth tokens are fine).
-type BodyRule = { re: RegExp; refuse: (body: any, method: string) => boolean }
+type BodyRule = { re: RegExp; refuse: (body: any, method: string) => boolean; message?: string }
 const nonEmpty = (v: unknown) => typeof v === "string" && v.trim() !== ""
+// 17 Nov (audit 12 A12-01): a session's own permission rules come after the agent's and the config's and the last
+// match wins, so a phone that could write them could allow every tool, or lift the destructive-action guard, with
+// no prompt at the computer (the TUI's manual mode is itself a set of session ask rules). Over Remote Control:
+// - editing a session (title, archive, metadata) passes; a body that sets `permission` to anything is refused;
+// - creating a session may only carry ask and deny rules: a new session has no earlier rules of its own, and the
+//   agent's denies are put back after the session's (Permission.withSession), so those can only narrow. The app
+//   creates every session with the guard's ask rule, so refusing all rules there would stop new sessions;
+// - a prompt's deprecated `tools` map becomes session rules, so turning a tool on is refused; turning one off
+//   (the app's web search toggle sends { websearch: false, webfetch: false }) passes.
+const hasValue = (v: unknown) => v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0)
+const narrowingOnly = (rules: unknown) =>
+  Array.isArray(rules) &&
+  rules.every((r) => !!r && typeof r === "object" && ((r as any).action === "ask" || (r as any).action === "deny"))
+const turnsToolOn = (tools: unknown) =>
+  hasValue(tools) && (typeof tools !== "object" || Object.values(tools as object).some((v) => v !== false))
+const PERMISSION_REFUSED =
+  "Permission rules can only be widened on the computer, not over Remote Control. Answer each request from the phone instead."
 const BODY_RULES: BodyRule[] = [
   { re: /^\/(api\/)?project\/[^/]+\/?$/i, refuse: (b) => !!b?.commands && Object.values(b.commands).some(nonEmpty) },
   { re: /^\/(api\/)?experimental\/worktree\/?$/i, refuse: (b) => nonEmpty(b?.startCommand) },
   // removing a credential (DELETE) carries no body and runs nothing
   { re: /^\/(api\/)?auth\/[^/]+\/?$/i, refuse: (b, m) => m !== "DELETE" && b?.type !== "api" && b?.type !== "oauth" },
+  // session create (POST /session)
+  {
+    re: /^\/(api\/)?session\/?$/i,
+    refuse: (b) => hasValue(b?.permission) && !narrowingOnly(b.permission),
+    message: PERMISSION_REFUSED,
+  },
+  // session update (PATCH /session/:id); removing one (DELETE) carries no body
+  { re: /^\/(api\/)?session\/[^/]+\/?$/i, refuse: (b) => hasValue(b?.permission), message: PERMISSION_REFUSED },
+  // prompts (POST /session/:id/message, /session/:id/prompt_async)
+  {
+    re: /^\/(api\/)?session\/[^/]+\/(message|prompt_async)\/?$/i,
+    refuse: (b) => turnsToolOn(b?.tools),
+    message: PERMISSION_REFUSED,
+  },
 ]
 
 export type PathCheck = { ok: true; url: string } | { ok: false; status: 400 | 403; message: string }
@@ -178,7 +217,7 @@ export function checkRemotePath(path: unknown, method = "GET", body?: Uint8Array
         if (!rule.re.test(flat)) continue
         parsed ??= parseBody(body)
         if (!parsed.ok) return { ok: false, status: 400, message: "Bad request body." }
-        if (rule.refuse(parsed.value, method)) return { ok: false, status: 403, message: CONFIG_REFUSED }
+        if (rule.refuse(parsed.value, method)) return { ok: false, status: 403, message: rule.message ?? CONFIG_REFUSED }
       }
     }
     let decoded: string
@@ -201,8 +240,24 @@ export function checkRemotePath(path: unknown, method = "GET", body?: Uint8Array
   return bad
 }
 
-const DIRECTORY_REFUSED = "Over Remote Control only this project's folder is available."
-const worktreeRoot = () => path.join(Global.Path.data, "worktree")
+export const DIRECTORY_REFUSED = "Over Remote Control only this project's folder and its own worktrees are available."
+/**
+ * The folder holding one project's worktrees. Worktrees are created at <data>/worktree/<project id>/<name>
+ * (src/worktree/index.ts), so this is the only part of the worktree folder that belongs to that project.
+ * Undefined for a project without an id of its own (no git, so no worktrees).
+ */
+export function projectWorktreeFolder(projectID: string | undefined, data = Global.Path.data): string | undefined {
+  if (!projectID || projectID === "global" || projectID === "." || projectID === ".." || /[\\/]/.test(projectID))
+    return undefined
+  return path.join(data, "worktree", projectID)
+}
+/** What a remote request may name as its directory; see checkRemoteDirectory. */
+export type RemoteScope = {
+  /** Full paths of the folders Remote Control serves: where it was started, and the folder the computer has open. */
+  roots: string[]
+  /** This project's worktree folder (projectWorktreeFolder), when it has one. */
+  worktrees?: string
+}
 const realOrSelf = (p: string) => {
   try {
     return realpathSync(p)
@@ -212,10 +267,17 @@ const realOrSelf = (p: string) => {
 }
 /**
  * Every directory a remote request names (?directory=, ?location[directory]=, any ...[directory]= query key, and the
- * x-opencode-directory header) must be the project folder Remote Control was started in, a folder inside it, or a
- * folder inside this machine's worktree folder. Symlinks are resolved first.
+ * x-opencode-directory header) must be one of `roots` (the project folder Remote Control was started in), a folder
+ * inside one, or a folder inside `worktrees`, this project's own worktree folder (<data>/worktree/<project id>).
+ * 17 Nov (audit 12 A12-02): the whole <data>/worktree folder used to pass, which let Remote Control for one project
+ * reach the worktrees of every other project on the machine. Symlinks are resolved first.
  */
-export function checkRemoteDirectory(url: string, headers: unknown, root: string, worktreeRoot: string): boolean {
+export function checkRemoteDirectory(
+  url: string,
+  headers: unknown,
+  roots: string | readonly string[],
+  worktrees: string | undefined,
+): boolean {
   const names: string[] = []
   try {
     for (const [k, v] of new URL(url).searchParams) if (k === "directory" || /\[directory\]$/.test(k)) names.push(v)
@@ -227,15 +289,18 @@ export function checkRemoteDirectory(url: string, headers: unknown, root: string
       if (k.toLowerCase() === "x-opencode-directory" && typeof v === "string") names.push(v)
   }
   if (!names.length) return true
-  const base = realOrSelf(root)
-  const trees = realOrSelf(worktreeRoot)
+  // only absolute roots count: a relative one would resolve against wherever this process happens to run
+  const bases = (typeof roots === "string" ? [roots] : roots).filter((r) => path.isAbsolute(r)).map(realOrSelf)
+  const trees = worktrees && path.isAbsolute(worktrees) ? realOrSelf(worktrees) : undefined
+  const inside = (r: string, base: string) => r === base || r.startsWith(base + path.sep)
   return names.every((n) => {
     let d = n
     try {
       d = decodeURIComponent(n)
     } catch {}
+    if (!path.isAbsolute(d)) return false
     const r = realOrSelf(d)
-    return r === base || r.startsWith(base + path.sep) || r.startsWith(trees + path.sep)
+    return bases.some((b) => inside(r, b)) || (!!trees && r.startsWith(trees + path.sep))
   })
 }
 
@@ -542,8 +607,16 @@ export class RemoteTunnel {
     const target = checkRemotePath(f.path, method, body)
     if (!target.ok) return this.reply(conn, id, target.status, target.message)
     // 16 Nov (audit 11 P0-CLI-01): a request may only name this project's folder (or a worktree of it) as its
-    // directory, so Remote Control can not read files or load plugins from anywhere else on the computer
-    if (!checkRemoteDirectory(target.url, f.headers, this.opts.meta().directory, worktreeRoot()))
+    // directory, so Remote Control can not read files or load plugins from anywhere else on the computer.
+    // 17 Nov (audit 12 A12-02): checked against the scope's full paths and this project's own worktree folder; the
+    // check used to get meta().directory, which is only the folder's name, resolved against this process's cwd.
+    let scope: RemoteScope
+    try {
+      scope = await this.opts.scope()
+    } catch {
+      scope = { roots: [] }
+    }
+    if (!checkRemoteDirectory(target.url, f.headers, scope.roots, scope.worktrees))
       return this.reply(conn, id, 403, DIRECTORY_REFUSED)
 
     const ctrl = new AbortController()

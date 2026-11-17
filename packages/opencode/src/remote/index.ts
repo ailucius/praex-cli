@@ -7,7 +7,15 @@ import { Effect } from "effect"
 import { AppRuntime } from "@/effect/app-runtime"
 import { Auth } from "@/auth"
 import { exchangeRefreshToken, expiresAt } from "@/plugin/praex-cloud"
-import { grantTtlFromEnv, RemoteTunnel, SignedOutError, type Credential, type RemoteStatus } from "./tunnel"
+import { InstanceRuntime } from "@/project/instance-runtime"
+import {
+  grantTtlFromEnv,
+  projectWorktreeFolder,
+  RemoteTunnel,
+  SignedOutError,
+  type Credential,
+  type RemoteStatus,
+} from "./tunnel"
 import { fakePhoneVerifier, firebasePhoneVerifier, uidOf } from "./verify"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 
@@ -69,6 +77,13 @@ export async function praexCredential(opts: { force?: boolean; fake?: boolean } 
 
 export type StartResult = { ok: true; status: RemoteStatus } | { ok: false; message: string }
 
+// 17 Nov (audit 12 A12-02): this project's own worktree folder, from the instance already loaded for the folder Remote
+// Control serves (the project id src/worktree uses when it creates one). A failed lookup allows no worktree folder.
+async function projectWorktrees(directory: string) {
+  const ctx = await InstanceRuntime.load({ directory }).catch(() => undefined)
+  return ctx?.project.vcs === "git" ? projectWorktreeFolder(ctx.project.id) : undefined
+}
+
 export function createRemoteControl(input: {
   directory: string
   version?: string
@@ -78,6 +93,10 @@ export function createRemoteControl(input: {
 }) {
   let tunnel: RemoteTunnel | undefined
   let session: { title?: string; sessionID?: string; directory?: string } = {}
+  // Only the folder Remote Control was started in (and its worktrees). Not the session the TUI has open: the phone
+  // can make the TUI select a session, so that folder is not the computer's choice alone.
+  const root = path.resolve(input.directory)
+  let worktrees: string | undefined
   let status: RemoteStatus = { state: "off" }
   const report = (s: RemoteStatus) => {
     status = s
@@ -109,6 +128,10 @@ export function createRemoteControl(input: {
           // where the phone opens: the web UI's own route for this session (or a new one)
           path: `/${base64Encode(session.directory ?? input.directory)}/session${session.sessionID ? `/${session.sessionID}` : ""}`,
         }),
+        scope: async () => {
+          worktrees ??= await projectWorktrees(root)
+          return { roots: [root], worktrees }
+        },
         onStatus: (s) => {
           if (tunnel === next) report(s)
         },
