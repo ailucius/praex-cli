@@ -228,6 +228,10 @@ export const TuiThreadCommand = cmd({
         setSession: (info: { title?: string; sessionID?: string; directory?: string }) => {
           client.call("remoteSession", info).catch(() => {})
         },
+        // 22 Nov (audit 13): the TUI's permission mode, so Remote Control applies it to the sessions the phone uses
+        setMode: (mode: "manual" | "auto") => {
+          client.call("remoteMode", { mode }).catch(() => {})
+        },
         subscribe: (handler: (status: RemoteStatus) => void) => client.on<RemoteStatus>("remote.status", handler),
       }
 

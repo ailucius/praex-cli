@@ -13,6 +13,7 @@ import { useTheme } from "./theme"
 import { useToast } from "../ui/toast"
 import { useRoute } from "./route"
 import { useKV } from "./kv"
+import { PERMISSION_MODE_RULES, permissionModeOf } from "@opencode-ai/core/permission/mode"
 
 export type LocalTheme = {
   secondary: RGBA
@@ -511,30 +512,11 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const session = createSession()
 
     function createPermissionMode() {
-      // Claude Code-style runtime permission modes. The default agent ships "*": "allow", so
-      // the TUI enforces "manual" by pushing session-level ask rules for sensitive tools:
-      // session rules are evaluated after agent rules and matching is last-wins, so the most
-      // recently synced mode decides. "auto" allows every tool, except that the server's
-      // destructive-action guard (packages/opencode/src/permission/guard.ts) still asks for a
-      // short list of destructive or hard-to-undo actions (rm -rf outside the project, sudo,
-      // git push --force, writes outside the project, curl | sh, ...). Both modes carry the
-      // guard rule: subagents inherit it (not the manual asks), so a subagent stops for
-      // `rm -rf ~` in either mode. Headless `praex run` is untouched. An agent's own denies (the plan agent's
-      // edit deny) still hold in both modes: Permission.withSession puts them back after these rules (10-28).
-      // write.ts + apply_patch.ts ask as "edit"; shell.ts asks as "bash" (ShellID.ToolID)
-      const SENSITIVE = ["edit", "bash", "task", "webfetch", "websearch"]
-      const GUARD = { permission: "destructive", pattern: "*", action: "ask" as const }
-      // 10-22: read-only shell commands (ls, cat, git status, grep ...) run without asking in manual mode,
-      // like Claude Code (packages/opencode/src/permission/readonly.ts); the guard still runs after it
-      const READONLY = { permission: "readonly", pattern: "*", action: "allow" as const }
-      const RULES = {
-        manual: [
-          ...SENSITIVE.map((permission) => ({ permission, pattern: "*", action: "ask" as const })),
-          READONLY,
-          GUARD,
-        ],
-        auto: [{ permission: "*", pattern: "*", action: "allow" as const }, GUARD],
-      }
+      // Claude Code-style runtime permission modes: the TUI enforces "manual" by pushing session-level ask rules
+      // for sensitive tools, and "auto" by pushing a blanket allow plus the destructive-action guard.
+      // 22 Nov (audit 13): the rules of each mode, and the notes on them, live in @opencode-ai/core/permission/mode
+      // now, so the Remote Control tunnel applies the same rules to a session the phone uses.
+      const RULES = PERMISSION_MODE_RULES
       // 10-28 (founder: "I have automode on and it still asks"): the mode used to reset to manual on every launch.
       // It is kept in the TUI's kv state now, so auto stays on until it is switched off.
       const kv = useKV()
@@ -621,7 +603,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
   },
 })
 
-// A stored mode from kv.json: anything but "auto" (missing, old or hand-edited values) is manual.
-export function permissionModeOf(value: unknown): "manual" | "auto" {
-  return value === "auto" ? "auto" : "manual"
-}
+// 22 Nov (audit 13): permissionModeOf moved to @opencode-ai/core/permission/mode with the mode rules; still exported
+// from here for the code and tests that import it from this file.
+export { permissionModeOf }

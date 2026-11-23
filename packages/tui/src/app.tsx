@@ -149,6 +149,8 @@ export type RemoteControl = {
   start: () => Promise<{ ok: true; status: RemoteStatus } | { ok: false; message: string }>
   stop: () => Promise<void>
   setSession: (info: { title?: string; sessionID?: string; directory?: string }) => void
+  /** 22 Nov (audit 13): the permission mode chosen here, which Remote Control applies to the sessions the phone uses. */
+  setMode: (mode: "manual" | "auto") => void
   subscribe: (handler: (status: RemoteStatus) => void) => () => void
 }
 
@@ -484,6 +486,11 @@ function App(props: {
       sessionID: session?.id,
       directory: session?.directory,
     })
+  })
+  // 22 Nov (audit 13): the worker is told the permission mode at start and on every change, whether or not Remote
+  // Control is on yet, so a tunnel started later already has it. Until it is told, the worker assumes manual.
+  createEffect(() => {
+    props.remote?.setMode(local.permission.current())
   })
 
   const [terminalTitleEnabled, setTerminalTitleEnabled] = createSignal(kv.get("terminal_title_enabled", true))

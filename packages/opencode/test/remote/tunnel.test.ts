@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { GRANT_EXPIRED, GRANT_TTL_MS, grantTtlFromEnv, RemoteTunnel, SignedOutError, checkRemotePath, checkRemoteDirectory, DIRECTORY_REFUSED, projectWorktreeFolder, type RemoteStatus } from "../../src/remote/tunnel"
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs"
+import { GRANT_EXPIRED, GRANT_TTL_MS, grantTtlFromEnv, RemoteTunnel, SignedOutError, checkRemotePath, checkRemoteDirectory, checkRemoteParts, remoteModelSession, DIRECTORY_REFUSED, MODE_REFUSED, PARTS_REFUSED, SUBTASK_REFUSED, projectWorktreeFolder, type RemoteStatus } from "../../src/remote/tunnel"
+import { PERMISSION_MODE_RULES } from "@opencode-ai/core/permission/mode"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import nodePath from "node:path"
+import { pathToFileURL } from "node:url"
 import { fakePhoneVerifier, uidOf } from "../../src/remote/verify"
 import { relayConfig } from "../../src/remote"
 
@@ -74,12 +76,20 @@ function make(opts: Partial<ConstructorParameters<typeof RemoteTunnel>[0]> = {})
   relay = stubRelay()
   const statuses: RemoteStatus[] = []
   const seen: Request[] = []
+  // 22 Nov (audit 13): the tunnel's own PATCH that puts the computer's permission mode on a session, kept apart
+  // from the phone's requests in `seen` (a phone request that sets `permission` is refused before dispatch)
+  const applied: Array<{ path: string; body: any; headers: Headers }> = []
   tunnel = new RemoteTunnel({
     relayUrl: relay.url,
     link: "praex.ai/rc",
     dispatch: async (req) => {
+      const text = req.method === "POST" || req.method === "PATCH" ? await req.text() : ""
+      if (req.method === "PATCH" && text.includes('"permission"')) {
+        applied.push({ path: new URL(req.url).pathname + new URL(req.url).search, body: JSON.parse(text), headers: req.headers })
+        return Response.json(true)
+      }
       seen.push(req)
-      const body = req.method === "POST" ? await req.text() : ""
+      const body = req.method === "POST" ? text : ""
       return Response.json({ path: new URL(req.url).pathname + new URL(req.url).search, method: req.method, body })
     },
     credential: async () => ({ token: "test:alice", uid: "alice" }),
@@ -89,7 +99,7 @@ function make(opts: Partial<ConstructorParameters<typeof RemoteTunnel>[0]> = {})
     onStatus: (s) => statuses.push(s),
     ...opts,
   })
-  return { relay, tunnel, statuses, seen }
+  return { relay, tunnel, statuses, seen, applied }
 }
 
 describe("RemoteTunnel", () => {
@@ -707,7 +717,8 @@ describe("17 Nov audit 12 A12-01: session permission rules can not be widened ov
   const allowAll = [{ permission: "*", pattern: "*", action: "allow" }]
   const guard = { permission: "destructive", pattern: "*", action: "ask" }
   const updatePaths = ["/session/ses_1", "/session/ses_1/", "/api/session/ses_1", "/SESSION/ses_1", "/%73ession/ses_1", "/session/x/../ses_1", "/session//ses_1", "/session/ses_1?directory=%2Ftmp"]
-  const createPaths = ["/session", "/session/", "/api/session", "/Session", "/%73ession", "/session/x/..", "/session?directory=%2Ftmp"]
+  // 22 Nov (audit 13): "/api/session" left this list; creating a session through the newer API is refused outright
+  const createPaths = ["/session", "/session/", "/Session", "/%73ession", "/session/x/..", "/session?directory=%2Ftmp"]
 
   test("a session update that sets permission is refused on every spelling, whatever the rules say", () => {
     for (const path of updatePaths) {
@@ -759,7 +770,8 @@ describe("17 Nov audit 12 A12-01: session permission rules can not be widened ov
     const events = [{ id: "e1", aggregateID: "ses_1", seq: 0, type: "session.updated", data: { sessionID: "ses_1", info: { permission: allowAll } } }]
     for (const path of ["/sync/replay", "/sync/replay/", "/api/sync/replay", "/%73ync/replay", "/sync/x/../replay"])
       expect({ path, status: status("POST", path, { directory: "/tmp/p", events }) }).toEqual({ path, status: 403 })
-    expect(status("POST", "/sync/history", {})).toBe(200)
+    // 22 Nov (audit 13): /sync/history was the passing example here; it is refused now (see the audit 13 tests)
+    expect(status("POST", "/sync/start", {})).toBe(200)
   })
 
   test("over the wire: widening is refused before dispatch, a rename goes through", async () => {
@@ -863,5 +875,406 @@ describe("17 Nov audit 12 A12-02: only this project's own worktrees are reachabl
     ws.send(JSON.stringify({ t: "req", id: "f2", method: "GET", path: "/global/health", headers: {}, auth: { idToken: "test:alice" } }))
     expect((await collect(relay, "f2")).status).toBe(200)
     expect(seen.length).toBe(1)
+  })
+})
+
+describe("22 Nov audit 13: TUI and sync routes, the newer API's session writes, subtask parts", () => {
+  const json = (v: unknown) => new TextEncoder().encode(JSON.stringify(v))
+  const status = (m: string, p: string, b?: unknown) => {
+    const r = checkRemotePath(p, m, b === undefined ? undefined : json(b))
+    return r.ok ? 200 : r.status
+  }
+  const hostOnly = "This can only be done on the computer, not over Remote Control."
+
+  test("/tui, /sync/history and /sync/steal are refused for every method, however they are spelled", () => {
+    const paths = [
+      "/tui",
+      "/tui/",
+      "/tui/publish",
+      "/tui/execute-command",
+      "/tui/control/next",
+      "/tui/append-prompt?directory=%2Ftmp",
+      "/TUI/Publish",
+      "/%74ui/publish",
+      "/%2574ui/publish",
+      "/tui//publish",
+      "/session/../tui/publish",
+      "/api/tui/publish",
+      "/sync/history",
+      "/sync/history/",
+      "/sync/steal",
+      "/SYNC/History",
+      "/sync/%68istory",
+      "/sync/%2568istory",
+      "/sync//steal",
+      "/sync/x/../steal",
+      "/api/sync/history",
+      "/api/sync/steal",
+    ]
+    for (const method of ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE", "PURGE"])
+      for (const path of paths) expect({ method, path, status: status(method, path) }).toEqual({ method, path, status: 403 })
+    expect(checkRemotePath("/tui/publish", "POST", json({ type: "tui.command.execute", properties: { command: "agent.cycle" } }))).toEqual({ ok: false, status: 403, message: hostOnly })
+    expect(checkRemotePath("/sync/history", "POST", json({}))).toEqual({ ok: false, status: 403, message: hostOnly })
+    expect(checkRemotePath("/tui/control/next", "GET")).toEqual({ ok: false, status: 403, message: hostOnly })
+  })
+
+  test("neighbouring routes still pass", () => {
+    for (const path of ["/tuix", "/session/x/tui", "/sync/start", "/sync/historyx", "/sync", "/find/file?query=tui"])
+      for (const method of ["GET", "POST"]) expect({ method, path, status: status(method, path) }).toEqual({ method, path, status: 200 })
+  })
+
+  test("the newer API: creating a session and prompting are refused, reads and permission and question replies pass", () => {
+    for (const method of ["POST", "PUT", "PATCH", "DELETE", "PURGE"]) {
+      for (const path of ["/api/session", "/api/session/", "/API/Session", "/api/%73ession", "/api//session", "/api/session?directory=%2Ftmp", "/api/session/ses_1/prompt", "/api/session/ses_1/prompt/", "/api/session/ses_1/PROMPT", "/api/session/ses_1/%70rompt", "/api/session/x/../ses_1/prompt"])
+        expect({ method, path, status: status(method, path, {}) }).toEqual({ method, path, status: 403 })
+    }
+    expect(checkRemotePath("/api/session", "POST", json({ location: { directory: "/home/u/.ssh" } }))).toEqual({ ok: false, status: 403, message: hostOnly })
+    // even with the ask rule the older route accepts
+    expect(status("POST", "/api/session", { permission: [{ permission: "destructive", pattern: "*", action: "ask" }] })).toBe(403)
+    for (const path of ["/api/session", "/api/session/ses_1", "/api/session/ses_1/message", "/api/session/ses_1/context", "/api/session/ses_1/permission", "/api/session/ses_1/question"])
+      for (const method of ["GET", "HEAD", "OPTIONS"]) expect({ method, path, status: status(method, path) }).toEqual({ method, path, status: 200 })
+    for (const path of ["/api/session/ses_1/permission/per_1/reply", "/api/session/ses_1/question/que_1/reply", "/api/session/ses_1/question/que_1/reject", "/api/session/ses_1/prompts"])
+      expect({ path, status: status("POST", path, { reply: "once" }) }).toEqual({ path, status: 200 })
+    // the older routes the phone app uses stay open
+    expect(status("POST", "/session", { title: "New" })).toBe(200)
+    expect(status("POST", "/session/ses_1/prompt_async", { parts: [{ type: "text", text: "hi" }] })).toBe(200)
+  })
+
+  test("a subtask part is refused on the prompt and command routes; other parts pass", () => {
+    const subtask = { type: "subtask", agent: "general", description: "d", prompt: "run rm -rf ~" }
+    const text = { type: "text", text: "hi" }
+    for (const path of ["/session/ses_1/message", "/session/ses_1/prompt_async", "/session/ses_1/command", "/session/ses_1/command/", "/api/session/ses_1/message", "/SESSION/ses_1/Prompt_Async", "/%73ession/ses_1/command", "/session/ses_1/%63ommand", "/session//ses_1/message"]) {
+      expect({ path, status: status("POST", path, { parts: [subtask] }) }).toEqual({ path, status: 403 })
+      expect({ path, status: status("POST", path, { parts: [text, subtask] }) }).toEqual({ path, status: 403 })
+      expect({ path, status: status("POST", path, { parts: [text] }) }).toEqual({ path, status: 200 })
+      expect({ path, status: status("POST", path, { parts: [text, { type: "agent", name: "general" }, { type: "file", mime: "image/png", url: "data:image/png;base64,AAAA" }] }) }).toEqual({ path, status: 200 })
+      expect({ path, status: status("POST", path, { command: "review", arguments: "" }) }).toEqual({ path, status: 200 })
+    }
+    expect(checkRemotePath("/session/ses_1/prompt_async", "POST", json({ parts: [subtask] }))).toEqual({ ok: false, status: 403, message: SUBTASK_REFUSED })
+    expect(SUBTASK_REFUSED).toBe("Subagent tasks can not be started over Remote Control.")
+    // duplicate keys: JSON.parse keeps the last one, as the server does
+    expect(checkRemotePath("/session/ses_1/command", "POST", new TextEncoder().encode('{"parts":[],"parts":[{"type":"subtask"}]}')).ok).toBe(false)
+    // a command body that is not JSON is refused, so its parts can not go unread
+    expect(status("POST", "/session/ses_1/command", undefined)).toBe(200)
+    expect(checkRemotePath("/session/ses_1/command", "POST", new TextEncoder().encode("{not json"))).toEqual({ ok: false, status: 400, message: "Bad request body." })
+  })
+})
+
+describe("22 Nov audit 13: files attached by file: url must be in the project", () => {
+  test("a file: url must point into a root or this project's worktree folder; other urls pass", () => {
+    const base = realpathSync(mkdtempSync(nodePath.join(os.tmpdir(), "praex-rc-a13-")))
+    try {
+      const root = nodePath.join(base, "proj")
+      const trees = nodePath.join(base, "data", "worktree", "prj_1")
+      const outside = nodePath.join(base, "home")
+      mkdirSync(nodePath.join(root, "src"), { recursive: true })
+      mkdirSync(nodePath.join(trees, "w1"), { recursive: true })
+      mkdirSync(outside, { recursive: true })
+      writeFileSync(nodePath.join(root, "src", "a.ts"), "export {}\n")
+      writeFileSync(nodePath.join(outside, "id_ed25519"), "secret\n")
+      symlinkSync(outside, nodePath.join(root, "link"))
+      const file = (p: string) => ({ type: "file", mime: "text/plain", url: pathToFileURL(p).href })
+      const ok = (body: unknown) => checkRemoteParts(body, [root], trees)
+
+      expect(ok({ parts: [{ type: "text", text: "hi" }] })).toBe(true)
+      expect(ok({ parts: [file(nodePath.join(root, "src", "a.ts"))] })).toBe(true)
+      expect(ok({ parts: [{ ...file(nodePath.join(root, "src", "a.ts")), url: pathToFileURL(nodePath.join(root, "src", "a.ts")).href + "?start=1&end=2" }] })).toBe(true)
+      expect(ok({ parts: [file(root)] })).toBe(true)
+      expect(ok({ parts: [file(nodePath.join(root, "not-there-yet.ts"))] })).toBe(true)
+      expect(ok({ parts: [file(nodePath.join(trees, "w1", "b.ts"))] })).toBe(true)
+      expect(ok({ parts: [{ type: "file", mime: "image/png", url: "data:image/png;base64,AAAA" }] })).toBe(true)
+      expect(ok({ parts: [{ type: "file", mime: "text/plain", url: "https://example.com/a.txt" }] })).toBe(true)
+      expect(ok({ parts: [{ type: "file", mime: "text/plain", url: "not a url" }] })).toBe(true)
+      expect(ok({ command: "review", arguments: "", parts: [file(nodePath.join(root, "src", "a.ts"))] })).toBe(true)
+
+      const refused = [
+        pathToFileURL(nodePath.join(outside, "id_ed25519")).href,
+        "file:///etc/passwd",
+        "FILE:///etc/passwd",
+        "  file:///etc/passwd",
+        "file:/etc/passwd",
+        "file://localhost/etc/passwd",
+        "file://attacker.example/etc/passwd",
+        "file:///etc/passwd?start=1&end=2",
+        // a symlink in the project that points out of it
+        pathToFileURL(nodePath.join(root, "link", "id_ed25519")).href,
+        // dot segments and encoded dot segments leave the project
+        pathToFileURL(root).href + "/../home/id_ed25519",
+        pathToFileURL(root).href + "/%2e%2e/home/id_ed25519",
+        // an encoded slash can not be turned into a path at all
+        pathToFileURL(root).href + "/src%2Fa.ts",
+        // the sibling folder whose name starts the same, and the machine's whole worktree folder
+        pathToFileURL(root + "X").href,
+        pathToFileURL(nodePath.join(base, "data", "worktree", "prj_2", "w1", "b.ts")).href,
+        pathToFileURL(trees).href,
+      ]
+      for (const url of refused) {
+        expect({ url, ok: ok({ parts: [{ type: "file", mime: "text/plain", url }] }) }).toEqual({ url, ok: false })
+        // one bad part among good ones is enough
+        expect({ url, ok: ok({ parts: [file(nodePath.join(root, "src", "a.ts")), { type: "file", mime: "text/plain", url }] }) }).toEqual({ url, ok: false })
+        // the body's own url counts too
+        expect({ url, ok: ok({ url }) }).toEqual({ url, ok: false })
+      }
+      expect(ok({ url: pathToFileURL(nodePath.join(root, "src", "a.ts")).href })).toBe(true)
+      // nothing to look at
+      for (const body of [undefined, null, "text", 7, [], {}, { parts: "x" }, { parts: [null, 1, "s", {}] }, { url: 5 }]) expect(ok(body)).toBe(true)
+      // a relative root (a folder's name) allows nothing, and no worktree folder means none is allowed
+      expect(checkRemoteParts({ parts: [file(nodePath.join(root, "src", "a.ts"))] }, "proj", undefined)).toBe(false)
+      expect(checkRemoteParts({ parts: [file(nodePath.join(trees, "w1", "b.ts"))] }, [root], undefined)).toBe(false)
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  test("over the wire: a file part outside the project is refused before dispatch, on the prompt and command routes", async () => {
+    const { relay, tunnel, seen, applied } = make()
+    await tunnel.start()
+    const ws = relay.sockets[0]
+    const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64")
+    const send = (id: string, method: string, path: string, body?: unknown) =>
+      ws.send(JSON.stringify({ t: "req", id, method, path, headers: { "content-type": "application/json" }, body: body === undefined ? undefined : b64(body), auth: { idToken: "test:alice" } }))
+    const secret = { type: "file", mime: "text/plain", filename: "id_ed25519", url: "file:///home/u/.ssh/id_ed25519" }
+    send("p1", "POST", "/session/ses_1/message", { noReply: true, parts: [secret] })
+    send("p2", "POST", "/session/ses_1/prompt_async", { parts: [{ type: "text", text: "read this" }, secret] })
+    send("p3", "POST", "/session/ses_1/command", { command: "review", arguments: "", parts: [secret] })
+    send("p4", "POST", "/%73ession/ses_1/message", { noReply: true, parts: [secret] })
+    for (const id of ["p1", "p2", "p3", "p4"]) {
+      const r = await collect(relay, id)
+      expect({ id, status: r.status }).toEqual({ id, status: 403 })
+      expect(JSON.parse(r.body)).toEqual({ error: PARTS_REFUSED })
+    }
+    expect(seen.length).toBe(0)
+    // refused before the session is touched at all
+    expect(applied.length).toBe(0)
+    send("p5", "POST", "/session/ses_1/prompt_async", { parts: [{ type: "file", mime: "text/plain", url: "file:///tmp/praex-cli/src/a.ts?start=3&end=9" }, { type: "file", mime: "image/png", url: "data:image/png;base64,AAAA" }] })
+    expect((await collect(relay, "p5")).status).toBe(200)
+    expect(seen.length).toBe(1)
+  })
+})
+
+describe("22 Nov audit 13: requests are marked as coming over Remote Control", () => {
+  test("x-praex-remote is set by the tunnel on every request, and what the phone sent under that name is dropped", async () => {
+    const { relay, tunnel, seen, applied } = make()
+    await tunnel.start()
+    const ws = relay.sockets[0]
+    const body = Buffer.from(JSON.stringify({ command: "review", arguments: "" })).toString("base64")
+    ws.send(JSON.stringify({ t: "req", id: "m1", method: "POST", path: "/session/ses_1/command", headers: { "content-type": "application/json", "X-Praex-Remote": "0", "x-praex-remote": "no", "X-PRAEX-REMOTE": "" }, body, auth: { idToken: "test:alice" } }))
+    expect((await collect(relay, "m1")).status).toBe(200)
+    ws.send(JSON.stringify({ t: "req", id: "m2", method: "GET", path: "/session", headers: {}, auth: { idToken: "test:alice" } }))
+    expect((await collect(relay, "m2")).status).toBe(200)
+    ws.send(JSON.stringify({ t: "req", id: "m3", method: "GET", path: "/session", headers: { "x-praex-remote": "0", "x-other": "kept" }, auth: { idToken: "test:alice" } }))
+    expect((await collect(relay, "m3")).status).toBe(200)
+    expect(seen.map((r) => r.headers.get("x-praex-remote"))).toEqual(["1", "1", "1"])
+    expect(seen[0].headers.get("content-type")).toBe("application/json")
+    expect(seen[2].headers.get("x-other")).toBe("kept")
+    // the tunnel's own permission mode update carries it too
+    expect(applied.map((a) => a.headers.get("x-praex-remote"))).toEqual(["1"])
+  })
+})
+
+describe("22 Nov audit 13: the computer's permission mode is put on a session before the model runs in it", () => {
+  const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64")
+  const sender = (ws: any) => (id: string, method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>
+    ws.send(JSON.stringify({ t: "req", id, method, path, headers: { "content-type": "application/json", ...headers }, body: body === undefined ? undefined : b64(body), auth: { idToken: "test:alice" } }))
+  const prompt = { parts: [{ type: "text", text: "hi" }] }
+
+  test("remoteModelSession names the session of a prompt, command, init or summarize, and nothing else", () => {
+    for (const path of ["/session/ses_1/message", "/session/ses_1/prompt_async", "/session/ses_1/command", "/session/ses_1/init", "/session/ses_1/summarize", "/session/ses_1/message/", "/SESSION/ses_1/Prompt_Async", "/session//ses_1/message", "/api/session/ses_1/message"])
+      expect({ path, session: remoteModelSession(path) }).toEqual({ path, session: { id: "ses_1" } })
+    expect(remoteModelSession("/session/01HX-abc_DEF/command")).toEqual({ id: "01HX-abc_DEF" })
+    // a session id that is not a plain id, or a route that only shows after decoding
+    for (const path of ["/session/ses%201/message", "/session/a%2Fb/prompt_async", "/session/ses_1%3Fx/command", "/session/ses.1/message", "/session/ses_1/%6dessage", "/%73ession/ses_1/message", "/session/ses_1/prompt%5Fasync", "/session/%2573es_1/init"])
+      expect({ path, session: remoteModelSession(path) }).toEqual({ path, session: "bad" })
+    for (const path of ["/session", "/session/ses_1", "/session/ses_1/abort", "/session/ses_1/fork", "/session/ses_1/messages", "/session/ses_1/message/msg_1", "/session/ses_1/permissions/per_1", "/permission/per_1/reply", "/global/health", "/file/100%25"])
+      expect({ path, session: remoteModelSession(path) }).toEqual({ path, session: undefined })
+  })
+
+  test("the mode is applied once per session, before the phone's request, with the same query and headers", async () => {
+    const order: string[] = []
+    const { relay, tunnel, seen, applied } = make()
+    const inner = (tunnel as any).opts.dispatch
+    ;(tunnel as any).opts.dispatch = async (req: Request) => {
+      order.push(`${req.method} ${new URL(req.url).pathname}`)
+      return inner(req)
+    }
+    await tunnel.start()
+    const send = sender(relay.sockets[0])
+    send("a1", "POST", "/session/ses_1/prompt_async?directory=/tmp/praex-cli", prompt, { "x-opencode-directory": "/tmp/praex-cli", "content-length": "999" })
+    expect((await collect(relay, "a1")).status).toBe(200)
+    expect(order).toEqual(["PATCH /session/ses_1", "POST /session/ses_1/prompt_async"])
+    expect(applied).toHaveLength(1)
+    expect(applied[0].path).toBe("/session/ses_1?directory=/tmp/praex-cli")
+    // no mode option given: manual
+    expect(applied[0].body).toEqual({ permission: PERMISSION_MODE_RULES.manual })
+    expect(applied[0].body.permission).toEqual([
+      ...["edit", "bash", "task", "webfetch", "websearch"].map((permission) => ({ permission, pattern: "*", action: "ask" })),
+      { permission: "readonly", pattern: "*", action: "allow" },
+      { permission: "destructive", pattern: "*", action: "ask" },
+    ])
+    expect(applied[0].headers.get("content-type")).toBe("application/json")
+    expect(applied[0].headers.get("x-opencode-directory")).toBe("/tmp/praex-cli")
+    // the phone's content-length belongs to the phone's body
+    expect(applied[0].headers.get("content-length")).not.toBe("999")
+
+    // the same session again, on every route that makes the model run: nothing more is sent
+    send("a2", "POST", "/session/ses_1/message", prompt)
+    send("a3", "POST", "/session/ses_1/command", { command: "review", arguments: "" })
+    send("a4", "POST", "/session/ses_1/init", { providerID: "p", modelID: "m", messageID: "msg_1" })
+    send("a5", "POST", "/session/ses_1/summarize", { providerID: "p", modelID: "m" })
+    for (const id of ["a2", "a3", "a4", "a5"]) expect((await collect(relay, id)).status).toBe(200)
+    expect(applied).toHaveLength(1)
+    expect(seen).toHaveLength(5)
+
+    // another session gets its own, whichever route comes first
+    const others: Array<[string, string, unknown]> = [
+      ["a6", "/session/ses_2/command/", { command: "review", arguments: "" }],
+      ["a7", "/session/ses_3/init", { providerID: "p", modelID: "m", messageID: "msg_1" }],
+      ["a8", "/SESSION/ses_4/Message", prompt],
+      ["a9", "/session/ses_5/summarize", { providerID: "p", modelID: "m", auto: true }],
+    ]
+    for (const [id, path, body] of others) {
+      send(id, "POST", path, body)
+      expect((await collect(relay, id)).status).toBe(200)
+    }
+    expect(applied.map((a) => a.path)).toEqual(["/session/ses_1?directory=/tmp/praex-cli", "/session/ses_2", "/session/ses_3", "/session/ses_4", "/session/ses_5"])
+  })
+
+  test("a mode change on the computer is applied again on the next request; a mode that throws counts as manual", async () => {
+    let mode: any = "auto"
+    const { relay, tunnel, applied } = make({ mode: () => (mode === "throw" ? (() => { throw new Error("no mode") })() : mode) })
+    await tunnel.start()
+    const send = sender(relay.sockets[0])
+    const ask = async (id: string) => {
+      send(id, "POST", "/session/ses_1/prompt_async", prompt)
+      expect((await collect(relay, id)).status).toBe(200)
+    }
+    await ask("c1")
+    await ask("c2")
+    expect(applied.map((a) => a.body)).toEqual([{ permission: PERMISSION_MODE_RULES.auto }])
+    mode = "manual"
+    await ask("c3")
+    await ask("c4")
+    mode = "auto"
+    await ask("c5")
+    mode = "throw"
+    await ask("c6")
+    await ask("c7")
+    // a value that is not a mode is manual too, which is already on the session
+    mode = "yolo"
+    await ask("c8")
+    expect(applied.map((a) => a.body)).toEqual([
+      { permission: PERMISSION_MODE_RULES.auto },
+      { permission: PERMISSION_MODE_RULES.manual },
+      { permission: PERMISSION_MODE_RULES.auto },
+      { permission: PERMISSION_MODE_RULES.manual },
+    ])
+    expect(PERMISSION_MODE_RULES.auto).toEqual([{ permission: "*", pattern: "*", action: "allow" }, { permission: "destructive", pattern: "*", action: "ask" }])
+  })
+
+  test("when the mode can not be applied the phone's request is not dispatched", async () => {
+    let fail: "status" | "throw" | undefined = "status"
+    const dispatched: string[] = []
+    const { relay, tunnel } = make({
+      dispatch: async (req) => {
+        if (req.method === "PATCH") {
+          if (fail === "throw") throw new Error("instance failed to load")
+          return fail === "status" ? Response.json({ error: "not found" }, { status: 404 }) : Response.json(true)
+        }
+        dispatched.push(`${req.method} ${new URL(req.url).pathname}`)
+        return Response.json(true)
+      },
+    })
+    await tunnel.start()
+    const send = sender(relay.sockets[0])
+    send("f1", "POST", "/session/ses_1/prompt_async", prompt)
+    const f1 = await collect(relay, "f1")
+    expect(f1.status).toBe(503)
+    expect(JSON.parse(f1.body)).toEqual({ error: MODE_REFUSED })
+    fail = "throw"
+    send("f2", "POST", "/session/ses_1/command", { command: "review", arguments: "" })
+    const f2 = await collect(relay, "f2")
+    expect(f2.status).toBe(503)
+    expect(JSON.parse(f2.body)).toEqual({ error: MODE_REFUSED })
+    expect(dispatched).toEqual([])
+    // a failure is not remembered: the next request tries again, and goes through once the update works
+    fail = undefined
+    send("f3", "POST", "/session/ses_1/prompt_async", prompt)
+    expect((await collect(relay, "f3")).status).toBe(200)
+    expect(dispatched).toEqual(["POST /session/ses_1/prompt_async"])
+    // other routes were never held up by it
+    fail = "status"
+    send("f4", "GET", "/session/ses_2/message")
+    send("f5", "POST", "/session/ses_2/abort")
+    for (const id of ["f4", "f5"]) expect((await collect(relay, id)).status).toBe(200)
+  })
+
+  test("a session id that is not a plain id, or an encoded spelling of the route, is refused as a bad path", async () => {
+    const { relay, tunnel, seen, applied } = make()
+    await tunnel.start()
+    const send = sender(relay.sockets[0])
+    const paths = ["/session/ses%201/message", "/session/a%2Fb/prompt_async", "/session/ses.1/command", "/session/ses_1/%6dessage", "/%73ession/ses_1/prompt_async", "/session/ses_1/%69nit", "/session/ses_1%3Fx/summarize"]
+    for (const [i, path] of paths.entries()) {
+      send(`i${i}`, "POST", path, prompt)
+      const r = await collect(relay, `i${i}`)
+      expect({ path, status: r.status }).toEqual({ path, status: 400 })
+      expect(JSON.parse(r.body)).toEqual({ error: "Bad path." })
+    }
+    expect(seen).toHaveLength(0)
+    expect(applied).toHaveLength(0)
+    // reading the same odd spellings is not a request that makes the model run
+    send("i-read", "GET", "/session/ses_1/%6dessage")
+    expect((await collect(relay, "i-read")).status).toBe(200)
+    expect(applied).toHaveLength(0)
+  })
+
+  test("routes that do not make the model run are dispatched without touching the session's rules", async () => {
+    const { relay, tunnel, seen, applied } = make()
+    await tunnel.start()
+    const send = sender(relay.sockets[0])
+    const calls: Array<[string, string, unknown?]> = [
+      ["POST", "/session", { title: "New" }],
+      ["PATCH", "/session/ses_1", { title: "Renamed" }],
+      ["DELETE", "/session/ses_1"],
+      ["POST", "/session/ses_1/abort"],
+      ["POST", "/session/ses_1/fork", {}],
+      ["POST", "/session/ses_1/revert", { messageID: "msg_1" }],
+      ["POST", "/permission/per_1/reply", { reply: "once" }],
+      ["POST", "/session/ses_1/permissions/per_1", { response: "once" }],
+      ["GET", "/session/ses_1/message"],
+      ["GET", "/session/ses_1/command"],
+      ["HEAD", "/session/ses_1/prompt_async"],
+      ["OPTIONS", "/session/ses_1/message"],
+    ]
+    for (const [i, [method, path, body]] of calls.entries()) {
+      send(`n${i}`, method, path, body)
+      expect({ method, path, status: (await collect(relay, `n${i}`)).status }).toEqual({ method, path, status: 200 })
+    }
+    expect(seen).toHaveLength(calls.length)
+    expect(applied).toHaveLength(0)
+  })
+
+  test("the memory of applied modes is capped, and stop() clears it", async () => {
+    let patches = 0
+    const { tunnel } = make({
+      dispatch: async () => {
+        patches++
+        return Response.json(true)
+      },
+    })
+    const apply = (id: string) => (tunnel as any).applyMode(id, "http://opencode.internal/session/x/message", new Headers(), new AbortController().signal)
+    for (let i = 0; i < 505; i++) expect(await apply(`ses_${i}`)).toBe(true)
+    expect(patches).toBe(505)
+    const modes: Map<string, string> = (tunnel as any).modes
+    expect(modes.size).toBe(500)
+    // the oldest were dropped, so they are applied again; a recent one is not
+    expect(modes.has("ses_0")).toBe(false)
+    expect(modes.has("ses_4")).toBe(false)
+    expect(modes.has("ses_5")).toBe(true)
+    await apply("ses_504")
+    expect(patches).toBe(505)
+    await apply("ses_0")
+    expect(patches).toBe(506)
+    tunnel.stop()
+    expect(modes.size).toBe(0)
   })
 })

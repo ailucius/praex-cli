@@ -33,6 +33,8 @@ import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
 import { ConfigMarkdown } from "@/config/markdown"
+import { planCommandTemplate } from "./command-template"
+import { REMOTE_SUBTASK_FILE_REFUSED, remoteCommandParts } from "./command-mentions"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { SessionProcessor } from "./processor"
@@ -94,7 +96,7 @@ export interface Interface {
   readonly prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, Image.Error>
   readonly loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts>
   readonly shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError>
-  readonly command: (input: CommandInput) => Effect.Effect<SessionV1.WithParts, Image.Error>
+  readonly command: (input: CommandInput & CommandOrigin) => Effect.Effect<SessionV1.WithParts, Image.Error>
   readonly resolvePromptParts: (template: string) => Effect.Effect<PromptInput["parts"]>
 }
 
@@ -1628,7 +1630,7 @@ export const layer = Layer.effect(
       return yield* state.startShell(input.sessionID, lastAssistant(input.sessionID), shellImpl(input, ready), ready)
     })
 
-    const command = Effect.fn("SessionPrompt.command")(function* (input: CommandInput) {
+    const command = Effect.fn("SessionPrompt.command")(function* (input: CommandInput & CommandOrigin) {
       yield* Effect.logInfo("command", {
         "session.id": input.sessionID,
         command: input.command,
@@ -1644,44 +1646,30 @@ export const layer = Layer.effect(
       }
       const agentName = cmd.agent ?? input.agent
 
-      const raw = input.arguments.match(argsRegex) ?? []
-      const args = raw.map((arg) => arg.replace(quoteTrimRegex, ""))
       const templateCommand = yield* Effect.promise(async () => cmd.template)
-
-      const placeholders = templateCommand.match(placeholderRegex) ?? []
-      let last = 0
-      for (const item of placeholders) {
-        const value = Number(item.slice(1))
-        if (value > last) last = value
-      }
-
-      const withArgs = templateCommand.replaceAll(placeholderRegex, (_, index) => {
-        const position = Number(index)
-        const argIndex = position - 1
-        if (argIndex >= args.length) return ""
-        if (position === last) return args.slice(argIndex).join(" ")
-        return args[argIndex]
+      // 22 Nov (audit 13): the template work (arguments into placeholders, which !`...` blocks to run) is planned in
+      // ./command-template. Without input.remote it is what this function always did. Over Remote Control only the
+      // shell blocks the command's author wrote are run, never one in the caller's arguments, and a command that
+      // puts its arguments into a shell block is refused when arguments are given.
+      const plan = planCommandTemplate({
+        template: templateCommand,
+        arguments: input.arguments,
+        remote: input.remote === true,
       })
-      const usesArgumentsPlaceholder = templateCommand.includes("$ARGUMENTS")
-      let template = withArgs.replaceAll("$ARGUMENTS", input.arguments)
-
-      if (placeholders.length === 0 && !usesArgumentsPlaceholder && input.arguments.trim()) {
-        template = template + "\n\n" + input.arguments
+      if (!plan.ok) {
+        const error = new NamedError.Unknown({ message: plan.message })
+        yield* events.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
+        throw error
       }
-
-      const shellMatches = ConfigMarkdown.shell(template)
-      if (shellMatches.length > 0) {
+      let results: string[] = []
+      if (plan.shell.length > 0) {
         const cfg = yield* config.get()
         const sh = Shell.preferred(cfg.shell)
-        const results = yield* Effect.promise(() =>
-          Promise.all(
-            shellMatches.map(async ([, cmd]) => (await Process.text([cmd], { shell: sh, nothrow: true })).text),
-          ),
+        results = yield* Effect.promise(() =>
+          Promise.all(plan.shell.map(async (line) => (await Process.text([line], { shell: sh, nothrow: true })).text)),
         )
-        let index = 0
-        template = template.replace(bashRegex, () => results[index++])
       }
-      template = template.trim()
+      const template = plan.text(results)
 
       const taskModel = yield* Effect.gen(function* () {
         if (cmd.model) return Provider.parseModel(cmd.model)
@@ -1704,7 +1692,15 @@ export const layer = Layer.effect(
         throw error
       }
 
-      const templateParts = yield* resolvePromptParts(template)
+      const mentioned = yield* resolvePromptParts(template)
+      // 22 Nov (audit 13): the final text holds the caller's arguments, and an @path in it becomes a file part that
+      // is read with no permission request ("@~/.ssh/..." and absolute paths included). Over Remote Control a file
+      // part is kept only when the command's author wrote that mention or the file is inside the project
+      // (./command-mentions). On the computer every mention is attached, as before.
+      const templateParts =
+        input.remote === true
+          ? remoteCommandParts({ parts: mentioned, template: templateCommand, context: yield* InstanceState.context })
+          : mentioned
       const inputFiles = new Set(
         input.parts?.filter((part) => new URL(part.url).protocol === "file:").map((part) => fileURLToPath(part.url)),
       )
@@ -1712,6 +1708,14 @@ export const layer = Layer.effect(
         (part) => part.type !== "file" || !inputFiles.has(fileURLToPath(part.url)),
       )
       const isSubtask = (agent.mode === "subagent" && cmd.subtask !== false) || cmd.subtask === true
+      // 22 Nov (audit 13): for a subtask the file parts above are not used. The text becomes the subagent's prompt
+      // and the task tool turns the @path mentions in it into file parts itself, unfiltered. So over Remote Control a
+      // subtask command whose text names a file the filter above dropped is refused, before anything is started.
+      if (input.remote === true && isSubtask && templateParts.length < mentioned.length) {
+        const error = new NamedError.Unknown({ message: REMOTE_SUBTASK_FILE_REFUSED })
+        yield* events.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
+        throw error
+      }
       const parts = isSubtask
         ? [
             {
@@ -1731,6 +1735,28 @@ export const layer = Layer.effect(
           ? Provider.parseModel(input.model)
           : yield* currentModel(input.sessionID)
         : taskModel
+
+      // 22 Nov (audit 13): a command that runs as a subtask (the built-in review command is one) starts its subagent
+      // with no agent check: the server builds the subtask part itself and the task tool skips its own "task"
+      // permission request for it. That is right on the computer, where the user typed the command. Over Remote
+      // Control the same request the task tool would make is made here first, against the rules the loop uses for
+      // the model's own task call (the calling agent's rules with the session's after them). In auto mode they
+      // allow it and nothing is asked; in manual mode the request shows on the phone and on the computer. A
+      // rejection, or a deny in the rules, ends the command here, before anything is started.
+      if (input.remote === true && isSubtask) {
+        const caller = yield* agents.get(userAgent)
+        const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+        yield* permission
+          .ask({
+            permission: TaskTool.id,
+            patterns: [agent.name],
+            always: ["*"],
+            metadata: { description: cmd.description ?? "", subagent_type: agent.name },
+            sessionID: input.sessionID,
+            ruleset: Permission.withSession(caller?.permission ?? [], session.permission),
+          })
+          .pipe(Effect.orDie)
+      }
 
       yield* plugin.trigger(
         "command.execute.before",
@@ -1869,6 +1895,9 @@ export const CommandInput = Schema.Struct({
   ),
 })
 export type CommandInput = Schema.Schema.Type<typeof CommandInput>
+// 22 Nov (audit 13): where a command call came from. Not part of the CommandInput schema on purpose: it is never
+// read from a request body, only set by the server from the header the Remote Control tunnel adds (x-praex-remote).
+export type CommandOrigin = { remote?: boolean }
 
 /** @internal Exported for testing */
 export function createStructuredOutputTool(input: {
@@ -1898,11 +1927,6 @@ export function createStructuredOutputTool(input: {
     },
   })
 }
-const bashRegex = /!`([^`]+)`/g
-// Match [Image N] as single token, quoted strings, or non-space sequences
-const argsRegex = /(?:\[Image\s+\d+\]|"[^"]*"|'[^']*'|[^\s"']+)/gi
-const placeholderRegex = /\$(\d+)/g
-const quoteTrimRegex = /^["']|["']$/g
 
 export const node = LayerNode.make(layer, [
   SessionStatus.node,

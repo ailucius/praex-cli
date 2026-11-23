@@ -14,7 +14,9 @@
 import { randomBytes, timingSafeEqual } from "node:crypto"
 import { realpathSync } from "node:fs"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { Global } from "@opencode-ai/core/global"
+import { PERMISSION_MODE_RULES, permissionModeOf, type PermissionMode } from "@opencode-ai/core/permission/mode"
 import type { PhoneVerifier } from "./verify"
 
 export type RemoteStatus =
@@ -43,6 +45,11 @@ export type TunnelOptions = {
    * phone's list, not a path.
    */
   scope: () => RemoteScope | Promise<RemoteScope>
+  /**
+   * 22 Nov (audit 13): the permission mode chosen on the computer. Its rules are put on a session before a request
+   * from the phone makes the model run in it. Missing, or throwing, counts as "manual".
+   */
+  mode?: () => PermissionMode
   onStatus: (s: RemoteStatus) => void
   rotateMs?: number
   drainMs?: number
@@ -72,6 +79,8 @@ type Conn = {
 const CHUNK = 64 * 1024
 const WELCOME_MS = 15_000
 const MAX_GRANTS = 32
+// 22 Nov (audit 13): how many sessions the tunnel remembers the applied permission mode for; the oldest is dropped.
+const MAX_MODES = 500
 export const GRANT_TTL_MS = 12 * 60 * 60 * 1000
 export const GRANT_EXPIRED = "Remote Control approval expired. Open the page again to reconnect."
 
@@ -87,6 +96,8 @@ const sameSecret = (a: string, b: string) => {
   return x.length === y.length && timingSafeEqual(x, y)
 }
 const ORIGIN = "http://opencode.internal"
+// 22 Nov (audit 13): set by the tunnel on every request it dispatches, never taken from the phone (see serve()).
+export const REMOTE_HEADER = "x-praex-remote"
 // Paths a remote may not reach: terminals (the legacy /pty routes and the /api/pty surface,
 // whose create call takes a command line) and the one-off shell command on a session. A raw
 // shell from a phone is a bigger door than this feature needs; the agent's own tools (with
@@ -122,9 +133,22 @@ const HOST_ONLY = [
   // 17 Nov (audit 12 A12-01): replaying sync events writes session events as given, and a session.updated event can
   // carry any permission rules; it is the control plane's route between this machine's own servers, not the phone's
   /^\/(api\/)?sync\/replay(\/|$)/i,
+  // 22 Nov (audit 13): the newer API's session writes. Creating a session there takes a location in the body and no
+  // session rules, and its prompt carries file references this gate does not read. The phone app uses the older
+  // /session routes, which are checked below. Reads, and the permission and question replies under
+  // /api/session/:id/, stay open.
+  /^\/api\/session\/?$/i,
+  /^\/api\/session\/[^/]+\/prompt(\/|$)/i,
 ]
 // 16 Nov (audit 11 P0-CLI-02): removing a worktree deletes a folder; done at the computer.
 const HOST_ONLY_DELETE = [/^\/(api\/)?experimental\/worktree\/?$/i]
+// 22 Nov (audit 13): routes refused over Remote Control for every method, reads included.
+// - /tui drives the terminal UI on the computer: /tui/publish and /tui/execute-command make it run its own
+//   commands, which include cycling the permission mode and the agent, and /tui/control hands out its requests.
+// - /sync/history returns the whole event table of every project on this machine, and /sync/steal moves a session
+//   to another workspace. Both are the control plane's routes between this machine's own servers.
+// The phone app calls none of them.
+const HOST_ONLY_ALL = [/^\/(api\/)?tui(\/|$)/i, /^\/(api\/)?sync\/(history|steal)(\/|$)/i]
 // 10-20: routes the phone uses for ordinary things whose body can also carry a command, so the
 // body is read instead of refusing the route: project edit (name and icon are fine, a startup
 // script in commands.start is not), worktree create (a startCommand runs in a shell), and
@@ -149,6 +173,12 @@ const turnsToolOn = (tools: unknown) =>
   hasValue(tools) && (typeof tools !== "object" || Object.values(tools as object).some((v) => v !== false))
 const PERMISSION_REFUSED =
   "Permission rules can only be widened on the computer, not over Remote Control. Answer each request from the phone instead."
+// 22 Nov (audit 13): a prompt part of type "subtask" starts a subagent directly, with no agent check and no
+// permission request, and a subagent's session does not carry the manual mode's ask rules. The phone app never
+// sends one; the model can still start a subagent through its task tool, which asks in manual mode.
+export const SUBTASK_REFUSED = "Subagent tasks can not be started over Remote Control."
+const hasSubtask = (parts: unknown) =>
+  Array.isArray(parts) && parts.some((p) => !!p && typeof p === "object" && (p as any).type === "subtask")
 const BODY_RULES: BodyRule[] = [
   { re: /^\/(api\/)?project\/[^/]+\/?$/i, refuse: (b) => !!b?.commands && Object.values(b.commands).some(nonEmpty) },
   { re: /^\/(api\/)?experimental\/worktree\/?$/i, refuse: (b) => nonEmpty(b?.startCommand) },
@@ -168,6 +198,12 @@ const BODY_RULES: BodyRule[] = [
     refuse: (b) => turnsToolOn(b?.tools),
     message: PERMISSION_REFUSED,
   },
+  // 22 Nov (audit 13): prompts and commands (POST /session/:id/message, /prompt_async, /command) with a subtask part
+  {
+    re: /^\/(api\/)?session\/[^/]+\/(message|prompt_async|command)\/?$/i,
+    refuse: (b) => hasSubtask(b?.parts),
+    message: SUBTASK_REFUSED,
+  },
 ]
 
 export type PathCheck = { ok: true; url: string } | { ok: false; status: 400 | 403; message: string }
@@ -175,7 +211,8 @@ export type PathCheck = { ok: true; url: string } | { ok: false; status: 400 | 4
 const CONFIG_REFUSED = "Settings that can run commands can only be changed on the computer, not over Remote Control."
 const HOST_ONLY_REFUSED = "This can only be done on the computer, not over Remote Control."
 
-function parseBody(body: Uint8Array | undefined): { ok: true; value: unknown } | { ok: false } {
+type ParsedBody = { ok: true; value: unknown } | { ok: false }
+function parseBody(body: Uint8Array | undefined): ParsedBody {
   if (!body || body.byteLength === 0) return { ok: true, value: {} }
   try {
     return { ok: true, value: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)) }
@@ -192,6 +229,17 @@ function parseBody(body: Uint8Array | undefined): { ok: true; value: unknown } |
  * the one the request is dispatched with (upper case), and `body` the exact bytes sent on.
  */
 export function checkRemotePath(path: unknown, method = "GET", body?: Uint8Array): PathCheck {
+  return checkRemoteRequest(path, method, body, {})
+}
+
+// 22 Nov (audit 13): the same check, which also leaves the request body in `seen` when a body rule had to parse
+// it, so serve() does not parse it a second time for checkRemoteParts.
+function checkRemoteRequest(
+  path: unknown,
+  method: string,
+  body: Uint8Array | undefined,
+  seen: { parsed?: ParsedBody },
+): PathCheck {
   const bad = { ok: false, status: 400, message: "Bad path." } as const
   if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) return bad
   let url: URL
@@ -202,12 +250,12 @@ export function checkRemotePath(path: unknown, method = "GET", body?: Uint8Array
   }
   if (url.origin !== ORIGIN) return bad
   const write = !READ_METHODS.has(method)
-  let parsed: ReturnType<typeof parseBody> | undefined
   let pathname = url.pathname
   for (let round = 0; round < 4; round++) {
     const flat = pathname.replace(/\/{2,}/g, "/")
     if (BLOCKED.some((re) => re.test(flat)))
       return { ok: false, status: 403, message: "The terminal and shell are not available over Remote Control." }
+    if (HOST_ONLY_ALL.some((re) => re.test(flat))) return { ok: false, status: 403, message: HOST_ONLY_REFUSED }
     if (write && NO_WRITE.some((re) => re.test(flat))) return { ok: false, status: 403, message: CONFIG_REFUSED }
     if (write && HOST_ONLY.some((re) => re.test(flat))) return { ok: false, status: 403, message: HOST_ONLY_REFUSED }
     if (method === "DELETE" && HOST_ONLY_DELETE.some((re) => re.test(flat)))
@@ -215,7 +263,7 @@ export function checkRemotePath(path: unknown, method = "GET", body?: Uint8Array
     if (write) {
       for (const rule of BODY_RULES) {
         if (!rule.re.test(flat)) continue
-        parsed ??= parseBody(body)
+        const parsed = (seen.parsed ??= parseBody(body))
         if (!parsed.ok) return { ok: false, status: 400, message: "Bad request body." }
         if (rule.refuse(parsed.value, method)) return { ok: false, status: 403, message: rule.message ?? CONFIG_REFUSED }
       }
@@ -289,19 +337,98 @@ export function checkRemoteDirectory(
       if (k.toLowerCase() === "x-opencode-directory" && typeof v === "string") names.push(v)
   }
   if (!names.length) return true
-  // only absolute roots count: a relative one would resolve against wherever this process happens to run
-  const bases = (typeof roots === "string" ? [roots] : roots).filter((r) => path.isAbsolute(r)).map(realOrSelf)
-  const trees = worktrees && path.isAbsolute(worktrees) ? realOrSelf(worktrees) : undefined
-  const inside = (r: string, base: string) => r === base || r.startsWith(base + path.sep)
+  const inScope = scopeTest(roots, worktrees)
   return names.every((n) => {
     let d = n
     try {
       d = decodeURIComponent(n)
     } catch {}
     if (!path.isAbsolute(d)) return false
-    const r = realOrSelf(d)
-    return bases.some((b) => inside(r, b)) || (!!trees && r.startsWith(trees + path.sep))
+    return inScope(d)
   })
+}
+// The test both checks share: is this full path one of the roots, inside one, or inside the worktree folder, once
+// symlinks are resolved.
+function scopeTest(roots: string | readonly string[], worktrees: string | undefined) {
+  // only absolute roots count: a relative one would resolve against wherever this process happens to run
+  const bases = (typeof roots === "string" ? [roots] : roots).filter((r) => path.isAbsolute(r)).map(realOrSelf)
+  const trees = worktrees && path.isAbsolute(worktrees) ? realOrSelf(worktrees) : undefined
+  const inside = (r: string, base: string) => r === base || r.startsWith(base + path.sep)
+  return (full: string) => {
+    const r = realOrSelf(full)
+    return bases.some((b) => inside(r, b)) || (!!trees && r.startsWith(trees + path.sep))
+  }
+}
+
+export const PARTS_REFUSED = "Over Remote Control only files in this project's folder can be attached."
+/**
+ * 22 Nov (audit 13): a prompt part of type file with a file: url is read on the computer with no permission request
+ * (src/session/prompt.ts), and with noReply the content comes straight back, so the phone could read any file the
+ * user can. Every entry of the body's `parts` that carries a url, and the body's own `url` when it has one, is
+ * looked at: a url that parses to the file: protocol must point at one of `roots`, inside one, or inside
+ * `worktrees` (the test checkRemoteDirectory uses, symlinks resolved first). A file: url that can not be turned into
+ * a path is refused. Other protocols (data: for pasted images) and urls that do not parse pass; the server deals
+ * with those. The url is parsed the way the server parses it (new URL, then fileURLToPath).
+ */
+export function checkRemoteParts(body: unknown, roots: string | readonly string[], worktrees: string | undefined): boolean {
+  if (!body || typeof body !== "object") return true
+  const urls: string[] = []
+  const own = (body as { url?: unknown }).url
+  if (typeof own === "string") urls.push(own)
+  const parts = (body as { parts?: unknown }).parts
+  if (Array.isArray(parts))
+    for (const part of parts) if (part && typeof part === "object" && typeof part.url === "string") urls.push(part.url)
+  if (!urls.length) return true
+  const inScope = scopeTest(roots, worktrees)
+  return urls.every((value) => {
+    let protocol: string
+    try {
+      protocol = new URL(value).protocol
+    } catch {
+      return true
+    }
+    if (protocol !== "file:") return true
+    let file: string
+    try {
+      file = fileURLToPath(value)
+    } catch {
+      return false
+    }
+    return path.isAbsolute(file) && inScope(file)
+  })
+}
+
+// 22 Nov (audit 13): the routes that make the model run in a session: a prompt, a command, the init command, and a
+// summarize (with auto set the model carries on after it). Before one of them is dispatched the tunnel puts the
+// computer's permission mode on that session (RemoteTunnel.applyMode).
+const MODEL_ROUTE = /^\/(?:api\/)?session\/([^/]+)\/(?:message|prompt_async|command|init|summarize)\/?$/i
+const PLAIN_SESSION_ID = /^[A-Za-z0-9_-]+$/
+export const MODE_REFUSED = "Couldn't apply the computer's permission mode to this session. Try again."
+/**
+ * The session a request would make the model run in: undefined for any other route, "bad" when the route is one of
+ * them but the session id is not a plain id, or the route only shows after percent-decoding (the tunnel must be
+ * able to name the very session the server will use, so an encoded spelling is refused instead of guessed at).
+ * `pathname` is the one checkRemotePath handed back; it is tested the way that check tests it.
+ */
+export function remoteModelSession(pathname: string): { id: string } | "bad" | undefined {
+  let current = pathname
+  for (let round = 0; round < 4; round++) {
+    const match = MODEL_ROUTE.exec(current.replace(/\/{2,}/g, "/"))
+    if (match) return round === 0 && PLAIN_SESSION_ID.test(match[1]) ? { id: match[1] } : "bad"
+    let decoded: string
+    try {
+      decoded = decodeURIComponent(current)
+    } catch {
+      return undefined
+    }
+    if (decoded === current) return undefined
+    try {
+      current = new URL(ORIGIN + decoded).pathname
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
 }
 
 export const randomKey = (bytes = 16) => randomBytes(bytes).toString("base64url")
@@ -312,6 +439,8 @@ export class RemoteTunnel {
   // Sockets still waiting for the relay's welcome; tracked from creation so stop() can cancel them.
   private pending = new Set<Conn>()
   private grants: { grant: string; exp: number }[] = []
+  // 22 Nov (audit 13): the permission mode this tunnel last put on each session (session id to mode), oldest first.
+  private modes = new Map<string, PermissionMode>()
   private stopped = false
   private uid = ""
   private lastToken = ""
@@ -369,6 +498,7 @@ export class RemoteTunnel {
     for (const c of this.conns) this.closeConn(c, 1000, "remote control off")
     this.conns.clear()
     this.grants = []
+    this.modes.clear()
     this.set({ state: "off" })
   }
 
@@ -590,6 +720,56 @@ export class RemoteTunnel {
     return false
   }
 
+  /** The computer's permission mode right now; "manual" when it is not known. */
+  private mode(): PermissionMode {
+    try {
+      return permissionModeOf(this.opts.mode?.())
+    } catch {
+      return "manual"
+    }
+  }
+
+  /**
+   * 22 Nov (audit 13): the TUI's manual mode is a set of session ask rules that only the TUI pushed, and only onto
+   * a session the TUI itself opened. A session the phone created, forked or prompted had what the phone sent, so in
+   * manual mode it ran edits and shell commands without asking. Before a request makes the model run in a session,
+   * the tunnel sends its own PATCH /session/<id> with the rules of the computer's current mode, in-process, with the
+   * phone request's query string and headers so it reaches the same project. It goes straight to dispatch, not
+   * through checkRemotePath, which rightly refuses permission rules from the phone. False (the session could not
+   * be updated, or the update threw) means the phone's request must not be dispatched. Each session gets the
+   * update once per mode; a mode change on the computer sends it again on the next request.
+   */
+  private async applyMode(sessionID: string, url: string, forwarded: Headers, signal: AbortSignal): Promise<boolean> {
+    const mode = this.mode()
+    if (this.modes.get(sessionID) === mode) return true
+    try {
+      const headers = new Headers(forwarded)
+      headers.set("content-type", "application/json")
+      // the phone's content-length belongs to the phone's body, not to this one
+      headers.delete("content-length")
+      const res = await this.opts.dispatch(
+        new Request(`${ORIGIN}/session/${sessionID}${new URL(url).search}`, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ permission: PERMISSION_MODE_RULES[mode] }),
+          signal,
+        }),
+      )
+      await res.body?.cancel().catch(() => {})
+      if (!res.ok) {
+        this.log(`permission mode not applied to the session (${res.status})`)
+        return false
+      }
+    } catch (error) {
+      this.log(`permission mode not applied to the session: ${error instanceof Error ? error.message : error}`)
+      return false
+    }
+    this.modes.delete(sessionID)
+    this.modes.set(sessionID, mode)
+    if (this.modes.size > MAX_MODES) this.modes.delete(this.modes.keys().next().value!)
+    return true
+  }
+
   private reply(conn: Conn, id: string, status: number, message: string) {
     this.send(conn, { t: "res", id, status, headers: { "content-type": "application/json" } })
     this.send(conn, { t: "data", id, data: Buffer.from(JSON.stringify({ error: message })).toString("base64") })
@@ -604,7 +784,8 @@ export class RemoteTunnel {
     // 10-20: method and body are settled before the check, and the same values are dispatched
     const method = typeof f.method === "string" ? f.method.toUpperCase() : "GET"
     const body = typeof f.body === "string" && method !== "GET" && method !== "HEAD" ? Buffer.from(f.body, "base64") : undefined
-    const target = checkRemotePath(f.path, method, body)
+    const seen: { parsed?: ParsedBody } = {}
+    const target = checkRemoteRequest(f.path, method, body, seen)
     if (!target.ok) return this.reply(conn, id, target.status, target.message)
     // 16 Nov (audit 11 P0-CLI-01): a request may only name this project's folder (or a worktree of it) as its
     // directory, so Remote Control can not read files or load plugins from anywhere else on the computer.
@@ -618,6 +799,19 @@ export class RemoteTunnel {
     }
     if (!checkRemoteDirectory(target.url, f.headers, scope.roots, scope.worktrees))
       return this.reply(conn, id, 403, DIRECTORY_REFUSED)
+    // 22 Nov (audit 13): files a prompt or command attaches by file: url must be in the same folders. Every write
+    // with a JSON body is looked at, whatever its route; a body that is not JSON carries no parts the server reads
+    // (the prompt and command routes refuse such a body above).
+    const write = !READ_METHODS.has(method)
+    if (write && body?.byteLength) {
+      const json = seen.parsed ?? parseBody(body)
+      if (json.ok && !checkRemoteParts(json.value, scope.roots, scope.worktrees))
+        return this.reply(conn, id, 403, PARTS_REFUSED)
+    }
+    // 22 Nov (audit 13): a request that makes the model run names its session by a plain id, so the computer's
+    // permission mode can be put on that very session first (below, once the request can be cancelled).
+    const session = write ? remoteModelSession(new URL(target.url).pathname) : undefined
+    if (session === "bad") return this.reply(conn, id, 400, "Bad path.")
 
     const ctrl = new AbortController()
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
@@ -629,7 +823,17 @@ export class RemoteTunnel {
     })
     try {
       const headers = new Headers()
-      for (const [k, v] of Object.entries(f.headers ?? {})) if (typeof v === "string") headers.set(k, v)
+      // 22 Nov (audit 13): x-praex-remote marks a request as coming over Remote Control, for the server routes that
+      // treat one differently (the session command route runs no shell text from the caller). Only the tunnel may
+      // set it: whatever the phone sent under that name, in any letter case, is dropped.
+      for (const [k, v] of Object.entries(f.headers ?? {}))
+        if (typeof v === "string" && k.toLowerCase() !== REMOTE_HEADER) headers.set(k, v)
+      headers.set(REMOTE_HEADER, "1")
+      if (session) {
+        const applied = await this.applyMode(session.id, target.url, headers, ctrl.signal)
+        if (ctrl.signal.aborted) return
+        if (!applied) return this.reply(conn, id, 503, MODE_REFUSED)
+      }
       const res = await this.opts.dispatch(
         new Request(target.url, { method, headers, body, signal: ctrl.signal }),
       )

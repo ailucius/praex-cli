@@ -88,6 +88,8 @@ export function createRemoteControl(input: {
   directory: string
   version?: string
   dispatch: (req: Request) => Promise<Response>
+  /** 22 Nov (audit 13): the permission mode chosen in the TUI, read each time a phone request makes the model run. */
+  mode: () => "manual" | "auto"
   onStatus: (s: RemoteStatus) => void
   log?: (line: string) => void
 }) {
@@ -132,6 +134,7 @@ export function createRemoteControl(input: {
           worktrees ??= await projectWorktrees(root)
           return { roots: [root], worktrees }
         },
+        mode: input.mode,
         onStatus: (s) => {
           if (tunnel === next) report(s)
         },

@@ -12,6 +12,7 @@ import { Effect } from "effect"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
 import { createRemoteControl, type RemoteStatus } from "@/remote"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
+import { permissionModeOf, type PermissionMode } from "@opencode-ai/core/permission/mode"
 
 Heap.start()
 
@@ -22,6 +23,9 @@ GlobalBus.on("event", (event) => {
 
 let server: Awaited<ReturnType<typeof Server.listen>> | undefined
 let remote: ReturnType<typeof createRemoteControl> | undefined
+// 22 Nov (audit 13): the permission mode the TUI last reported (rpc remoteMode). The Remote Control tunnel puts
+// its rules on a session before a phone request makes the model run there. Manual until the TUI says otherwise.
+let permissionMode: PermissionMode = "manual"
 
 // Remote Control requests are served in-process, exactly like the TUI's own requests: no
 // TCP listener is opened for them. If the user armed a server password, it applies here too.
@@ -73,9 +77,14 @@ export const rpc = {
       directory: input.directory,
       version: InstallationVersion,
       dispatch: dispatchInProcess,
+      mode: () => permissionMode,
       onStatus: (status: RemoteStatus) => Rpc.emit("remote.status", status),
     })
     return remote.start()
+  },
+  async remoteMode(input: { mode: PermissionMode }) {
+    // anything but an exact "auto" is manual
+    permissionMode = permissionModeOf(input?.mode)
   },
   async remoteStop() {
     remote?.stop()

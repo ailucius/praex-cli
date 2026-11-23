@@ -7,7 +7,8 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { FetchHttpClient } from "effect/unstable/http"
 import { expect } from "bun:test"
 import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer } from "effect"
-import { existsSync } from "fs"
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs"
+import os from "os"
 import path from "path"
 import { fileURLToPath, pathToFileURL } from "url"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -57,6 +58,7 @@ import { reply, TestLLMServer } from "../lib/llm-server"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { PERMISSION_MODE_RULES } from "@opencode-ai/core/permission/mode"
 
 const summary = Layer.succeed(
   SessionSummary.Service,
@@ -2640,4 +2642,221 @@ noLLMServer.instance(
       }
     }),
   30_000,
+)
+
+// 22 Nov (audit 13): a command that runs as a subtask starts its subagent with no "task" permission request. Over
+// Remote Control (remote: true, set by the server from the tunnel's header) the request is made first, against the
+// calling agent's rules with the session's after them. The sessions below carry the rules the TUI's modes push.
+const subtaskCommandCfg = (url: string) => ({
+  ...providerCfg(url),
+  command: {
+    inspect: { template: "Inspect the cache key path. $ARGUMENTS", description: "inspect the cache", agent: "general" },
+  },
+})
+
+const pendingRequest = (sessionID: SessionID) =>
+  pollWithTimeout(
+    Effect.gen(function* () {
+      const permission = yield* Permission.Service
+      return (yield* permission.list()).find((item) => item.sessionID === sessionID)
+    }),
+    `no permission request showed up for session ${sessionID}`,
+  )
+
+const subagentStarted = (sessionID: SessionID) =>
+  Effect.gen(function* () {
+    const msgs = yield* MessageV2.filterCompactedEffect(sessionID)
+    return msgs.some((item) => item.info.role === "assistant" && item.info.agent === "general")
+  })
+
+it.instance(
+  "over Remote Control a subtask command asks the task permission in manual mode, and a rejection starts nothing",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(subtaskCommandCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const permission = yield* Permission.Service
+      const chat = yield* sessions.create({ title: "Manual", permission: PERMISSION_MODE_RULES.manual })
+
+      const fiber = yield* prompt
+        .command({ sessionID: chat.id, command: "inspect", arguments: "", remote: true })
+        .pipe(Effect.forkChild)
+      const request = yield* pendingRequest(chat.id)
+      // the request the task tool itself makes for the model's own task call
+      expect(request.permission).toBe("task")
+      expect(request.patterns).toEqual(["general"])
+      expect(request.always).toEqual(["*"])
+      expect(request.metadata).toEqual({ description: "inspect the cache", subagent_type: "general" })
+      // nothing was started while the request waits
+      expect(yield* llm.calls).toBe(0)
+      expect(yield* MessageV2.filterCompactedEffect(chat.id)).toHaveLength(0)
+
+      yield* permission.reply({ requestID: request.id, reply: "reject" })
+      const exit = yield* Fiber.await(fiber)
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) expect(String(Cause.squash(exit.cause))).toContain("rejected permission")
+      expect(yield* llm.calls).toBe(0)
+      expect(yield* MessageV2.filterCompactedEffect(chat.id)).toHaveLength(0)
+      expect((yield* permission.list()).filter((item) => item.sessionID === chat.id)).toHaveLength(0)
+    }),
+  15_000,
+)
+
+it.instance(
+  "over Remote Control an approved task request lets the subtask command start",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(subtaskCommandCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const permission = yield* Permission.Service
+      const chat = yield* sessions.create({ title: "Manual", permission: PERMISSION_MODE_RULES.manual })
+      yield* llm.hang
+
+      const fiber = yield* prompt
+        .command({ sessionID: chat.id, command: "inspect", arguments: "the eviction path", remote: true })
+        .pipe(Effect.forkChild)
+      const request = yield* pendingRequest(chat.id)
+      expect(request.permission).toBe("task")
+      expect(yield* llm.calls).toBe(0)
+
+      yield* permission.reply({ requestID: request.id, reply: "once" })
+      yield* llm.wait(1)
+      expect(yield* subagentStarted(chat.id)).toBe(true)
+
+      yield* prompt.cancel(chat.id)
+      yield* Fiber.await(fiber)
+    }),
+  15_000,
+)
+
+it.instance(
+  "over Remote Control a subtask command asks nothing in auto mode",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(subtaskCommandCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const permission = yield* Permission.Service
+      const chat = yield* sessions.create({ title: "Auto", permission: PERMISSION_MODE_RULES.auto })
+      yield* llm.hang
+
+      const fiber = yield* prompt
+        .command({ sessionID: chat.id, command: "inspect", arguments: "", remote: true })
+        .pipe(Effect.forkChild)
+      // the subagent's model call arrives with no request made on the way
+      yield* llm.wait(1)
+      expect((yield* permission.list()).filter((item) => item.sessionID === chat.id)).toHaveLength(0)
+      expect(yield* subagentStarted(chat.id)).toBe(true)
+
+      yield* prompt.cancel(chat.id)
+      yield* Fiber.await(fiber)
+    }),
+  15_000,
+)
+
+// 22 Nov (audit 13): an @path in the caller's arguments becomes a file part that is read with no permission
+// request. Over Remote Control a file outside the project is not attached (src/session/command-mentions.ts).
+it.instance(
+  "over Remote Control a command attaches a mentioned file in the project, not one outside it; on the computer both",
+  () => {
+    const outsideDir = mkdtempSync(path.join(os.tmpdir(), "praex-a13-outside-"))
+    const outside = path.join(outsideDir, "secret.txt")
+    writeFileSync(outside, "outside-secret-text\n")
+    return Effect.gen(function* () {
+      const { llm, dir } = yield* useServerConfig((url) => ({
+        ...providerCfg(url),
+        command: { look: { template: "Look at $ARGUMENTS" } },
+      }))
+      yield* writeText(path.join(dir, "inside.txt"), "inside-project-text\n")
+      const { prompt, chat } = yield* boot()
+      const args = `@inside.txt and @${outside}`
+      const userText = Effect.gen(function* () {
+        const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+        return JSON.stringify(msgs.findLast((item) => item.info.role === "user")?.parts ?? [])
+      })
+
+      yield* llm.text("done")
+      yield* prompt.command({ sessionID: chat.id, command: "look", arguments: args, remote: true })
+      const remote = yield* userText
+      expect(remote).toContain("inside-project-text")
+      expect(remote).not.toContain("outside-secret-text")
+      // the mention itself stays in the text as typed
+      expect(remote).toContain("secret.txt")
+
+      yield* llm.text("done")
+      yield* prompt.command({ sessionID: chat.id, command: "look", arguments: args })
+      const local = yield* userText
+      expect(local).toContain("inside-project-text")
+      expect(local).toContain("outside-secret-text")
+    }).pipe(Effect.ensuring(Effect.sync(() => rmSync(outsideDir, { recursive: true, force: true }))))
+  },
+  { git: true },
+  30_000,
+)
+
+// 22 Nov (audit 13): a subtask command hands its text to the task tool, which attaches every @path in it. Over Remote
+// Control such a command is refused when its text names a file outside the project, and starts when the file is inside.
+it.instance(
+  "over Remote Control a subtask command naming a file outside the project is refused, one inside starts",
+  () => {
+    const outsideDir = mkdtempSync(path.join(os.tmpdir(), "praex-a13-subtask-"))
+    const outside = path.join(outsideDir, "secret.txt")
+    writeFileSync(outside, "outside-secret-text\n")
+    return Effect.gen(function* () {
+      const { llm, dir } = yield* useServerConfig(subtaskCommandCfg)
+      yield* writeText(path.join(dir, "inside.txt"), "inside-project-text\n")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Auto", permission: PERMISSION_MODE_RULES.auto })
+
+      const exit = yield* prompt
+        .command({ sessionID: chat.id, command: "inspect", arguments: `@${outside}`, remote: true })
+        .pipe(Effect.exit)
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        // a NamedError prints as its name; the text is in its data
+        const refused = Cause.squash(exit.cause) as { data?: { message?: string } }
+        expect(refused.data?.message).toContain("outside this project")
+      }
+      expect(yield* llm.calls).toBe(0)
+      expect(yield* MessageV2.filterCompactedEffect(chat.id)).toHaveLength(0)
+
+      yield* llm.hang
+      const fiber = yield* prompt
+        .command({ sessionID: chat.id, command: "inspect", arguments: "@inside.txt", remote: true })
+        .pipe(Effect.forkChild)
+      yield* llm.wait(1)
+      expect(yield* subagentStarted(chat.id)).toBe(true)
+      yield* prompt.cancel(chat.id)
+      yield* Fiber.await(fiber)
+    }).pipe(Effect.ensuring(Effect.sync(() => rmSync(outsideDir, { recursive: true, force: true }))))
+  },
+  { git: true },
+  30_000,
+)
+
+it.instance(
+  "on the computer a subtask command asks nothing, even in manual mode (unchanged)",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(subtaskCommandCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const permission = yield* Permission.Service
+      const chat = yield* sessions.create({ title: "Manual", permission: PERMISSION_MODE_RULES.manual })
+      yield* llm.hang
+
+      const fiber = yield* prompt
+        .command({ sessionID: chat.id, command: "inspect", arguments: "" })
+        .pipe(Effect.forkChild)
+      yield* llm.wait(1)
+      expect((yield* permission.list()).filter((item) => item.sessionID === chat.id)).toHaveLength(0)
+      expect(yield* subagentStarted(chat.id)).toBe(true)
+
+      yield* prompt.cancel(chat.id)
+      yield* Fiber.await(fiber)
+    }),
+  15_000,
 )

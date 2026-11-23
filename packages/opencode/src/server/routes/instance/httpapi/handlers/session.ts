@@ -329,8 +329,13 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof CommandPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
+      // 22 Nov (audit 13): a command sent over Remote Control runs no shell text from the caller's arguments. The
+      // tunnel marks its requests with x-praex-remote (and drops that header from whatever the phone sent). `remote`
+      // is set here from the header alone and comes after the payload, so a value in the request body is never used.
+      const request = yield* HttpServerRequest.HttpServerRequest
+      const remote = request.headers["x-praex-remote"] === "1"
       return yield* promptSvc
-        .command({ ...ctx.payload, sessionID: ctx.params.sessionID })
+        .command({ ...ctx.payload, sessionID: ctx.params.sessionID, remote })
         .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
     })
 
