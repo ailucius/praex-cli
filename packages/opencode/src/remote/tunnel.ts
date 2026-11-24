@@ -81,6 +81,8 @@ const WELCOME_MS = 15_000
 const MAX_GRANTS = 32
 // 22 Nov (audit 13): how many sessions the tunnel remembers the applied permission mode for; the oldest is dropped.
 const MAX_MODES = 500
+// 24 Nov: how long a session's folder, once found in scope, is trusted without asking the server again
+const FOLDER_TTL_MS = 5 * 60_000
 export const GRANT_TTL_MS = 12 * 60 * 60 * 1000
 export const GRANT_EXPIRED = "Remote Control approval expired. Open the page again to reconnect."
 
@@ -137,8 +139,10 @@ const HOST_ONLY = [
   // session rules, and its prompt carries file references this gate does not read. The phone app uses the older
   // /session routes, which are checked below. Reads, and the permission and question replies under
   // /api/session/:id/, stay open.
-  /^\/api\/session\/?$/i,
   /^\/api\/session\/[^/]+\/prompt(\/|$)/i,
+  // 24 Nov (left open in 0.1.47): the newer API's compact (makes the model run, without the permission-mode step the
+  // older summarize route gets) and wait. The phone app uses neither (it compacts through /session/:id/summarize).
+  /^\/api\/session\/[^/]+\/(compact|wait)(\/|$)/i,
 ]
 // 16 Nov (audit 11 P0-CLI-02): removing a worktree deletes a folder; done at the computer.
 const HOST_ONLY_DELETE = [/^\/(api\/)?experimental\/worktree\/?$/i]
@@ -148,7 +152,18 @@ const HOST_ONLY_DELETE = [/^\/(api\/)?experimental\/worktree\/?$/i]
 // - /sync/history returns the whole event table of every project on this machine, and /sync/steal moves a session
 //   to another workspace. Both are the control plane's routes between this machine's own servers.
 // The phone app calls none of them.
-const HOST_ONLY_ALL = [/^\/(api\/)?tui(\/|$)/i, /^\/(api\/)?sync\/(history|steal)(\/|$)/i]
+// 24 Nov (left open in 0.1.47): /experimental/session lists the sessions of EVERY project on this machine (titles,
+// folders), and /sync/start starts the workspace sync loops; the phone app calls neither.
+const HOST_ONLY_ALL = [
+  /^\/(api\/)?tui(\/|$)/i,
+  /^\/(api\/)?sync\/(history|steal|start)(\/|$)/i,
+  /^\/(api\/)?experimental\/session\/?$/i,
+  // 24 Nov (independent review of the overnight patch): GET /api/session listed EVERY project's sessions when the
+  // request named no folder, or named another project by ?project= or a crafted ?cursor= (proven live: the other
+  // folder's session came back). Creating a session there was already refused; now every method is. The phone app
+  // lists sessions through GET /session, which is scoped to the folder it names.
+  /^\/api\/session\/?$/i,
+]
 // 10-20: routes the phone uses for ordinary things whose body can also carry a command, so the
 // body is read instead of refusing the route: project edit (name and icon are fine, a startup
 // script in commands.start is not), worktree create (a startCommand runs in a shell), and
@@ -431,6 +446,110 @@ export function remoteModelSession(pathname: string): { id: string } | "bad" | u
   return undefined
 }
 
+// 24 Nov (left open in 0.1.47): any route that names a session by id, in the older API, the newer one or the
+// experimental background route. The server runs such a request in THAT SESSION'S OWN folder whatever ?directory=
+// says (workspace-routing.ts: session.directory wins), so checkRemoteDirectory alone let a phone reach another
+// project's session by its id. The tunnel now looks the session up and refuses one whose folder is out of scope.
+const SESSION_ROUTE = /^\/(?:api\/)?(?:experimental\/)?session\/([^/]+)(?:\/|$)/i
+const NOT_A_SESSION = new Set(["status"])
+export const SESSION_CHECK_FAILED = "Couldn't check which project this session belongs to. Try again."
+// Marks the tunnel's own session lookup (sessionFolder), so it can be told apart from a phone's request in tests and
+// logs; the server ignores it.
+export const SESSION_CHECK_HEADER = "x-praex-session-check"
+/**
+ * The session a request names: undefined when it names none, "bad" when the id is not a plain id or the route only
+ * shows after percent-decoding (the tunnel must check the very session the server will use, so an encoded spelling is
+ * refused instead of guessed at). Same reading as remoteModelSession.
+ */
+export function remoteSessionRef(pathname: string): { id: string } | "bad" | undefined {
+  let current = pathname
+  for (let round = 0; round < 4; round++) {
+    const match = SESSION_ROUTE.exec(current.replace(/\/{2,}/g, "/"))
+    if (match && NOT_A_SESSION.has(match[1].toLowerCase())) return round === 0 ? undefined : "bad"
+    if (match) return round === 0 && PLAIN_SESSION_ID.test(match[1]) ? { id: match[1] } : "bad"
+    let decoded: string
+    try {
+      decoded = decodeURIComponent(current)
+    } catch {
+      return undefined
+    }
+    if (decoded === current) return undefined
+    try {
+      current = new URL(ORIGIN + decoded).pathname
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
+}
+
+// 24 Nov (independent review): GET /global/event streams the events of EVERY project this server has open (session and
+// message events included). The phone app needs the stream, so instead of refusing it the tunnel drops what belongs
+// to a folder outside the scope. Each event is one SSE block whose data line is {directory?, project?, workspace?,
+// payload}; directory is a full path, or "global" for machine-wide events (an update notice, a workspace status, a
+// project's details).
+const GLOBAL_EVENT_ROUTE = /^\/(?:api\/)?global\/event\/?$/i
+/** Whether a global event may go to the phone: its folder is in scope, or it belongs to no folder. */
+export function keepGlobalEvent(event: unknown, inScope: (full: string) => boolean): boolean {
+  if (!event || typeof event !== "object") return true
+  const e = event as { directory?: unknown; payload?: { type?: unknown; properties?: { worktree?: unknown } } }
+  if (typeof e.directory === "string" && e.directory !== "global") return path.isAbsolute(e.directory) && inScope(e.directory)
+  // a project's details (name, root folder): only this project's
+  if (e.payload?.type === "project.updated") {
+    const root = e.payload.properties?.worktree
+    return typeof root === "string" && path.isAbsolute(root) && inScope(root)
+  }
+  return true
+}
+/** The SSE stream with every event that keep() refuses taken out; blocks are cut at blank lines. */
+export function filterEventStream(body: ReadableStream<Uint8Array>, keep: (event: unknown) => boolean): ReadableStream<Uint8Array> {
+  const decoder = new TextDecoder()
+  const encoder = new TextEncoder()
+  let buffer = ""
+  const pass = (block: string) => {
+    const data = block
+      .split(/\r?\n/)
+      .filter((l) => l.startsWith("data:"))
+      .map((l) => l.slice(5).replace(/^ /, ""))
+      .join("\n")
+    if (!data) return true
+    try {
+      return keep(JSON.parse(data))
+    } catch {
+      return true // not JSON (a comment or keep-alive): nothing to leak
+    }
+  }
+  const reader = body.getReader()
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) {
+          buffer += decoder.decode()
+          if (buffer && pass(buffer)) controller.enqueue(encoder.encode(buffer))
+          controller.close()
+          return
+        }
+        buffer += decoder.decode(value, { stream: true })
+        let out = ""
+        for (let cut = buffer.search(/\r?\n\r?\n/); cut >= 0; cut = buffer.search(/\r?\n\r?\n/)) {
+          const end = buffer.indexOf("\n", buffer.indexOf("\n", cut) + 1) + 1
+          const block = buffer.slice(0, end)
+          buffer = buffer.slice(end)
+          if (pass(block)) out += block
+        }
+        if (out) {
+          controller.enqueue(encoder.encode(out))
+          return
+        }
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason)
+    },
+  })
+}
+
 export const randomKey = (bytes = 16) => randomBytes(bytes).toString("base64url")
 
 export class RemoteTunnel {
@@ -441,6 +560,8 @@ export class RemoteTunnel {
   private grants: { grant: string; exp: number }[] = []
   // 22 Nov (audit 13): the permission mode this tunnel last put on each session (session id to mode), oldest first.
   private modes = new Map<string, PermissionMode>()
+  // 24 Nov: session id -> its folder, for sessions found in scope (sessionFolder)
+  private folders = new Map<string, { folder: string; at: number }>()
   private stopped = false
   private uid = ""
   private lastToken = ""
@@ -770,6 +891,46 @@ export class RemoteTunnel {
     return true
   }
 
+  /**
+   * The folder a session works in, asked of this machine's own server (GET /session/:id without ?directory=, so the
+   * server answers from the session itself). undefined = no such session (the request then gets the server's own
+   * 404), "error" = the answer could not be read. A folder found in scope is remembered for a few minutes.
+   */
+  private async sessionFolder(sessionID: string, frameHeaders: Frame["headers"]): Promise<string | undefined | "error"> {
+    const hit = this.folders.get(sessionID)
+    if (hit && Date.now() - hit.at < FOLDER_TTL_MS) return hit.folder
+    try {
+      const headers = new Headers()
+      for (const [k, v] of Object.entries(frameHeaders ?? {}))
+        if (typeof v === "string" && k.toLowerCase() !== REMOTE_HEADER && k.toLowerCase() !== "content-length" && k.toLowerCase() !== "content-type")
+          headers.set(k, v)
+      headers.set(REMOTE_HEADER, "1")
+      headers.set(SESSION_CHECK_HEADER, "1")
+      const res = await this.opts.dispatch(
+        new Request(`${ORIGIN}/session/${sessionID}`, { method: "GET", headers, signal: AbortSignal.timeout(10_000) }),
+      )
+      if (res.status === 404) {
+        await res.body?.cancel().catch(() => {})
+        return undefined
+      }
+      if (!res.ok) {
+        await res.body?.cancel().catch(() => {})
+        return "error"
+      }
+      const info = (await res.json().catch(() => null)) as { directory?: unknown } | null
+      return typeof info?.directory === "string" && info.directory ? info.directory : "error"
+    } catch (error) {
+      this.log(`session folder not read: ${error instanceof Error ? error.message : error}`)
+      return "error"
+    }
+  }
+
+  private remember(sessionID: string, folder: string) {
+    this.folders.delete(sessionID)
+    this.folders.set(sessionID, { folder, at: Date.now() })
+    if (this.folders.size > MAX_MODES) this.folders.delete(this.folders.keys().next().value!)
+  }
+
   private reply(conn: Conn, id: string, status: number, message: string) {
     this.send(conn, { t: "res", id, status, headers: { "content-type": "application/json" } })
     this.send(conn, { t: "data", id, data: Buffer.from(JSON.stringify({ error: message })).toString("base64") })
@@ -808,6 +969,18 @@ export class RemoteTunnel {
       if (json.ok && !checkRemoteParts(json.value, scope.roots, scope.worktrees))
         return this.reply(conn, id, 403, PARTS_REFUSED)
     }
+    // 24 Nov (left open in 0.1.47): a request that names a session runs in that session's own folder, whatever folder
+    // it names, so the session's folder must be in scope too (see SESSION_ROUTE).
+    const named = remoteSessionRef(new URL(target.url).pathname)
+    if (named === "bad") return this.reply(conn, id, 400, "Bad path.")
+    if (named) {
+      const folder = await this.sessionFolder(named.id, f.headers)
+      if (folder === "error") return this.reply(conn, id, 503, SESSION_CHECK_FAILED)
+      if (folder !== undefined) {
+        if (!scopeTest(scope.roots, scope.worktrees)(folder)) return this.reply(conn, id, 403, DIRECTORY_REFUSED)
+        this.remember(named.id, folder)
+      }
+    }
     // 22 Nov (audit 13): a request that makes the model run names its session by a plain id, so the computer's
     // permission mode can be put on that very session first (below, once the request can be cancelled).
     const session = write ? remoteModelSession(new URL(target.url).pathname) : undefined
@@ -840,8 +1013,13 @@ export class RemoteTunnel {
       const outHeaders: Record<string, string> = {}
       res.headers.forEach((v, k) => (outHeaders[k] = v))
       this.send(conn, { t: "res", id, status: res.status, headers: outHeaders })
-      if (res.body) {
-        reader = res.body.getReader()
+      // 24 Nov: other projects' events are taken out of the global event stream (see GLOBAL_EVENT_ROUTE)
+      const filtered =
+        res.body && method === "GET" && GLOBAL_EVENT_ROUTE.test(new URL(target.url).pathname)
+          ? filterEventStream(res.body, (event) => keepGlobalEvent(event, scopeTest(scope.roots, scope.worktrees)))
+          : res.body
+      if (filtered) {
+        reader = filtered.getReader()
         for (;;) {
           const { done, value } = await reader.read()
           if (done || ctrl.signal.aborted) break

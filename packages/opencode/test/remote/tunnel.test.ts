@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { GRANT_EXPIRED, GRANT_TTL_MS, grantTtlFromEnv, RemoteTunnel, SignedOutError, checkRemotePath, checkRemoteDirectory, checkRemoteParts, remoteModelSession, DIRECTORY_REFUSED, MODE_REFUSED, PARTS_REFUSED, SUBTASK_REFUSED, projectWorktreeFolder, type RemoteStatus } from "../../src/remote/tunnel"
+import { GRANT_EXPIRED, GRANT_TTL_MS, grantTtlFromEnv, RemoteTunnel, SignedOutError, checkRemotePath, checkRemoteDirectory, checkRemoteParts, remoteModelSession, remoteSessionRef, SESSION_CHECK_FAILED, SESSION_CHECK_HEADER, keepGlobalEvent, filterEventStream, DIRECTORY_REFUSED, MODE_REFUSED, PARTS_REFUSED, SUBTASK_REFUSED, projectWorktreeFolder, type RemoteStatus } from "../../src/remote/tunnel"
 import { PERMISSION_MODE_RULES } from "@opencode-ai/core/permission/mode"
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import os from "node:os"
@@ -79,6 +79,19 @@ function make(opts: Partial<ConstructorParameters<typeof RemoteTunnel>[0]> = {})
   // 22 Nov (audit 13): the tunnel's own PATCH that puts the computer's permission mode on a session, kept apart
   // from the phone's requests in `seen` (a phone request that sets `permission` is refused before dispatch)
   const applied: Array<{ path: string; body: any; headers: Headers }> = []
+  // 24 Nov: the tunnel's own lookup of a named session's folder (sessionFolder). Every session lives in the project
+  // folder unless `folders` says otherwise (null = no such session, "fail" = the server answers 500).
+  const lookups: string[] = []
+  const folders: Record<string, string | null | "fail"> = {}
+  const answerLookup = (req: Request) => {
+    const id = new URL(req.url).pathname.split("/").pop()!
+    lookups.push(id)
+    const f = id in folders ? folders[id] : "/tmp/praex-cli"
+    if (f === null) return Response.json({ error: "not found" }, { status: 404 })
+    if (f === "fail") return Response.json({ error: "boom" }, { status: 500 })
+    return Response.json({ id, directory: f })
+  }
+  const inner = opts.dispatch
   tunnel = new RemoteTunnel({
     relayUrl: relay.url,
     link: "praex.ai/rc",
@@ -99,7 +112,11 @@ function make(opts: Partial<ConstructorParameters<typeof RemoteTunnel>[0]> = {})
     onStatus: (s) => statuses.push(s),
     ...opts,
   })
-  return { relay, tunnel, statuses, seen, applied }
+  // the lookup is answered first, whatever dispatch the test gave
+  const opt = (tunnel as any).opts
+  const given = inner ?? opt.dispatch
+  opt.dispatch = async (req: Request) => (req.headers.get(SESSION_CHECK_HEADER) ? answerLookup(req) : given(req))
+  return { relay, tunnel, statuses, seen, applied, lookups, folders }
 }
 
 describe("RemoteTunnel", () => {
@@ -770,8 +787,9 @@ describe("17 Nov audit 12 A12-01: session permission rules can not be widened ov
     const events = [{ id: "e1", aggregateID: "ses_1", seq: 0, type: "session.updated", data: { sessionID: "ses_1", info: { permission: allowAll } } }]
     for (const path of ["/sync/replay", "/sync/replay/", "/api/sync/replay", "/%73ync/replay", "/sync/x/../replay"])
       expect({ path, status: status("POST", path, { directory: "/tmp/p", events }) }).toEqual({ path, status: 403 })
-    // 22 Nov (audit 13): /sync/history was the passing example here; it is refused now (see the audit 13 tests)
-    expect(status("POST", "/sync/start", {})).toBe(200)
+    // 22 Nov (audit 13): /sync/history was the passing example here; it is refused now (see the audit 13 tests).
+    // 24 Nov: /sync/start too (the control plane's route, left open in 0.1.47); every sync route is the computer's.
+    expect(status("POST", "/sync/start", {})).toBe(403)
   })
 
   test("over the wire: widening is refused before dispatch, a rename goes through", async () => {
@@ -919,7 +937,8 @@ describe("22 Nov audit 13: TUI and sync routes, the newer API's session writes, 
   })
 
   test("neighbouring routes still pass", () => {
-    for (const path of ["/tuix", "/session/x/tui", "/sync/start", "/sync/historyx", "/sync", "/find/file?query=tui"])
+    // 24 Nov: /sync/start is refused now (see the 24 Nov tests); /sync/startx is its neighbour
+    for (const path of ["/tuix", "/session/x/tui", "/sync/startx", "/sync/historyx", "/sync", "/find/file?query=tui"])
       for (const method of ["GET", "POST"]) expect({ method, path, status: status(method, path) }).toEqual({ method, path, status: 200 })
   })
 
@@ -931,7 +950,10 @@ describe("22 Nov audit 13: TUI and sync routes, the newer API's session writes, 
     expect(checkRemotePath("/api/session", "POST", json({ location: { directory: "/home/u/.ssh" } }))).toEqual({ ok: false, status: 403, message: hostOnly })
     // even with the ask rule the older route accepts
     expect(status("POST", "/api/session", { permission: [{ permission: "destructive", pattern: "*", action: "ask" }] })).toBe(403)
-    for (const path of ["/api/session", "/api/session/ses_1", "/api/session/ses_1/message", "/api/session/ses_1/context", "/api/session/ses_1/permission", "/api/session/ses_1/question"])
+    // 24 Nov: the list (/api/session itself) is refused for reads too: it listed every project's sessions
+    for (const path of ["/api/session", "/api/session/", "/api/session?project=prj_other", "/api/session?cursor=eyJ4IjoxfQ", "/API/Session"])
+      for (const method of ["GET", "HEAD", "OPTIONS"]) expect({ method, path, status: status(method, path) }).toEqual({ method, path, status: 403 })
+    for (const path of ["/api/session/ses_1", "/api/session/ses_1/message", "/api/session/ses_1/context", "/api/session/ses_1/permission", "/api/session/ses_1/question"])
       for (const method of ["GET", "HEAD", "OPTIONS"]) expect({ method, path, status: status(method, path) }).toEqual({ method, path, status: 200 })
     for (const path of ["/api/session/ses_1/permission/per_1/reply", "/api/session/ses_1/question/que_1/reply", "/api/session/ses_1/question/que_1/reject", "/api/session/ses_1/prompts"])
       expect({ path, status: status("POST", path, { reply: "once" }) }).toEqual({ path, status: 200 })
@@ -1101,7 +1123,8 @@ describe("22 Nov audit 13: the computer's permission mode is put on a session be
     const send = sender(relay.sockets[0])
     send("a1", "POST", "/session/ses_1/prompt_async?directory=/tmp/praex-cli", prompt, { "x-opencode-directory": "/tmp/praex-cli", "content-length": "999" })
     expect((await collect(relay, "a1")).status).toBe(200)
-    expect(order).toEqual(["PATCH /session/ses_1", "POST /session/ses_1/prompt_async"])
+    // 24 Nov: the tunnel first looks up the session's folder (GET), then puts the mode on it (PATCH)
+    expect(order).toEqual(["GET /session/ses_1", "PATCH /session/ses_1", "POST /session/ses_1/prompt_async"])
     expect(applied).toHaveLength(1)
     expect(applied[0].path).toBe("/session/ses_1?directory=/tmp/praex-cli")
     // no mode option given: manual
@@ -1276,5 +1299,153 @@ describe("22 Nov audit 13: the computer's permission mode is put on a session be
     expect(patches).toBe(506)
     tunnel.stop()
     expect(modes.size).toBe(0)
+  })
+})
+
+describe("24 Nov: a named session must live in this project; routes left open in 0.1.47", () => {
+  const b64s = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64")
+  const send24 = (ws: any) => (id: string, method: string, path: string, body?: unknown) =>
+    ws.send(JSON.stringify({ t: "req", id, method, path, headers: { "content-type": "application/json" }, body: body === undefined ? undefined : b64s(body), auth: { idToken: "test:alice" } }))
+  const json24 = (v: unknown) => new TextEncoder().encode(JSON.stringify(v))
+  const pathStatus = (m: string, p: string, b?: unknown) => {
+    const r = checkRemotePath(p, m, b === undefined ? undefined : json24(b))
+    return r.ok ? 200 : r.status
+  }
+  const hi = { parts: [{ type: "text", text: "hi" }] }
+
+  test("remoteSessionRef reads the session any route names, in all three APIs", () => {
+    for (const path of ["/session/ses_1", "/session/ses_1/", "/session/ses_1/message/msg_1", "/SESSION/ses_1/abort", "/session//ses_1/diff", "/api/session/ses_1", "/api/session/ses_1/permission/per_1/reply", "/experimental/session/ses_1/background"])
+      expect({ path, ref: remoteSessionRef(path) }).toEqual({ path, ref: { id: "ses_1" } })
+    for (const path of ["/session", "/session/", "/session/status", "/SESSION/Status", "/api/session", "/experimental/session", "/event", "/global/health", "/sessionx/ses_1"])
+      expect({ path, ref: remoteSessionRef(path) }).toEqual({ path, ref: undefined })
+    // not a plain id, or a route that only shows after decoding: refused, not guessed at
+    for (const path of ["/session/ses%201", "/session/ses.1/message", "/%73ession/ses_1", "/session/a%2Fb", "/%73ession/status"])
+      expect({ path, ref: remoteSessionRef(path) }).toEqual({ path, ref: "bad" })
+  })
+
+  test("over the wire: a session of another project is refused before anything touches it", async () => {
+    const { relay, tunnel, seen, applied, folders } = make()
+    folders["ses_other"] = "/home/u/other-project"
+    await tunnel.start()
+    const send = send24(relay.sockets[0])
+    send("o1", "GET", "/session/ses_other/message?directory=/tmp/praex-cli")
+    send("o2", "POST", "/session/ses_other/prompt_async?directory=/tmp/praex-cli", hi)
+    send("o3", "POST", "/api/session/ses_other/permission/per_1/reply", { reply: "always" })
+    send("o4", "DELETE", "/session/ses_other")
+    send("o5", "GET", "/experimental/session/ses_other/background")
+    for (const id of ["o1", "o2", "o3", "o4", "o5"]) {
+      const r = await collect(relay, id)
+      expect({ id, status: r.status }).toEqual({ id, status: 403 })
+      expect(JSON.parse(r.body)).toEqual({ error: DIRECTORY_REFUSED })
+    }
+    expect(seen).toHaveLength(0)
+    expect(applied).toHaveLength(0) // the computer's mode was not put on the other project's session either
+  })
+
+  test("a session in the project, or inside it, goes through; its folder is looked up once and remembered", async () => {
+    const { relay, tunnel, seen, lookups, folders } = make()
+    folders["ses_sub"] = "/tmp/praex-cli/packages/app"
+    await tunnel.start()
+    const send = send24(relay.sockets[0])
+    send("i1", "GET", "/session/ses_1/message")
+    expect((await collect(relay, "i1")).status).toBe(200)
+    send("i2", "GET", "/session/ses_1")
+    expect((await collect(relay, "i2")).status).toBe(200)
+    send("i3", "GET", "/session/ses_sub/diff")
+    expect((await collect(relay, "i3")).status).toBe(200)
+    expect(lookups).toEqual(["ses_1", "ses_sub"])
+    expect(seen.map((r) => new URL(r.url).pathname)).toEqual(["/session/ses_1/message", "/session/ses_1", "/session/ses_sub/diff"])
+  })
+
+  test("no such session reaches the server (its own 404 follows); a lookup that fails refuses with 503 and is not remembered", async () => {
+    const { relay, tunnel, seen, lookups, folders } = make()
+    folders["ses_gone"] = null
+    folders["ses_flaky"] = "fail"
+    await tunnel.start()
+    const send = send24(relay.sockets[0])
+    send("g1", "GET", "/session/ses_gone")
+    expect((await collect(relay, "g1")).status).toBe(200) // the fake server answers 200 to everything it is given
+    send("g2", "GET", "/session/ses_flaky/message")
+    const g2 = await collect(relay, "g2")
+    expect(g2.status).toBe(503)
+    expect(JSON.parse(g2.body)).toEqual({ error: SESSION_CHECK_FAILED })
+    expect(seen.map((r) => new URL(r.url).pathname)).toEqual(["/session/ses_gone"])
+    folders["ses_flaky"] = "/tmp/praex-cli"
+    send("g3", "GET", "/session/ses_flaky/message")
+    expect((await collect(relay, "g3")).status).toBe(200)
+    expect(lookups).toEqual(["ses_gone", "ses_flaky", "ses_flaky"])
+  })
+
+  test("the session list and /session/status are not looked up", async () => {
+    const { relay, tunnel, lookups } = make()
+    await tunnel.start()
+    const send = send24(relay.sockets[0])
+    send("l1", "GET", "/session?directory=/tmp/praex-cli")
+    send("l2", "GET", "/session/status")
+    for (const id of ["l1", "l2"]) expect((await collect(relay, id)).status).toBe(200)
+    expect(lookups).toEqual([])
+  })
+
+  test("routes left open in 0.1.47 are refused; their neighbours still pass the path check", () => {
+    for (const method of ["GET", "HEAD", "POST", "DELETE"]) {
+      expect({ method, s: pathStatus(method, "/experimental/session") }).toEqual({ method, s: 403 })
+      expect({ method, s: pathStatus(method, "/experimental/session/") }).toEqual({ method, s: 403 })
+      expect({ method, s: pathStatus(method, "/sync/start") }).toEqual({ method, s: 403 })
+      expect({ method, s: pathStatus(method, "/api/sync/start") }).toEqual({ method, s: 403 })
+    }
+    for (const path of ["/api/session/ses_1/compact", "/api/session/ses_1/wait", "/API/session/ses_1/Compact"])
+      expect({ path, s: pathStatus("POST", path, {}) }).toEqual({ path, s: 403 })
+    for (const path of ["/experimental/session/ses_1/background", "/api/session/ses_1", "/api/session/ses_1/context", "/session/ses_1/summarize"])
+      expect({ path, s: pathStatus("GET", path) }).toEqual({ path, s: 200 })
+  })
+})
+
+
+describe("24 Nov (independent review): other projects' events are taken out of the global event stream", () => {
+  const inScope = (full: string) => full === "/tmp/praex-cli" || full.startsWith("/tmp/praex-cli/")
+  const ev = (directory: string | undefined, type: string, extra: Record<string, unknown> = {}) => ({ ...(directory === undefined ? {} : { directory }), payload: { type, properties: {}, ...extra } })
+  test("keepGlobalEvent: this project's folder and machine-wide events pass, other folders and other projects' details do not", () => {
+    expect(keepGlobalEvent(ev("/tmp/praex-cli", "message.updated"), inScope)).toBe(true)
+    expect(keepGlobalEvent(ev("/tmp/praex-cli/packages/app", "session.updated"), inScope)).toBe(true)
+    expect(keepGlobalEvent(ev("/home/u/other", "message.updated"), inScope)).toBe(false)
+    expect(keepGlobalEvent(ev("/tmp/praex-cli-other", "message.updated"), inScope)).toBe(false)
+    expect(keepGlobalEvent(ev("relative/path", "message.updated"), inScope)).toBe(false)
+    expect(keepGlobalEvent(ev(undefined, "server.heartbeat"), inScope)).toBe(true)
+    expect(keepGlobalEvent(ev("global", "installation.update-available"), inScope)).toBe(true)
+    expect(keepGlobalEvent({ directory: "global", payload: { type: "project.updated", properties: { worktree: "/tmp/praex-cli" } } }, inScope)).toBe(true)
+    expect(keepGlobalEvent({ directory: "global", payload: { type: "project.updated", properties: { worktree: "/home/u/other" } } }, inScope)).toBe(false)
+    expect(keepGlobalEvent({ directory: "global", payload: { type: "project.updated", properties: {} } }, inScope)).toBe(false)
+  })
+  const sse = (events: unknown[]) => events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("")
+  const read = async (s: ReadableStream<Uint8Array>) => new TextDecoder().decode(await new Response(s).arrayBuffer())
+  const chunked = (text: string, size: number) => {
+    const bytes = new TextEncoder().encode(text)
+    return new ReadableStream<Uint8Array>({
+      start(c) {
+        for (let i = 0; i < bytes.length; i += size) c.enqueue(bytes.subarray(i, i + size))
+        c.close()
+      },
+    })
+  }
+  test("filterEventStream: blocks cut at any byte boundary, the refused ones dropped, the rest unchanged", async () => {
+    const events = [ev(undefined, "server.connected"), ev("/tmp/praex-cli", "a"), ev("/home/u/other", "b"), ev("global", "c"), ev("/home/u/other", "d"), ev("/tmp/praex-cli", "é ünïcode")]
+    const want = sse([events[0], events[1], events[3], events[5]])
+    for (const size of [1, 3, 7, 64, 100000]) expect(await read(filterEventStream(chunked(sse(events), size), (e) => keepGlobalEvent(e, inScope)))).toBe(want)
+    // CRLF blocks and a non-JSON keep-alive comment pass through
+    const crlf = `: keep-alive\r\n\r\ndata: ${JSON.stringify(events[2])}\r\n\r\ndata: ${JSON.stringify(events[1])}\r\n\r\n`
+    expect(await read(filterEventStream(chunked(crlf, 5), (e) => keepGlobalEvent(e, inScope)))).toBe(`: keep-alive\r\n\r\ndata: ${JSON.stringify(events[1])}\r\n\r\n`)
+  })
+  test("over the wire: the phone gets only its project's and machine-wide events from /global/event; /event is not touched", async () => {
+    const events = [ev(undefined, "server.connected"), ev("/home/u/other", "session.updated"), ev("/tmp/praex-cli", "session.updated"), ev("/home/u/other", "message.part.updated")]
+    const { relay, tunnel } = make({ dispatch: async () => new Response(sse(events), { headers: { "content-type": "text/event-stream" } }) })
+    await tunnel.start()
+    const ws = relay.sockets[0]
+    for (const [id, path] of [["e1", "/global/event"], ["e2", "/event?directory=/tmp/praex-cli"]])
+      ws.send(JSON.stringify({ t: "req", id, method: "GET", path, headers: {}, auth: { idToken: "test:alice" } }))
+    const e1 = await collect(relay, "e1")
+    expect(e1.body).toBe(sse([events[0], events[2]]))
+    expect(e1.body).not.toContain("/home/u/other")
+    // the per-project stream already names its folder, which is checked; its body is passed as is
+    expect((await collect(relay, "e2")).body).toBe(sse(events))
   })
 })
