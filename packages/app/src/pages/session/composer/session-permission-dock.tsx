@@ -1,5 +1,6 @@
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 import { Dynamic } from "solid-js/web"
+import { makeEventListener } from "@solid-primitives/event-listener"
 import type { PermissionRequest } from "@opencode-ai/sdk/v2"
 import { getDirectory, getFilename } from "@opencode-ai/core/util/path"
 import { Accordion } from "@opencode-ai/ui/accordion"
@@ -100,29 +101,63 @@ export function SessionPermissionDock(props: {
     return diffs().map((entry) => entry.file)
   }
 
-  const toolDescription = () => {
-    const key = `settings.permissions.tool.${props.request.permission}.description`
+  // The title says what will happen ("Run this command?"); a tool without its own title names the tool.
+  const title = () => {
+    const key = `permission.prompt.title.${props.request.permission}`
     const value = language.t(key as Parameters<typeof language.t>[0])
-    if (value === key) return ""
-    return value
+    if (value !== key) return value
+    return language.t("permission.prompt.title.other", { tool: props.request.permission })
   }
+
+  const keys = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.key !== "Escape") return
+    event.preventDefault()
+    event.stopPropagation()
+    if (props.responding) return
+    props.onDecide("reject")
+  }
+
+  let root: HTMLDivElement | undefined
+  onMount(() => {
+    if (!root) return
+    // Listen on the prompt itself: the session view handles keys further up before delegated handlers run.
+    makeEventListener(root, "keydown", keys)
+    // Enter answers with the focused button, so the prompt starts on "Allow once". What the guard
+    // flagged starts on "Deny" instead: a stray Enter must not run it.
+    const first = guardReason(props.request) ? "permission-deny" : "permission-allow-once"
+    requestAnimationFrame(() => {
+      root?.querySelector<HTMLButtonElement>(`[data-action="${first}"]`)?.focus({ preventScroll: true })
+    })
+  })
 
   return (
     <DockPrompt
       kind="permission"
+      ref={(el) => (root = el)}
       header={
-        <div data-slot="permission-row" data-variant="header">
-          <span data-slot="permission-icon">
-            <Icon name="warning" size="normal" />
-          </span>
-          <div data-slot="permission-header-title">{language.t("notification.permission.title")}</div>
+        <div data-slot="permission-heading" role="heading" aria-level="2">
+          <Show when={guardReason(props.request)}>
+            <span data-slot="permission-icon">
+              <Icon name="warning" size="normal" />
+            </span>
+          </Show>
+          <div data-slot="permission-header-title">{title()}</div>
         </div>
       }
       footer={
         <>
-          <div />
+          <div data-slot="permission-footer-hint" aria-hidden="true">
+            {language.t(guardReason(props.request) ? "permission.prompt.keys.guard" : "permission.prompt.keys")}
+          </div>
           <div data-slot="permission-footer-actions">
-            <Button variant="ghost" size="normal" onClick={() => props.onDecide("reject")} disabled={props.responding}>
+            <Button
+              variant="ghost"
+              size="normal"
+              data-action="permission-deny"
+              aria-keyshortcuts="Escape"
+              onClick={() => props.onDecide("reject")}
+              disabled={props.responding}
+            >
               {language.t("ui.permission.deny")}
             </Button>
             {/* an "always" never covers what the guard flagged, so it is not offered there */}
@@ -130,13 +165,21 @@ export function SessionPermissionDock(props: {
               <Button
                 variant="secondary"
                 size="normal"
+                data-action="permission-allow-always"
                 onClick={() => props.onDecide("always")}
                 disabled={props.responding}
               >
                 {language.t("ui.permission.allowAlways")}
               </Button>
             </Show>
-            <Button variant="primary" size="normal" onClick={() => props.onDecide("once")} disabled={props.responding}>
+            <Button
+              variant="primary"
+              size="normal"
+              data-action="permission-allow-once"
+              aria-keyshortcuts="Enter"
+              onClick={() => props.onDecide("once")}
+              disabled={props.responding}
+            >
               {language.t("ui.permission.allowOnce")}
             </Button>
           </div>
@@ -145,30 +188,23 @@ export function SessionPermissionDock(props: {
     >
       <Show when={guardReason(props.request)}>
         {(reason) => (
-          <div data-slot="permission-row">
-            <span data-slot="permission-spacer" aria-hidden="true" />
-            <div data-slot="permission-hint" class="text-text-strong">
-              {reason()}
-            </div>
+          <div data-slot="permission-hint" data-variant="guard">
+            {reason()}
           </div>
         )}
       </Show>
 
-      <Show when={toolDescription()}>
-        <div data-slot="permission-row">
-          <span data-slot="permission-spacer" aria-hidden="true" />
-          <div data-slot="permission-hint">{toolDescription()}</div>
-        </div>
-      </Show>
-
-      <Show when={props.request.patterns.length > 0}>
-        <div data-slot="permission-row">
-          <span data-slot="permission-spacer" aria-hidden="true" />
-          <div data-slot="permission-patterns">
-            <For each={props.request.patterns}>
-              {(pattern) => <code class="text-12-regular text-text-base break-all">{pattern}</code>}
-            </For>
-          </div>
+      {/* What will run or be touched: code style, wraps, scrolls on its own when it is very long.
+          An edit shows its diff instead, which already names the file. */}
+      <Show when={props.request.patterns.length > 0 && diffs().length === 0}>
+        <div data-slot="permission-patterns">
+          <For each={props.request.patterns}>
+            {(pattern) => (
+              <pre data-slot="permission-command">
+                <code>{pattern}</code>
+              </pre>
+            )}
+          </For>
         </div>
       </Show>
 

@@ -847,31 +847,29 @@
   [data-slot="permission-body"] {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 10px;
     flex: 1;
     min-height: 0;
-    padding: 12px 12px 0;
+    padding: 14px 16px 0;
   }
 
   [data-slot="permission-header"] {
     padding: 0;
   }
 
-  [data-slot="permission-row"] {
-    display: grid;
-    grid-template-columns: 20px 1fr;
-    column-gap: 8px;
-    align-items: start;
-  }
-
-  [data-slot="permission-row"][data-variant="header"] {
+  /* Title row: plain text for routine requests, a warning mark only for what the guard flagged. */
+  [data-slot="permission-heading"] {
+    display: flex;
     align-items: center;
+    gap: 8px;
+    min-width: 0;
   }
 
   [data-slot="permission-icon"] {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
   }
 
   [data-slot="permission-icon"] [data-component="icon"] {
@@ -880,50 +878,72 @@
 
   [data-slot="permission-header-title"] {
     font-family: var(--font-family-sans);
-    font-size: 14px;
+    font-size: var(--font-size-base);
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-large);
     color: var(--text-strong);
     min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   [data-slot="permission-content"] {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 8px;
     flex: 1;
     min-height: 0;
+    padding-bottom: 14px;
   }
 
   [data-slot="permission-hint"] {
     font-family: var(--font-family-sans);
-    font-size: 14px;
+    font-size: var(--font-size-small);
     font-weight: var(--font-weight-regular);
     line-height: var(--line-height-large);
     color: var(--text-weak);
     padding: 0;
   }
 
+  [data-slot="permission-hint"][data-variant="guard"] {
+    color: var(--text-strong);
+  }
+
+  /* What will run or be touched. Code style, wraps instead of scrolling sideways, and scrolls on
+     its own past a few lines so the actions stay in view at the minimum window size. */
   [data-slot="permission-patterns"] {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    margin-top: 8px;
-    margin-bottom: 16px;
-    padding: 1px 0 8px;
-    flex: 1;
     min-height: 0;
+    max-height: min(32dvh, 220px);
     overflow-y: auto;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    overscroll-behavior: contain;
+    border: 1px solid var(--border-weaker-base);
+    border-radius: 8px;
+    background-color: var(--surface-raised-base);
+  }
 
-    &::-webkit-scrollbar {
-      display: none;
-    }
+  [data-slot="permission-command"] {
+    margin: 0;
+    padding: 8px 12px;
+    font-family: var(--font-family-mono);
+    font-feature-settings: var(--font-family-mono--font-feature-settings);
+    font-size: var(--font-size-small);
+    line-height: var(--line-height-large);
+    color: var(--text-strong);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
 
     code {
-      font-size: 14px;
-      line-height: var(--line-height-large);
+      font: inherit;
+      color: inherit;
+      background: none;
+      padding: 0;
+    }
+
+    & + [data-slot="permission-command"] {
+      border-top: 1px solid var(--border-weaker-base);
     }
   }
 
@@ -934,7 +954,7 @@
     min-width: 0;
     min-height: 0;
     max-height: min(45dvh, 420px);
-    margin: 0 0 16px 28px;
+    margin: 0;
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -962,25 +982,42 @@
     color: var(--text-weak);
   }
 
-  @media (max-width: 640px) {
-    [data-slot="permission-diffs"] {
-      margin-left: 0;
-    }
-  }
-
   [data-slot="permission-footer"] {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
     flex-shrink: 0;
     padding: 32px 8px 8px;
     margin-top: -24px;
+  }
+
+  /* Keyboard hint: quiet, and the first thing to go when the window is narrow. */
+  [data-slot="permission-footer-hint"] {
+    flex: 0 1 auto;
+    min-width: 0;
+    padding-left: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-small);
+    line-height: var(--line-height-large);
+    color: var(--text-weaker);
+  }
+
+  @media (max-width: 560px) {
+    [data-slot="permission-footer-hint"] {
+      display: none;
+    }
   }
 
   [data-slot="permission-footer-actions"] {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-shrink: 0;
+    margin-left: auto;
 
     [data-component="button"] {
       padding-left: 12px;
