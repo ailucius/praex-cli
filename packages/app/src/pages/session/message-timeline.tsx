@@ -302,6 +302,9 @@ export function MessageTimeline(props: {
     return sync().data.message[id] ?? emptyMessages
   })
   const messageByID = createMemo(() => new Map(sessionMessages().map((message) => [message.id, message] as const)))
+  // declared before the first memo that reads it: memos run as they are created, so a later
+  // declaration is still uninitialised there and throws once a chat has a second turn
+  const getMsgParts = (msgId: string) => sync().data.part[msgId] ?? emptyParts
   const assistantMessagesByParent = createMemo(() => {
     const result = new Map<string, AssistantMessage[]>()
     // replies to a hidden nudge or completion check belong to the person's turn before it (syntheticOnly)
@@ -392,7 +395,6 @@ export function MessageTimeline(props: {
     return sync().data.message[id] ?? emptyMessages
   })
   const parentTitle = createMemo(() => sessionTitle(parent()?.title) ?? language.t("command.session.new"))
-  const getMsgParts = (msgId: string) => sync().data.part[msgId] ?? emptyParts
   const childTaskDescription = createMemo(() => {
     const id = sessionID()
     if (!id) return
