@@ -295,6 +295,15 @@ export function merge(...rulesets: PermissionV1.Ruleset[]): PermissionV1.Rule[] 
 // denies gets all of its rules for that permission again after the session's, so the deny holds and so do its
 // exceptions (the plan agent may still write its plan file). A deny the agent itself lifts with a later "*" rule (the
 // build agent allows question) is not a limit and is left alone; so are the session's asks and allows everywhere else.
+//
+// 25 Nov: an agent that denies everything and then opens named tools ("*": deny, then bash: allow; Chat, Cowork and
+// the explore subagent are written this way) lost every tool as soon as its session carried one rule: only the rules
+// whose permission is exactly "*" went back after the session's, so "*": deny came after the agent's own allows and
+// won. The desktop app creates every session with the destructive-action guard rule and every subagent session
+// carries a deny, so Chat was sent no tools at all (an MCP exception such as "mcp_*": deny, "mcp_docs_*": allow was
+// lost the same way). A rule that opens a permission inside a wildcard deny the agent keeps now goes back too, in the
+// agent's order, followed by the session's rules narrowed to what it opens: inside the opening a mode's ask, the web
+// search switch and auto mode's allow apply as they do for any agent; outside it the agent's deny stays the last word.
 export function withSession(agent: PermissionV1.Ruleset, session: PermissionV1.Ruleset = []): PermissionV1.Rule[] {
   if (!session.length) return [...agent]
   const limited = new Set<string>()
@@ -305,7 +314,44 @@ export function withSession(agent: PermissionV1.Ruleset, session: PermissionV1.R
       .some((later) => later.permission === rule.permission && later.pattern === "*" && later.action !== "deny")
     if (!lifted) limited.add(rule.permission)
   })
-  return [...agent, ...session, ...agent.filter((rule) => limited.has(rule.permission))]
+  return [
+    ...agent,
+    ...session,
+    ...agent.flatMap((rule, i): PermissionV1.Rule[] => {
+      if (limited.has(rule.permission)) return [rule]
+      const opens = agent
+        .slice(0, i)
+        .some(
+          (earlier) =>
+            earlier.action === "deny" &&
+            limited.has(earlier.permission) &&
+            Wildcard.match(rule.permission, earlier.permission),
+        )
+      if (!opens) return []
+      if (rule.action === "deny") return [rule]
+      return [rule, ...session.flatMap((own) => within(own, rule))]
+    }),
+  ]
+}
+
+// A session rule cut down to the part of `opening` it covers. The result never reaches past `opening`, so it cannot
+// lift a deny the agent keeps around it. When the two do not meet, nothing; when they may meet but the overlap cannot
+// be written as one rule (two different wildcards), only a deny goes back, as it is, since a deny can only narrow.
+function within(rule: PermissionV1.Rule, opening: PermissionV1.Rule): PermissionV1.Rule[] {
+  const wild = (value: string) => /[*?]/.test(value)
+  // the overlap of two names or patterns; false when they cannot meet, undefined when it is not one rule
+  const narrow = (own: string, open: string): string | false | undefined => {
+    if (open === "*") return own
+    if (own === open || Wildcard.match(open, own)) return open
+    // a plain name inside the opening's wildcard ("mcp_docs_search" inside "mcp_docs_*")
+    if (!wild(own)) return Wildcard.match(own, open) ? own : false
+    if (!wild(open)) return false
+  }
+  const permission = narrow(rule.permission, opening.permission)
+  const pattern = narrow(rule.pattern, opening.pattern)
+  if (permission === false || pattern === false) return []
+  if (permission === undefined || pattern === undefined) return rule.action === "deny" ? [rule] : []
+  return [{ ...rule, permission, pattern }]
 }
 
 export function disabled(tools: string[], ruleset: PermissionV1.Ruleset): Set<string> {

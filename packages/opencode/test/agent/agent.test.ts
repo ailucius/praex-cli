@@ -124,6 +124,93 @@ it.instance("auto mode leaves the build agent's tools as the mode says, without 
   }),
 )
 
+// 25 Nov: the desktop app creates every session with the destructive-action guard rule. Chat denies everything and
+// then opens its tools, and with any session rule its "*": deny was put back after its own allows: no tools were sent.
+const GUARD_ONLY: PermissionV1.Ruleset = [{ permission: "destructive", pattern: "*", action: "ask" }]
+const CHAT_TOOLS = ["bash", "read", "edit", "write", "glob", "grep", "webfetch", "websearch", "todowrite", "question", "skill"]
+
+it.instance("Chat and Cowork keep their whole toolset in a desktop session, in auto mode and in manual mode", () =>
+  Effect.gen(function* () {
+    for (const name of [Agent.CHAT_AGENT, Agent.COWORK_AGENT]) {
+      const agent = yield* load((svc) => svc.get(name))
+      expect(agent).toBeDefined()
+      for (const mode of [GUARD_ONLY, AUTO, MANUAL]) {
+        const rules = Permission.withSession(agent!.permission, mode)
+        // exactly the tools the agent has without a session; subagents and memory stay off
+        expect([...Permission.disabled([...CHAT_TOOLS, "task", "memory", "plan_exit"], rules)].toSorted()).toEqual(
+          [...Permission.disabled([...CHAT_TOOLS, "task", "memory", "plan_exit"], agent!.permission)].toSorted(),
+        )
+        expect([...Permission.disabled(CHAT_TOOLS, rules)]).toEqual([])
+        expect(Permission.evaluate("bash", "echo hello", rules).action).toBe(mode === MANUAL ? "ask" : "allow")
+        expect(Permission.evaluate("edit", "notes.md", rules).action).toBe(mode === MANUAL ? "ask" : "allow")
+        expect(Permission.evaluate("read", "notes.md", rules).action).toBe("allow")
+        expect(Permission.evaluate("task", "general", rules).action).toBe("deny")
+        // other folders stay closed, whatever the mode says
+        expect(Permission.evaluate("external_directory", "/home/someone/project/*", rules).action).toBe("deny")
+        expect(Permission.evaluate("external_directory", Truncate.GLOB, rules).action).toBe("allow")
+      }
+    }
+  }),
+)
+
+it.instance("Chat's web tools go off with the composer's web search switch and nothing else does", () =>
+  Effect.gen(function* () {
+    const chat = yield* load((svc) => svc.get(Agent.CHAT_AGENT))
+    const rules = Permission.withSession(chat!.permission, [
+      ...GUARD_ONLY,
+      { permission: "websearch", pattern: "*", action: "deny" },
+      { permission: "webfetch", pattern: "*", action: "deny" },
+    ])
+    expect([...Permission.disabled(CHAT_TOOLS, rules)].toSorted()).toEqual(["webfetch", "websearch"])
+  }),
+)
+
+it.instance("the explore subagent keeps its read-only tools in a subagent session", () =>
+  Effect.gen(function* () {
+    const explore = yield* load((svc) => svc.get("explore"))
+    // what a subagent session always carries (agent/subagent-permissions.ts), plus the guard
+    const session: PermissionV1.Ruleset = [
+      ...GUARD_ONLY,
+      { permission: "todowrite", pattern: "*", action: "deny" },
+      { permission: "task", pattern: "*", action: "deny" },
+    ]
+    const rules = Permission.withSession(explore!.permission, session)
+    const tools = ["grep", "glob", "bash", "read", "webfetch", "websearch", "edit", "write", "todowrite", "task"]
+    expect([...Permission.disabled(tools, rules)].toSorted()).toEqual(["edit", "task", "todowrite", "write"])
+    expect(Permission.evaluate("bash", "ls", Permission.withSession(explore!.permission, MANUAL)).action).toBe("ask")
+    expect(Permission.evaluate("edit", "src/cart.ts", Permission.withSession(explore!.permission, AUTO)).action).toBe("deny")
+  }),
+)
+
+it.instance(
+  "neither the user's config nor session rules widen what Chat denies",
+  () =>
+    Effect.gen(function* () {
+      const chat = yield* load((svc) => svc.get(Agent.CHAT_AGENT))
+      const rules = Permission.withSession(chat!.permission, [
+        { permission: "*", pattern: "*", action: "allow" },
+        { permission: "external_directory", pattern: "*", action: "allow" },
+        { permission: "task", pattern: "*", action: "allow" },
+        ...GUARD_ONLY,
+      ])
+      expect(Permission.evaluate("external_directory", "/home/someone/project/*", rules).action).toBe("deny")
+      expect(Permission.evaluate("task", "general", rules).action).toBe("deny")
+      expect(Permission.evaluate("bash", "echo hello", rules).action).toBe("allow")
+      expect([...Permission.disabled([...CHAT_TOOLS, "task", "memory"], rules)].toSorted()).toEqual(["memory", "task"])
+      // the guard rule stays in the list for the destructive-action guard
+      expect(rules.filter((rule) => rule.permission === "destructive")).toEqual([...GUARD_ONLY])
+    }),
+  {
+    config: {
+      permission: {
+        "*": "allow",
+        external_directory: "allow",
+        task: "allow",
+      },
+    },
+  },
+)
+
 it.instance("plan agent denies the general subagent by default", () =>
   Effect.gen(function* () {
     const plan = yield* load((svc) => svc.get("plan"))

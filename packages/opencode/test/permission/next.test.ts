@@ -452,6 +452,178 @@ test("evaluate - merges multiple rulesets", () => {
   expect(result.action).toBe("deny")
 })
 
+// withSession tests
+
+// an agent written as "deny everything, then open named tools" (Chat, Cowork, explore)
+const DENY_ALL_THEN_OPEN: PermissionV1.Ruleset = [
+  { permission: "*", pattern: "*", action: "allow" },
+  { permission: "task", pattern: "*", action: "allow" },
+  { permission: "*", pattern: "*", action: "deny" },
+  { permission: "read", pattern: "*", action: "allow" },
+  { permission: "read", pattern: "*.env", action: "ask" },
+  { permission: "edit", pattern: "*", action: "allow" },
+  { permission: "bash", pattern: "*", action: "allow" },
+  { permission: "websearch", pattern: "*", action: "allow" },
+  { permission: "external_directory", pattern: "*", action: "deny" },
+  { permission: "external_directory", pattern: "/tmp/out/*", action: "allow" },
+]
+const GUARD: PermissionV1.Ruleset = [{ permission: "destructive", pattern: "*", action: "ask" }]
+const OPENED_TOOLS = ["read", "edit", "write", "bash", "websearch"]
+
+test("withSession - a deny-all agent keeps the tools it opens when the session carries a rule", () => {
+  // 25 Nov: the desktop app creates every session with the guard rule; Chat was then sent no tools at all
+  const rules = Permission.withSession(DENY_ALL_THEN_OPEN, GUARD)
+  expect([...Permission.disabled([...OPENED_TOOLS, "task", "memory"], rules)].toSorted()).toEqual(["memory", "task"])
+  expect(Permission.evaluate("bash", "echo hello", rules).action).toBe("allow")
+  expect(Permission.evaluate("edit", "notes.md", rules).action).toBe("allow")
+  expect(Permission.evaluate("read", "prod.env", rules).action).toBe("ask")
+  expect(Permission.evaluate("task", "general", rules).action).toBe("deny")
+  expect(Permission.evaluate("external_directory", "/home/someone/*", rules).action).toBe("deny")
+  expect(Permission.evaluate("external_directory", "/tmp/out/a.txt", rules).action).toBe("allow")
+  // the guard rule itself is still there for the destructive-action guard to find
+  expect(rules.filter((rule) => rule.permission === "destructive")).toEqual([...GUARD])
+})
+
+test("withSession - the same agent without session rules is returned as it is", () => {
+  expect(Permission.withSession(DENY_ALL_THEN_OPEN)).toEqual([...DENY_ALL_THEN_OPEN])
+  expect(Permission.withSession(DENY_ALL_THEN_OPEN, [])).toEqual([...DENY_ALL_THEN_OPEN])
+})
+
+test("withSession - a session deny still switches an opened tool off (the web search switch)", () => {
+  const rules = Permission.withSession(DENY_ALL_THEN_OPEN, [
+    ...GUARD,
+    { permission: "websearch", pattern: "*", action: "deny" },
+  ])
+  expect([...Permission.disabled(OPENED_TOOLS, rules)]).toEqual(["websearch"])
+  expect(Permission.evaluate("bash", "echo hello", rules).action).toBe("allow")
+})
+
+test("withSession - a session ask applies to an opened tool and cannot open a closed one", () => {
+  const rules = Permission.withSession(DENY_ALL_THEN_OPEN, [
+    { permission: "bash", pattern: "*", action: "ask" },
+    { permission: "bash", pattern: "git status", action: "allow" },
+    { permission: "task", pattern: "*", action: "ask" },
+    { permission: "external_directory", pattern: "*", action: "allow" },
+  ])
+  expect(Permission.evaluate("bash", "rm notes.md", rules).action).toBe("ask")
+  expect(Permission.evaluate("bash", "git status", rules).action).toBe("allow")
+  expect(Permission.evaluate("task", "general", rules).action).toBe("deny")
+  // opened by the agent only for one folder: its own deny stays the last word
+  expect(Permission.evaluate("external_directory", "/home/someone/*", rules).action).toBe("deny")
+  expect(Permission.evaluate("external_directory", "/tmp/out/a.txt", rules).action).toBe("allow")
+})
+
+test("withSession - auto mode's blanket allow reaches the opened tools only", () => {
+  const rules = Permission.withSession(DENY_ALL_THEN_OPEN, [{ permission: "*", pattern: "*", action: "allow" }, ...GUARD])
+  expect(Permission.evaluate("bash", "echo hello", rules).action).toBe("allow")
+  expect(Permission.evaluate("read", "prod.env", rules).action).toBe("allow")
+  expect(Permission.evaluate("task", "general", rules).action).toBe("deny")
+  expect(Permission.evaluate("memory", "*", rules).action).toBe("deny")
+  expect(Permission.evaluate("external_directory", "/home/someone/*", rules).action).toBe("deny")
+  expect([...Permission.disabled([...OPENED_TOOLS, "task", "memory"], rules)].toSorted()).toEqual(["memory", "task"])
+})
+
+test("withSession - a wildcard deny with a named exception keeps the exception (MCP tools)", () => {
+  const agent: PermissionV1.Ruleset = [
+    { permission: "*", pattern: "*", action: "allow" },
+    { permission: "mcp_*", pattern: "*", action: "deny" },
+    { permission: "mcp_docs_*", pattern: "*", action: "allow" },
+  ]
+  const rules = Permission.withSession(agent, [{ permission: "*", pattern: "*", action: "allow" }, ...GUARD])
+  expect(Permission.evaluate("mcp_docs_search", "*", rules).action).toBe("allow")
+  expect(Permission.evaluate("mcp_mail_send", "*", rules).action).toBe("deny")
+  expect([...Permission.disabled(["mcp_docs_search", "mcp_mail_send", "bash"], rules)]).toEqual(["mcp_mail_send"])
+})
+
+test("withSession - an agent without a wildcard deny gets the same rules as before", () => {
+  const agent: PermissionV1.Ruleset = [
+    { permission: "*", pattern: "*", action: "allow" },
+    { permission: "plan_exit", pattern: "*", action: "deny" },
+    { permission: "edit", pattern: "*", action: "deny" },
+    { permission: "edit", pattern: "plans/*.md", action: "allow" },
+  ]
+  const session: PermissionV1.Ruleset = [{ permission: "*", pattern: "*", action: "allow" }, ...GUARD]
+  expect(Permission.withSession(agent, session)).toEqual([...agent, ...session, ...agent.slice(1)])
+})
+
+test("withSession - a session rule is cut down to what the agent opens and never reaches past it", () => {
+  const rules = Permission.withSession(DENY_ALL_THEN_OPEN, [
+    { permission: "*", pattern: "rm *", action: "allow" },
+    { permission: "b*", pattern: "*", action: "ask" },
+  ])
+  // inside the openings the session's rules apply
+  expect(Permission.evaluate("bash", "ls", rules).action).toBe("ask")
+  expect(Permission.evaluate("edit", "rm notes.md", rules).action).toBe("allow")
+  // outside them the agent's "*": deny stays the last word
+  for (const permission of ["task", "memory", "browser", "external_directory"])
+    expect(Permission.evaluate(permission, "rm x", rules).action).toBe("deny")
+  expect([...Permission.disabled([...OPENED_TOOLS, "task", "memory", "browser"], rules)].toSorted()).toEqual([
+    "browser",
+    "memory",
+    "task",
+  ])
+})
+
+test("withSession - a session deny applies inside an opening even where the overlap is not one rule", () => {
+  const agent: PermissionV1.Ruleset = [
+    { permission: "*", pattern: "*", action: "deny" },
+    { permission: "read", pattern: "*", action: "allow" },
+    { permission: "read", pattern: "*.env", action: "ask" },
+  ]
+  const rules = Permission.withSession(agent, [
+    { permission: "read", pattern: "secrets/*", action: "deny" },
+    { permission: "read", pattern: "docs/*", action: "allow" },
+  ])
+  expect(Permission.evaluate("read", "secrets/prod.env", rules).action).toBe("deny")
+  expect(Permission.evaluate("read", "secrets/a.md", rules).action).toBe("deny")
+  expect(Permission.evaluate("read", "docs/a.md", rules).action).toBe("allow")
+  // a session allow does not reach a part of the opening it cannot be cut down to: the agent's ask stands
+  expect(Permission.evaluate("read", "docs/dev.env", rules).action).toBe("ask")
+  expect(Permission.evaluate("read", "notes.env", rules).action).toBe("ask")
+  expect(Permission.evaluate("bash", "ls", rules).action).toBe("deny")
+})
+
+it.instance(
+  "25 Nov: a deny-all agent's opened tools run, the guard still asks, and the agent's denies hold",
+  () =>
+    Effect.gen(function* () {
+      const sessionID = SessionID.make("session_chat")
+      // what a desktop session carries, plus rules that try to open what the agent closes
+      const ruleset = Permission.withSession(DENY_ALL_THEN_OPEN, [
+        { permission: "*", pattern: "*", action: "allow" },
+        { permission: "external_directory", pattern: "*", action: "allow" },
+        { permission: "task", pattern: "*", action: "allow" },
+        ...GUARD,
+      ])
+      const command = "echo hello > hello.txt"
+      expect(
+        yield* ask({ sessionID, permission: "bash", patterns: [command], metadata: { command }, always: [], ruleset }),
+      ).toBeUndefined()
+
+      const push = yield* ask({
+        sessionID,
+        permission: "bash",
+        patterns: ["git push --force origin main"],
+        metadata: { command: "git push --force origin main" },
+        always: [],
+        ruleset,
+      }).pipe(Effect.forkScoped)
+      expect((yield* waitForPending(1))[0]?.metadata.guard).toContain("Force-pushes")
+      yield* rejectAll()
+      yield* Fiber.await(push)
+
+      for (const [permission, pattern] of [
+        ["task", "general"],
+        ["external_directory", "/home/someone/*"],
+        ["memory", "*"],
+      ]) {
+        const err = yield* fail(ask({ sessionID, permission, patterns: [pattern], metadata: {}, always: [], ruleset }))
+        expect(err).toBeInstanceOf(PermissionV1.DeniedError)
+      }
+    }),
+  { git: true },
+)
+
 // disabled tests
 
 test("disabled - returns empty set when all tools allowed", () => {
