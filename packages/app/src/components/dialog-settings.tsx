@@ -1,4 +1,4 @@
-import { Component } from "solid-js"
+import { Component, Show } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -56,7 +56,11 @@ export const DialogSettings: Component = () => {
             </div>
             <div class="flex flex-col gap-1 pl-1 py-1 text-12-medium text-text-weak">
               <span>{language.t("app.name.desktop")}</span>
-              <span class="text-11-regular">v{platform.version}</span>
+              {/* The desktop shell passes its own package version; the browser build carries the
+                  upstream web package version, which means nothing to a Praex user, so hide it there. */}
+              <Show when={platform.platform === "desktop" && platform.version}>
+                {(version) => <span class="text-11-regular">v{version()}</span>}
+              </Show>
             </div>
           </div>
         </Tabs.List>

@@ -8,35 +8,29 @@
   aspect-ratio: 1;
   flex-shrink: 0;
 
+  /* Primary = the one accent (send, confirm). Disabled drops to a neutral fill. */
   &[data-variant="primary"] {
-    background-color: var(--icon-strong-base);
+    background-color: var(--accent-base, var(--icon-strong-base));
 
     [data-slot="icon-svg"] {
-      /* color: var(--icon-weak-base); */
-      color: var(--icon-invert-base);
-
-      /* &:hover:not(:disabled) { */
-      /*   color: var(--icon-weak-hover); */
-      /* } */
-      /* &:active:not(:disabled) { */
-      /*   color: var(--icon-strong-active); */
-      /* } */
+      color: var(--text-on-accent, var(--icon-invert-base));
     }
 
     &:hover:not(:disabled) {
-      background-color: var(--icon-strong-hover);
+      background-color: var(--accent-hover, var(--icon-strong-hover));
     }
-    &:focus:not(:disabled) {
-      background-color: var(--icon-strong-focus);
+    &:focus-visible:not(:disabled) {
+      outline: none;
+      box-shadow: var(--focus-ring);
     }
     &:active:not(:disabled) {
-      background-color: var(--icon-strong-active);
+      background-color: var(--accent-hover, var(--icon-strong-active));
     }
     &:disabled {
-      background-color: var(--icon-strong-disabled);
+      background-color: var(--surface-weak);
 
       [data-slot="icon-svg"] {
-        color: var(--icon-invert-base);
+        color: var(--text-weaker);
       }
     }
   }
@@ -55,7 +49,9 @@
     }
     &:focus-visible:not(:active) {
       background-color: var(--button-secondary-base);
-      box-shadow: var(--shadow-xs-border-focus);
+      box-shadow:
+        var(--shadow-xs-border-base),
+        var(--focus-ring);
     }
     &:focus-visible:active {
       box-shadow: none;

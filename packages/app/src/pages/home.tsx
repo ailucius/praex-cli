@@ -579,7 +579,7 @@ function HomeServerRow(props: {
           <span class={HOME_PROJECT_NAV_LABEL}>{props.server.displayName ?? new URL(props.server.http.url).host}</span>
           <Show when={props.server.label}>
             {(label) => (
-              <span class="shrink-0 rounded-[3px] border border-v2-border-border-base px-1 py-0.5 text-[9px] leading-none text-v2-text-text-muted">
+              <span class="shrink-0 rounded-[4px] bg-v2-background-bg-layer-02 px-1 py-0.5 text-[11px] leading-none text-v2-text-text-muted">
                 {label()}
               </span>
             )}
@@ -792,8 +792,8 @@ function CopartnerComposer(props: { onStart: (task: string) => void }) {
         <input
           class="min-w-0 flex-1 border-0 bg-transparent text-v2-text-text-base outline-0 [font-weight:440] placeholder:text-v2-text-text-faint"
           value={store.task}
-          placeholder="Copartner — give Praex a task"
-          aria-label="Copartner — give Praex a task"
+          placeholder="Give Praex a task"
+          aria-label="Give Praex a task"
           onInput={(event) => setStore("task", event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.isComposing) {
@@ -1209,16 +1209,16 @@ function LegacyHome() {
         when={!showWelcome()}
         fallback={
           <div class="size-full overflow-y-auto">
-            <div class="mx-auto flex min-h-full w-full max-w-[560px] flex-col items-center justify-center gap-7 px-4 py-12 text-center">
-              <Logo class="w-[min(28rem,80%)]" />
-              <div class="text-16-regular text-text-weak max-w-[420px] [text-wrap:balance]">{language.t("home.welcome.tagline")}</div>
-              <div class="flex w-full flex-col gap-1 rounded-[10px] bg-v2-background-bg-deep p-2 text-left">
-                <div class="px-2 pt-1 pb-1.5 text-12-regular text-text-weak">{language.t("home.welcome.tiers")}</div>
+            <div class="mx-auto flex min-h-full w-full max-w-[400px] flex-col items-center justify-center gap-6 px-4 py-12 text-center">
+              <Logo class="w-[min(15rem,70%)]" />
+              <div class="text-15-regular text-text-weak max-w-[360px] [text-wrap:pretty]">{language.t("home.welcome.tagline")}</div>
+              <div class="flex w-full flex-col rounded-xl border border-border-weak-base bg-background-stronger text-left">
+                <div class="px-4 pt-3 pb-1 text-12-regular text-text-weaker">{language.t("home.welcome.tiers")}</div>
                 <For each={tiers()}>
                   {(tier) => (
-                    <div class="flex items-center justify-between rounded-[6px] px-2 py-1.5">
+                    <div class="flex items-center justify-between px-4 py-2.5 [&+&]:border-t [&+&]:border-border-weaker-base">
                       <span class="text-14-medium text-text-strong">{tier.name}</span>
-                      <span class="text-12-regular text-text-weak">{tier.plan}</span>
+                      <span class="text-13-regular text-text-weak">{tier.plan}</span>
                     </div>
                   )}
                 </For>

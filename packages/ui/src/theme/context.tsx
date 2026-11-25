@@ -156,7 +156,7 @@ function applyThemeCss(theme: DesktopTheme, themeId: string, mode: "light" | "da
 
   // Update theme-color meta tag to match light/dark mode
   const meta = document.querySelector('meta[name="theme-color"]')
-  if (meta) meta.setAttribute("content", isDark ? "#0c0a12" : "#fdfcff")
+  if (meta) meta.setAttribute("content", isDark ? "#141414" : "#f9f9f9")
 }
 
 function cacheThemeVariants(theme: DesktopTheme, themeId: string) {

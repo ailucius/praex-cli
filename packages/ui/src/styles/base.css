@@ -172,6 +172,26 @@ table {
 }
 
 /*
+  One calm focus ring for keyboard users on plain interactive elements. Components that draw their own
+  focus state (buttons, switches, inputs) set outline: none and use var(--focus-ring) instead.
+*/
+
+:where(a, button, summary, [role="button"], [role="tab"], [role="menuitem"]):focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 1px;
+}
+
+/*
+  Thin scrollbars that sit on the surface instead of platform gutters. Elements that hide their
+  scrollbar (scrollbar-width: none) keep doing so; component layers win over this base rule.
+*/
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/*
   Add the correct vertical alignment in Chrome and Firefox.
 */
 

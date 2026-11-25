@@ -4,10 +4,9 @@
   justify-content: center;
   flex-shrink: 0;
   height: 20px;
-  padding: 0 8px;
-  border-radius: 2px;
+  padding: 0 6px;
+  border-radius: 4px;
   background: var(--surface-base);
-  box-shadow: var(--shadow-xxs-border);
 
   /* text-12-regular */
   font-family: var(--font-family-sans);

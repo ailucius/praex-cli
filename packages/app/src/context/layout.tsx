@@ -264,7 +264,8 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         },
         review: {
           diffStyle: "split" as ReviewDiffStyle,
-          panelOpened: true,
+          // first run gives the conversation the full width; the review pane opens on demand
+          panelOpened: false,
         },
         fileTree: {
           opened: false,
@@ -753,7 +754,9 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         const key = createSessionKeyReader(sessionKey, ensureKey)
         const s = createMemo(() => store.sessionView[key()] ?? { scroll: {} })
         const terminalOpened = createMemo(() => store.terminal?.opened ?? false)
-        const reviewPanelOpened = createMemo(() => store.review?.panelOpened ?? true)
+        // New installs start with the review pane closed so the conversation gets the full width;
+        // it opens from the title bar, Ctrl+Shift+R or any changed file, and the choice is remembered.
+        const reviewPanelOpened = createMemo(() => store.review?.panelOpened ?? false)
 
         function setTerminalOpened(next: boolean) {
           const current = store.terminal

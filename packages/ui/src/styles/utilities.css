@@ -71,12 +71,49 @@
   letter-spacing: var(--letter-spacing-normal);
 }
 
+/* Meta (13px) steps that call sites already used but the scale did not define. */
+.text-13-regular {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-small);
+  font-style: normal;
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-large);
+  letter-spacing: var(--letter-spacing-normal);
+}
+
+.text-13-medium {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-small);
+  font-style: normal;
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-large);
+  letter-spacing: var(--letter-spacing-normal);
+}
+
 .text-14-regular {
   font-family: var(--font-family-sans);
   font-size: var(--font-size-base);
   font-style: normal;
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-x-large); /* 171.429% */
+  letter-spacing: var(--letter-spacing-normal);
+}
+
+.text-15-regular {
+  font-family: var(--font-family-sans);
+  font-size: 15px;
+  font-style: normal;
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-large);
+  letter-spacing: var(--letter-spacing-normal);
+}
+
+.text-16-regular {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-large);
+  font-style: normal;
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-large);
   letter-spacing: var(--letter-spacing-normal);
 }
 

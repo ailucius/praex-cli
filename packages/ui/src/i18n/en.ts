@@ -55,11 +55,11 @@ export const dict: Record<string, string> = {
 
   "dialog.usageExceeded.freeTier.title": "Free limit reached",
   "dialog.usageExceeded.freeTier.description":
-    "Subscribe to OpenCode Go for reliable access to the best open-source models, starting at $5/month.",
-  "dialog.usageExceeded.freeTier.actionLabel": "Subscribe",
-  "dialog.usageExceeded.accountRateLimit.title": "Go limit reached",
+    "You have used today's free allowance. Upgrade your Praex plan to keep going now.",
+  "dialog.usageExceeded.freeTier.actionLabel": "See plans",
+  "dialog.usageExceeded.accountRateLimit.title": "Usage limit reached",
   "dialog.usageExceeded.accountRateLimit.description":
-    "Usage limit reached. To continue using this model now, enable usage from your available balance",
+    "To keep using this model now, turn on usage from your available balance.",
   "dialog.usageExceeded.accountRateLimit.actionLabel": "Open settings",
 
   "ui.sessionTurn.status.delegating": "Delegating work",
@@ -123,7 +123,7 @@ export const dict: Record<string, string> = {
   "ui.tool.grep": "Grep",
   "ui.tool.task": "Task",
   "ui.tool.webfetch": "Webfetch",
-  "ui.tool.websearch": "Web Search",
+  "ui.tool.websearch": "Web search",
   "ui.tool.shell": "Shell",
   "ui.tool.preparing": "Preparing the command",
   "ui.tool.patch": "Patch",

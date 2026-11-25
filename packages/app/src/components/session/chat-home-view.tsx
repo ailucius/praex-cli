@@ -48,7 +48,7 @@ export function ChatHomeView(props: { composer: JSX.Element }) {
               {(starter) => (
                 <button
                   type="button"
-                  class="h-8 px-3.5 rounded-lg border border-border-weaker-base bg-transparent text-[13px] text-text-weak transition-colors duration-150 hover:border-border-weak-base hover:bg-surface-raised-base-hover hover:text-text-strong outline-none focus-visible:shadow-xs-border-focus"
+                  class="h-8 px-3.5 rounded-full border border-border-weak-base bg-transparent text-[13px] text-text-weak transition-colors duration-150 hover:bg-surface-raised-base-hover hover:text-text-strong outline-none focus-visible:shadow-[var(--focus-ring)]"
                   onClick={() => start(starter.text)}
                 >
                   {language.t(starter.key)}
@@ -60,7 +60,7 @@ export function ChatHomeView(props: { composer: JSX.Element }) {
             {language.t("home.chat.scope")}{" "}
             <button
               type="button"
-              class="text-text-base underline underline-offset-2 decoration-border-base hover:text-text-strong outline-none focus-visible:shadow-xs-border-focus rounded-sm"
+              class="font-medium text-text-base hover:text-text-strong outline-none focus-visible:shadow-[var(--focus-ring)] rounded-sm"
               onClick={() => command.trigger("project.open")}
             >
               {language.t("home.chat.openFolder")}
