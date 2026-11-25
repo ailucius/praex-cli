@@ -32,6 +32,7 @@ import {
   QuestionInfo,
 } from "@opencode-ai/sdk/v2"
 import { useData } from "../context"
+import { modelLabel } from "./model-label"
 import { useFileComponent } from "../context/file"
 import { useDialog } from "../context/dialog"
 import { type UiI18n, useI18n } from "../context/i18n"
@@ -1131,8 +1132,7 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
     const providerID = props.message.model?.providerID
     const modelID = props.message.model?.modelID
     if (!providerID || !modelID) return ""
-    const match = data.store.provider?.all?.get(providerID)
-    return match?.models?.[modelID]?.name ?? modelID
+    return modelLabel(data.store.provider?.all, providerID, modelID)
   })
   const timefmt = createMemo(() => new Intl.DateTimeFormat(i18n.locale(), { timeStyle: "short" }))
 
@@ -1572,8 +1572,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
   const model = createMemo(() => {
     if (props.message.role !== "assistant") return ""
     const message = props.message as AssistantMessage
-    const match = data.store.provider?.all?.get(message.providerID)
-    return match?.models?.[message.modelID]?.name ?? message.modelID
+    return modelLabel(data.store.provider?.all, message.providerID, message.modelID)
   })
 
   const duration = createMemo(() => {
