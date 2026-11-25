@@ -34,7 +34,7 @@ const PROJECT_SHOWN = 5
 const PAGE = 40
 
 const ROW =
-  "group/row relative flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2.5 text-left text-[13px] text-text-base outline-none transition-colors duration-150 hover:bg-surface-raised-base-hover hover:text-text-strong focus-visible:shadow-xs-border-focus"
+  "group/row relative flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2.5 text-left text-13-regular text-text-base outline-none transition-colors duration-150 hover:bg-surface-raised-base-hover hover:text-text-strong focus-visible:shadow-xs-border-focus"
 const ROW_ACTIVE = "bg-surface-base-active text-text-strong hover:bg-surface-base-active"
 const SECTION = "flex h-7 items-center justify-between pl-2.5 pr-1 text-12-medium text-text-weaker select-none"
 const HINT =
@@ -439,7 +439,7 @@ export function SidebarHome(props: SidebarHomeProps) {
               P
             </span>
             <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span class="truncate text-[13px] text-text-strong" data-slot="account-name">
+              <span class="truncate text-13-regular text-text-strong" data-slot="account-name">
                 {account.detail()?.name ?? language.t("sidebar.account.title")}
               </span>
               <span

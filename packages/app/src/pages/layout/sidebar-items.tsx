@@ -119,7 +119,7 @@ const SessionRow = (props: {
           <Switch>
             {/* 10-22: the breathing tilde in the accent colour, the one working sign */}
             <Match when={props.isWorking()}>
-              <WorkingMark class="text-[14px]" />
+              <WorkingMark class="text-[13px]" />
             </Match>
             <Match when={props.hasPermissions()}>
               <div class="size-1.5 rounded-full bg-surface-warning-strong" />
@@ -133,7 +133,7 @@ const SessionRow = (props: {
           </Switch>
         </div>
       </Show>
-      <span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{title()}</span>
+      <span class="text-13-regular text-text-strong min-w-0 flex-1 truncate">{title()}</span>
     </A>
   )
 }
@@ -291,7 +291,7 @@ export const NewSessionItem = (props: {
       <div class="shrink-0 size-6 flex items-center justify-center">
         <Icon name="new-session" size="small" class="text-icon-weak" />
       </div>
-      <span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{label}</span>
+      <span class="text-13-regular text-text-strong min-w-0 flex-1 truncate">{label}</span>
     </A>
   )
 

@@ -2186,7 +2186,7 @@ export default function Layout(props: ParentProps) {
                 <div class="mt-8 flex max-w-60 flex-col items-center gap-6 text-center">
                   <div class="flex flex-col gap-3">
                     <div class="text-14-medium text-text-strong">{language.t("sidebar.empty.title")}</div>
-                    <div class="text-14-regular text-text-base" style={{ "line-height": "var(--line-height-normal)" }}>
+                    <div class="text-13-regular text-text-base" style={{ "line-height": "var(--line-height-normal)" }}>
                       {language.t("sidebar.empty.description")}
                     </div>
                   </div>
@@ -2210,8 +2210,8 @@ export default function Layout(props: ParentProps) {
                       onSave={(next) => {
                         void renameProject(project, next)
                       }}
-                      class="text-14-medium text-text-strong truncate"
-                      displayClass="text-14-medium text-text-strong truncate"
+                      class="text-13-medium text-text-strong truncate"
+                      displayClass="text-13-medium text-text-strong truncate"
                       stopPropagation
                     />
 
@@ -2395,10 +2395,10 @@ export default function Layout(props: ParentProps) {
             <div class="p-3 flex flex-col gap-6">
               <div class="flex flex-col gap-2">
                 <div class="text-14-medium text-text-strong">{language.t("sidebar.gettingStarted.title")}</div>
-                <div class="text-14-regular text-text-base" style={{ "line-height": "var(--line-height-normal)" }}>
+                <div class="text-13-regular text-text-base" style={{ "line-height": "var(--line-height-normal)" }}>
                   {language.t("sidebar.gettingStarted.line1")}
                 </div>
-                <div class="text-14-regular text-text-base" style={{ "line-height": "var(--line-height-normal)" }}>
+                <div class="text-13-regular text-text-base" style={{ "line-height": "var(--line-height-normal)" }}>
                   {language.t("sidebar.gettingStarted.line2")}
                 </div>
               </div>
