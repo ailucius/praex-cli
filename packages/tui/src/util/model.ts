@@ -24,5 +24,17 @@ export function name(
   providerID: string,
   modelID: string,
 ) {
-  return get(list, providerID, modelID)?.name ?? modelID
+  return get(list, providerID, modelID)?.name ?? fallbackName(providerID, modelID)
+}
+
+// A session can outlive its model in the hosted lineup (Velox II after Velox III shipped), so
+// older turns would print the raw id. Praex ids are "family-generation[-variant]"; spell them
+// the way the lineup does. Other providers' ids are their public names and stay as they are.
+export function fallbackName(providerID: string, modelID: string) {
+  if (providerID !== "praex-cloud") return modelID
+  const words = modelID.split("-").filter((word) => word && word !== "baked")
+  if (words.length === 0) return modelID
+  return words
+    .map((word) => (/^[ivx]+$/i.test(word) ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join(" ")
 }

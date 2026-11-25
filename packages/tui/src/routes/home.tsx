@@ -17,7 +17,6 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { abbreviateHome } from "../runtime"
 import { useTuiPaths } from "../context/runtime"
 import { truncatePath } from "../util/status-line"
-import { usePraex } from "../component/use-praex"
 
 let once = false
 const placeholder = {
@@ -45,7 +44,6 @@ function HomeHeader() {
   const dimensions = useTerminalDimensions()
   const destination = useHomeSessionDestination()
   const fallback = useDirectory()
-  const praex = usePraex()
   const version = /^\d/.test(InstallationVersion) ? `v${InstallationVersion}` : InstallationVersion
   const directory = createMemo(() => {
     const selected = destination?.destination()
@@ -89,10 +87,8 @@ function HomeHeader() {
             <span style={{ fg: theme.textMuted }}>
               {local.model.current()?.providerID === "praex-cloud" ? "" : ` · ${local.model.parsed().provider}`}
             </span>
-            {/* 10-22: the hosted model read as ready to use while signed out */}
-            <Show when={local.model.current()?.providerID === "praex-cloud" && !praex.signedIn()}>
-              <span style={{ fg: theme.warning }}> · not signed in, type /login</span>
-            </Show>
+            {/* 11-25: signed-out state is said once, in the prompt's meta line, with the /login
+                line above the prompt; the header names the model only. */}
           </text>
         </Show>
         <text fg={theme.textMuted} wrapMode="none">
@@ -150,7 +146,9 @@ export function Home() {
     <HomeSessionDestinationProvider>
       <box flexGrow={1} paddingLeft={2} paddingRight={2}>
         <HomeHeader />
-        <box flexGrow={1} minHeight={0} />
+        {/* At least one blank row under the header, so short terminals do not glue the
+            sign-in line to the directory. */}
+        <box flexGrow={1} minHeight={1} />
         <pluginRuntime.Slot name="home_bottom" />
         <box width="100%" zIndex={1000} flexShrink={0}>
           <pluginRuntime.Slot name="home_prompt" mode="replace" ref={bind}>

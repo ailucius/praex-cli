@@ -673,7 +673,7 @@ export function Prompt(props: PromptProps) {
       },
       {
         title: "Move session",
-        desc: "Move to another project dir",
+        desc: "To another project folder",
         name: "session.move",
         category: "Session",
         slashName: "move",
@@ -1452,6 +1452,9 @@ export function Prompt(props: PromptProps) {
     if (store.mode === "shell") return theme.primary
     const agent = local.agent.current()
     if (!agent) return theme.border
+    // The default agent reads in the text colour, so the brand ink stays on the Praex name and
+    // the conversation's ▎ column. Plan and custom agents keep their hue so a mode change shows.
+    if (agent.name === "build") return theme.text
     return local.agent.color(agent.name)
   })
 
@@ -1640,7 +1643,7 @@ export function Prompt(props: PromptProps) {
                             <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>{currentProviderLabel()}</text>
                           </Show>
                           <Show when={local.model.current()?.providerID === "praex-cloud" && !praex.signedIn()}>
-                            <text fg={fadeColor(theme.warning, modelMetaAlpha())}>· not signed in</text>
+                            <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>· not signed in</text>
                           </Show>
                           <Show when={showVariant()}>
                             <text fg={fadeColor(theme.textMuted, variantMetaAlpha())}>·</text>

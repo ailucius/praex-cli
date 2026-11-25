@@ -2184,13 +2184,13 @@ function GenericTool(props: ToolProps) {
     <Show
       when={props.output && ctx.showGenericToolOutput()}
       fallback={
-        <InlineTool icon="⚙" pending="Writing a command" complete={true} part={props.part}>
+        <InlineTool icon="→" pending="Writing a command" complete={true} part={props.part}>
           {props.tool} {input(props.input)}
         </InlineTool>
       }
     >
       <BlockTool
-        title={`# ${props.tool} ${input(props.input)}`}
+        title={`→ ${props.tool} ${input(props.input)}`}
         part={props.part}
         onClick={foldable() ? () => setExpanded((prev) => !prev) : undefined}
       >
@@ -2404,7 +2404,7 @@ function BlockTool(props: {
           when={props.spinner}
           fallback={<text fg={hover() ? theme.text : theme.textMuted}>{props.title}</text>}
         >
-          <Spinner color={theme.text}>{props.title.replace(/^# /, "")}</Spinner>
+          <Spinner color={theme.text}>{props.title.replace(/^[→±$] /, "")}</Spinner>
         </Show>
       </box>
       <box
@@ -2462,9 +2462,10 @@ function Shell(props: ToolProps) {
   const title = createMemo(() => {
     const desc = stringValue(props.input.description) ?? "Shell"
     const wd = workdirDisplay()
-    if (!wd) return `# ${desc}`
-    if (desc.includes(wd)) return `# ${desc}`
-    return `# ${desc} in ${wd}`
+    // One glyph per meaning across tool rows: → read or asked, ± changed, $ ran.
+    if (!wd) return `$ ${desc}`
+    if (desc.includes(wd)) return `$ ${desc}`
+    return `$ ${desc} in ${wd}`
   })
 
   return (
@@ -2477,10 +2478,7 @@ function Shell(props: ToolProps) {
           onClick={foldable() ? () => setExpanded((prev) => !prev) : undefined}
         >
           <box>
-            <text fg={theme.text}>
-              <span style={{ fg: theme.textMuted }}>$ </span>
-              {stringValue(props.input.command)}
-            </text>
+            <text fg={theme.text}>{stringValue(props.input.command)}</text>
             <Show when={output() && (trivial() || expanded())}>
               <text fg={theme.textMuted}>{limited()}</text>
             </Show>
@@ -2509,7 +2507,7 @@ function Write(props: ToolProps) {
   return (
     <Switch>
       <Match when={props.metadata.diagnostics !== undefined}>
-        <BlockTool title={"# Wrote " + pathFormatter.format(stringValue(props.input.filePath))} part={props.part}>
+        <BlockTool title={"± Wrote " + pathFormatter.format(stringValue(props.input.filePath))} part={props.part}>
           <line_number fg={theme.textMuted} minWidth={3} paddingRight={1}>
             <code
               conceal={false}
@@ -2523,7 +2521,7 @@ function Write(props: ToolProps) {
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool icon="←" pending="Preparing a file" complete={stringValue(props.input.filePath)} part={props.part}>
+        <InlineTool icon="±" pending="Preparing a file" complete={stringValue(props.input.filePath)} part={props.part}>
           Write {pathFormatter.format(stringValue(props.input.filePath))}
         </InlineTool>
       </Match>
@@ -2534,7 +2532,7 @@ function Write(props: ToolProps) {
 function Glob(props: ToolProps) {
   const pathFormatter = usePathFormatter()
   return (
-    <InlineTool icon="✱" pending="Finding files" complete={stringValue(props.input.pattern)} part={props.part}>
+    <InlineTool icon="→" pending="Finding files" complete={stringValue(props.input.pattern)} part={props.part}>
       Glob "{stringValue(props.input.pattern)}"{" "}
       <Show when={stringValue(props.input.path)}>in {pathFormatter.format(stringValue(props.input.path))} </Show>
       <Show when={numberValue(props.metadata.count)}>
@@ -2582,7 +2580,7 @@ function Read(props: ToolProps) {
 function Grep(props: ToolProps) {
   const pathFormatter = usePathFormatter()
   return (
-    <InlineTool icon="✱" pending="Searching the code" complete={stringValue(props.input.pattern)} part={props.part}>
+    <InlineTool icon="→" pending="Searching the code" complete={stringValue(props.input.pattern)} part={props.part}>
       Grep "{stringValue(props.input.pattern)}"{" "}
       <Show when={stringValue(props.input.path)}>in {pathFormatter.format(stringValue(props.input.path))} </Show>
       <Show when={numberValue(props.metadata.matches)}>
@@ -2594,7 +2592,7 @@ function Grep(props: ToolProps) {
 
 function WebFetch(props: ToolProps) {
   return (
-    <InlineTool icon="%" pending="Fetching a page" complete={stringValue(props.input.url)} part={props.part}>
+    <InlineTool icon="→" pending="Fetching a page" complete={stringValue(props.input.url)} part={props.part}>
       WebFetch {stringValue(props.input.url)}
     </InlineTool>
   )
@@ -2602,7 +2600,7 @@ function WebFetch(props: ToolProps) {
 
 function WebSearch(props: ToolProps) {
   return (
-    <InlineTool icon="◈" pending="Searching the web" complete={stringValue(props.input.query)} part={props.part}>
+    <InlineTool icon="→" pending="Searching the web" complete={stringValue(props.input.query)} part={props.part}>
       {webSearchProviderLabel(props.metadata.provider)} "{stringValue(props.input.query)}"{" "}
       <Show when={numberValue(props.metadata.numResults)}>({numberValue(props.metadata.numResults)} results)</Show>
     </InlineTool>
@@ -2741,7 +2739,7 @@ function Edit(props: ToolProps) {
   return (
     <Switch>
       <Match when={stringValue(props.metadata.diff) !== undefined}>
-        <BlockTool title={"← Edit " + pathFormatter.format(stringValue(props.input.filePath))} part={props.part}>
+        <BlockTool title={"± Edit " + pathFormatter.format(stringValue(props.input.filePath))} part={props.part}>
           <box paddingLeft={1}>
             <diff
               diff={diffContent()}
@@ -2767,7 +2765,7 @@ function Edit(props: ToolProps) {
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool icon="←" pending="Preparing an edit" complete={stringValue(props.input.filePath)} part={props.part}>
+        <InlineTool icon="±" pending="Preparing an edit" complete={stringValue(props.input.filePath)} part={props.part}>
           Edit {pathFormatter.format(stringValue(props.input.filePath))} {input({ replaceAll: props.input.replaceAll })}
         </InlineTool>
       </Match>
@@ -2815,10 +2813,10 @@ function ApplyPatch(props: ToolProps) {
   }
 
   function title(file: { type: string; relativePath: string; filePath: string; deletions: number }) {
-    if (file.type === "delete") return "# Deleted " + file.relativePath
-    if (file.type === "add") return "# Created " + file.relativePath
-    if (file.type === "move") return "# Moved " + pathFormatter.format(file.filePath) + " → " + file.relativePath
-    return "← Patched " + file.relativePath
+    if (file.type === "delete") return "± Deleted " + file.relativePath
+    if (file.type === "add") return "± Created " + file.relativePath
+    if (file.type === "move") return "± Moved " + pathFormatter.format(file.filePath) + " → " + file.relativePath
+    return "± Patched " + file.relativePath
   }
 
   return (
@@ -2843,7 +2841,7 @@ function ApplyPatch(props: ToolProps) {
         </For>
       </Match>
       <Match when={true}>
-        <InlineTool icon="%" pending="Preparing a patch" failure="Patch failed" complete={false} part={props.part}>
+        <InlineTool icon="±" pending="Preparing a patch" failure="Patch failed" complete={false} part={props.part}>
           Patch
         </InlineTool>
       </Match>
@@ -2856,7 +2854,7 @@ function TodoWrite(props: ToolProps) {
   return (
     <Switch>
       <Match when={parseTodos(props.metadata.todos).length}>
-        <BlockTool title="# Todos" part={props.part}>
+        <BlockTool title="± Todos" part={props.part}>
           <box>
             <For each={todos()}>{(todo) => <TodoItem status={todo.status} content={todo.content} />}</For>
           </box>
@@ -2864,7 +2862,7 @@ function TodoWrite(props: ToolProps) {
       </Match>
       <Match when={true}>
         <InlineTool
-          icon="⚙"
+          icon="±"
           pending="Updating the plan"
           failure="Todo update failed"
           complete={false}
@@ -2891,7 +2889,7 @@ function Question(props: ToolProps) {
   return (
     <Switch>
       <Match when={answers()}>
-        <BlockTool title="# Questions" part={props.part}>
+        <BlockTool title="→ Questions" part={props.part}>
           <box gap={1}>
             <For each={questions()}>
               {(q, i) => (

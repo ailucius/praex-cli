@@ -13,7 +13,7 @@ import { useData } from "../../context/data"
 import { getScrollAcceleration } from "../../util/scroll"
 import { useTuiPaths } from "../../context/runtime"
 import { useTuiConfig } from "../../config"
-import { useTheme, selectedForeground } from "../../context/theme"
+import { useTheme, tint } from "../../context/theme"
 import { SplitBorder } from "../../ui/border"
 import { useTerminalDimensions } from "@opentui/solid"
 import { Locale } from "../../util/locale"
@@ -717,7 +717,7 @@ export function Autocomplete(props: {
       width={position().width}
       zIndex={100}
       {...SplitBorder}
-      borderColor={theme.border}
+      borderColor={theme.borderSubtle}
     >
       <scrollbox
         ref={(r: ScrollBoxRenderable) => (scroll = r)}
@@ -738,7 +738,9 @@ export function Autocomplete(props: {
             <box
               paddingLeft={1}
               paddingRight={1}
-              backgroundColor={index === store.selected ? theme.primary : undefined}
+              // Same focus language as the dialogs: a quiet lift of the menu colour and an
+              // accent command name, no solid brand-colour bar.
+              backgroundColor={index === store.selected ? tint(theme.backgroundMenu, theme.text, 0.08) : undefined}
               flexDirection="row"
               onMouseMove={() => {
                 setStore("input", "mouse")
@@ -753,11 +755,11 @@ export function Autocomplete(props: {
               }}
               onMouseUp={() => select()}
             >
-              <text fg={index === store.selected ? selectedForeground(theme) : theme.text} flexShrink={0}>
+              <text fg={index === store.selected ? theme.primary : theme.text} flexShrink={0}>
                 {option().display}
               </text>
               <Show when={option().description}>
-                <text fg={index === store.selected ? selectedForeground(theme) : theme.textMuted} wrapMode="none">
+                <text fg={index === store.selected ? theme.text : theme.textMuted} wrapMode="none">
                   {option().description}
                 </text>
               </Show>

@@ -833,7 +833,7 @@ function App(props: {
       {
         // 10-22: the TUI had no /login; the signed-out copy pointed at `praex login`, a shell command.
         name: "praex.login",
-        title: praex.signedIn() ? "Sign in to Praex again (Google)" : `Sign in to Praex (Google, ${praex.freeName()} is free)`,
+        title: praex.signedIn() ? "Sign in to Praex again" : `Sign in to use ${praex.freeName()} for free`,
         suggested: !praex.signedIn(),
         slashName: "login",
         slashAliases: ["signin"],
@@ -916,7 +916,7 @@ function App(props: {
       },
       {
         name: "help.show",
-        title: "Help",
+        title: "Keys and commands",
         slashName: "help",
         run: () => {
           dialog.replace(() => <DialogHelp />)
@@ -978,7 +978,7 @@ function App(props: {
       {
         // 10-22: also outside a session: the plan and today's allowance are not per session
         name: "session.usage",
-        title: "Usage: today's Praex allowance, and tokens and cost for this session",
+        title: "Usage and today's allowance",
         slashName: "usage",
         category: "Session",
         run: () => {

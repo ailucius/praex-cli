@@ -152,48 +152,48 @@
       "light": "lightStep12"
     },
     "markdownHeading": {
-      "dark": "darkAccent",
-      "light": "lightAccent"
+      "dark": "darkStep12",
+      "light": "lightStep12"
     },
     "markdownLink": {
-      "dark": "darkStep9",
-      "light": "lightStep9"
+      "dark": "darkCyan",
+      "light": "lightCyan"
     },
     "markdownLinkText": {
       "dark": "darkCyan",
       "light": "lightCyan"
     },
     "markdownCode": {
-      "dark": "darkGreen",
-      "light": "lightGreen"
-    },
-    "markdownBlockQuote": {
-      "dark": "darkYellow",
-      "light": "lightYellow"
-    },
-    "markdownEmph": {
-      "dark": "darkYellow",
-      "light": "lightYellow"
-    },
-    "markdownStrong": {
-      "dark": "darkAccent",
-      "light": "lightAccent"
-    },
-    "markdownHorizontalRule": {
-      "dark": "darkStep11",
-      "light": "lightStep11"
-    },
-    "markdownListItem": {
-      "dark": "darkStep9",
-      "light": "lightStep9"
-    },
-    "markdownListEnumeration": {
       "dark": "darkCyan",
       "light": "lightCyan"
     },
+    "markdownBlockQuote": {
+      "dark": "darkStep11",
+      "light": "lightStep11"
+    },
+    "markdownEmph": {
+      "dark": "darkStep12",
+      "light": "lightStep12"
+    },
+    "markdownStrong": {
+      "dark": "darkStep12",
+      "light": "lightStep12"
+    },
+    "markdownHorizontalRule": {
+      "dark": "darkStep7",
+      "light": "lightStep7"
+    },
+    "markdownListItem": {
+      "dark": "darkStep11",
+      "light": "lightStep11"
+    },
+    "markdownListEnumeration": {
+      "dark": "darkStep11",
+      "light": "lightStep11"
+    },
     "markdownImage": {
-      "dark": "darkStep9",
-      "light": "lightStep9"
+      "dark": "darkCyan",
+      "light": "lightCyan"
     },
     "markdownImageText": {
       "dark": "darkCyan",

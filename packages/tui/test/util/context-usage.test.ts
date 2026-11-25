@@ -18,8 +18,8 @@ describe("contextUsage", () => {
     const out = contextUsage([msg(9_943, 1), msg(6_000, 400, 4_000)], 32_768)
     expect(out?.label).toBe("10.4K of 32.8K")
   })
-  test("no limit -> raw token count", () => {
-    expect(contextUsage([msg(1_000, 50)], undefined)?.label).toBe("1.1K")
+  test("no limit -> token count, labelled", () => {
+    expect(contextUsage([msg(1_000, 50)], undefined)?.label).toBe("1.1K tokens")
   })
   test("no answered message -> undefined", () => {
     expect(contextUsage([msg(1_000, 0)], 32_768)).toBeUndefined()

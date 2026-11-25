@@ -11,7 +11,8 @@ export function contextUsage(messages: AssistantMessage[], limit: number | undef
   const t = last.tokens
   const tokens = t.input + t.output + t.reasoning + t.cache.read + t.cache.write
   if (tokens <= 0) return
-  if (!limit || limit <= 0) return { label: Locale.number(tokens), tokens, pct: undefined }
+  // 11-25: a bare "4.9K" in the footer did not say what it counted.
+  if (!limit || limit <= 0) return { label: `${Locale.number(tokens)} tokens`, tokens, pct: undefined }
   const pct = Math.min(100, Math.round((tokens / limit) * 100))
   return { label: `${Locale.number(tokens)} of ${Locale.number(limit)}`, tokens, pct }
 }

@@ -78,17 +78,27 @@ export function DialogHelp() {
     ],
   }))
 
+  // The dialog opens a quarter of the way down the screen. Below that: the panel's top padding,
+  // the title row and its gap, the list, the bottom padding, and one spare row so the panel
+  // never touches the prompt.
+  const listHeight = createMemo(() => {
+    const height = dimensions().height
+    return Math.max(6, height - Math.floor(height / 4) - 6)
+  })
+
   return (
-    <box paddingLeft={2} paddingRight={2} gap={1}>
+    <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
         <text attributes={TextAttributes.BOLD} fg={theme.text}>
-          Praex help
+          Keys and commands
         </text>
         <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
-          esc/enter
+          esc
         </text>
       </box>
-      <scrollbox maxHeight={Math.max(10, dimensions().height - 10)} flexDirection="column">
+      {/* No flexDirection on the scrollbox itself: its root lays the viewport and the scrollbar
+          side by side, and "column" stacked the scrollbar under a clipped list. */}
+      <scrollbox maxHeight={listHeight()}>
         <box flexDirection="column" gap={1} paddingBottom={1}>
           <Section title="Keys">
             <For each={keys()}>{(item) => <Row k={item.key} v={item.label} width={keyWidth()} />}</For>
@@ -109,11 +119,9 @@ export function DialogHelp() {
 
           <Section title="Account and models">
             <Row k="/login" v="Sign in with Google for the hosted models. No card, no key." width={14} />
-            <Row k="Velox III" v="Free with a Praex account." width={14} />
-            <Row k="Faber II" v="Praex Pro." width={14} />
-            <Row k="Lucia II" v="Praex Max." width={14} />
-            <Row k="praex update" v="Update the CLI (patch updates also install themselves)." width={14} />
+            <Row k="/models" v="One hosted model is free with a Praex account; Pro and Max add the larger ones." width={14} />
             <Row k="/connect" v="Bring your own keys: OpenAI, Anthropic, Google, Ollama and more." width={14} />
+            <Row k="praex update" v="Update the CLI. Patch updates install themselves." width={14} />
           </Section>
 
           <Section title="Config">
@@ -123,11 +131,6 @@ export function DialogHelp() {
           </Section>
         </box>
       </scrollbox>
-      <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
-        <box paddingLeft={3} paddingRight={3} backgroundColor={theme.primary} onMouseUp={() => dialog.clear()}>
-          <text fg={theme.selectedListItemText}>ok</text>
-        </box>
-      </box>
     </box>
   )
 }

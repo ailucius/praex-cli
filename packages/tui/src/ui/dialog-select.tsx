@@ -464,20 +464,19 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     const item = action.item
     const active = createMemo(() => isActionFocused(item))
     const disabled = createMemo(() => isActionDisabled(item))
-    const fg = selectedForeground(theme)
     return (
       <box
         flexDirection="row"
-        backgroundColor={active() ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}
+        backgroundColor={active() ? theme.backgroundElement : RGBA.fromInts(0, 0, 0, 0)}
         onMouseUp={() => triggerAction(item)}
       >
         <text
-          fg={disabled() ? theme.textMuted : active() ? fg : theme.text}
+          fg={disabled() ? theme.textMuted : active() ? theme.primary : theme.text}
           attributes={active() ? TextAttributes.BOLD : undefined}
         >
           {item.title}
         </text>
-        <text fg={disabled() ? theme.textMuted : active() ? fg : theme.textMuted}> {item.label}</text>
+        <text fg={disabled() ? theme.textMuted : active() ? theme.text : theme.textMuted}> {item.label}</text>
       </box>
     )
   }
@@ -592,11 +591,13 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                             paddingLeft={current() || option.gutter ? 1 : 3}
                             paddingRight={3}
                             gap={1}
+                            // The focused row gets a quiet neutral fill and an accent title (Option),
+                            // not a solid brand-colour bar with inverted text.
                             backgroundColor={
                               active()
                                 ? actionFocused()
                                   ? theme.backgroundElement
-                                  : (option.bg ?? theme.primary)
+                                  : (option.bg ?? theme.backgroundElement)
                                 : RGBA.fromInts(0, 0, 0, 0)
                             }
                           >
@@ -615,6 +616,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                               active={active()}
                               current={current()}
                               muted={actionFocused()}
+                              fill={active() && !actionFocused() ? option.bg : undefined}
                               gutter={option.gutter}
                             />
                           </box>
@@ -663,22 +665,30 @@ function Option(props: {
   titleWidth?: number
   truncateTitle?: boolean | "left"
   gutter?: () => JSX.Element
+  fill?: RGBA
   onMouseOver?: () => void
 }) {
   const { theme } = useTheme()
-  const fg = selectedForeground(theme)
+  // Focus is the one accent in a list: the focused title takes the primary colour on a quiet
+  // fill; the current item is marked with a check, and everything else stays in text colours.
+  // A row filled with a signal colour (a delete waiting for confirmation) keeps a contrasting
+  // foreground instead.
   const text = createMemo(() => {
-    if (props.active && !props.muted) return fg
+    if (props.fill) return selectedForeground(theme, props.fill)
+    if (props.active && !props.muted) return theme.primary
     if (props.muted && (props.active || props.current)) return theme.textMuted
-    if (props.current) return theme.primary
     return theme.text
+  })
+  const detail = createMemo(() => {
+    if (props.fill) return selectedForeground(theme, props.fill)
+    return props.active && !props.muted ? theme.text : theme.textMuted
   })
 
   return (
     <>
       <Show when={props.current && !props.gutter}>
-        <text flexShrink={0} fg={text()} marginRight={0}>
-          ●
+        <text flexShrink={0} fg={props.muted ? theme.textMuted : theme.text} marginRight={0}>
+          ✓
         </text>
       </Show>
       <Show when={props.gutter}>
@@ -701,12 +711,12 @@ function Option(props: {
               ? Locale.truncateLeft(props.title, props.titleWidth ?? 61)
               : Locale.truncate(props.title, props.titleWidth ?? 61))}
         <Show when={props.description}>
-          <span style={{ fg: props.active && !props.muted ? fg : theme.textMuted }}> {props.description}</span>
+          <span style={{ fg: detail() }}> {props.description}</span>
         </Show>
       </text>
       <Show when={props.footer}>
         <box flexShrink={0}>
-          <text fg={props.active && !props.muted ? fg : theme.textMuted}>{props.footer}</text>
+          <text fg={detail()}>{props.footer}</text>
         </box>
       </Show>
     </>

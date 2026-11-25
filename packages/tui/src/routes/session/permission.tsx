@@ -247,7 +247,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
               const raw = props.request.metadata?.filepath
               const filepath = typeof raw === "string" ? raw : ""
               return {
-                icon: "→",
+                icon: "±",
                 title: `Edit ${pathFormatter.format(filepath)}`,
                 body: <EditBody request={props.request} />,
               }
@@ -272,7 +272,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
             if (permission === "glob") {
               const pattern = typeof data.pattern === "string" ? data.pattern : ""
               return {
-                icon: "✱",
+                icon: "→",
                 title: `Glob "${pattern}"`,
                 body: (
                   <Show when={pattern}>
@@ -287,7 +287,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
             if (permission === "grep") {
               const pattern = typeof data.pattern === "string" ? data.pattern : ""
               return {
-                icon: "✱",
+                icon: "→",
                 title: `Grep "${pattern}"`,
                 body: (
                   <Show when={pattern}>
@@ -320,12 +320,12 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                 typeof data.description === "string" && data.description ? data.description : "Shell command"
               const command = typeof data.command === "string" ? data.command : ""
               return {
-                icon: "#",
+                icon: "$",
                 title,
                 body: (
                   <Show when={command}>
                     <box paddingLeft={1}>
-                      <text fg={theme.text}>{"$ " + command}</text>
+                      <text fg={theme.text}>{command}</text>
                     </box>
                   </Show>
                 ),
@@ -336,7 +336,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
               const type = typeof data.subagent_type === "string" ? data.subagent_type : "Unknown"
               const desc = typeof data.description === "string" ? data.description : ""
               return {
-                icon: "#",
+                icon: "→",
                 title: `${Locale.titlecase(type)} Task`,
                 body: (
                   <Show when={desc}>
@@ -351,7 +351,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
             if (permission === "webfetch") {
               const url = typeof data.url === "string" ? data.url : ""
               return {
-                icon: "%",
+                icon: "→",
                 title: `WebFetch ${url}`,
                 body: (
                   <Show when={url}>
@@ -366,7 +366,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
             if (permission === "websearch") {
               const query = typeof data.query === "string" ? data.query : ""
               return {
-                icon: "◈",
+                icon: "→",
                 title: `${webSearchProviderLabel(data.provider)} "${query}"`,
                 body: (
                   <Show when={query}>
@@ -391,7 +391,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
               const patterns = (props.request.patterns ?? []).filter((p): p is string => typeof p === "string")
 
               return {
-                icon: "←",
+                icon: "→",
                 title: `Access external directory ${dir}`,
                 body: (
                   <Show when={patterns.length > 0}>
@@ -419,7 +419,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
             }
 
             return {
-              icon: "⚙",
+              icon: "→",
               title: `Call tool ${permission}`,
               body: (
                 <box paddingLeft={1}>
