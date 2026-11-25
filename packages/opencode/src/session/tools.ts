@@ -71,9 +71,15 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
 }) {
   const tools: Record<string, AITool> = {}
   const run = yield* EffectBridge.make()
+  const workspace = yield* InstanceRef
   const scoped = yield* coworkInstance(input.agent, input.session.id)
   const inScope = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     scoped ? effect.pipe(Effect.provideService(InstanceRef, scoped)) : effect
+  // Permission requests and questions wait on the user, so a chat thread registers them in the chat
+  // workspace the app lists and answers them in (<state>/chat), not in the thread's own folder: there
+  // the desktop app never showed them and the tool waited forever.
+  const inWorkspace = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    scoped && workspace ? effect.pipe(Effect.provideService(InstanceRef, workspace)) : effect
   const plugin = yield* Plugin.Service
   const permission = yield* Permission.Service
   const registry = yield* ToolRegistry.Service
@@ -103,17 +109,17 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
         }
       }),
     ask: (req) =>
-      permission
-        .ask({
+      inWorkspace(
+        permission.ask({
           ...req,
           sessionID: input.session.id,
           tool: { messageID: input.processor.message.id, callID: options.toolCallId },
           ruleset: Permission.withSession(input.agent.permission, input.session.permission),
-        })
-        .pipe(
-          Effect.catchTag("PermissionDeniedError", (error) => workspaceDenied(input.agent, req.permission, error)),
-          Effect.orDie,
-        ),
+        }),
+      ).pipe(
+        Effect.catchTag("PermissionDeniedError", (error) => workspaceDenied(input.agent, req.permission, error)),
+        Effect.orDie,
+      ),
   })
 
   for (const item of yield* registry.tools({
@@ -134,7 +140,8 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
               { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
               { args },
             )
-            const result = yield* inScope(item.execute(args, ctx))
+            // the question tool touches no files: it runs where its question can be seen and answered
+            const result = yield* (item.id === "question" ? inWorkspace : inScope)(item.execute(args, ctx))
             const output = {
               ...result,
               attachments: result.attachments?.map((attachment) => ({

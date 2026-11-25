@@ -52,7 +52,8 @@ import { Truncate } from "@/tool/truncate"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { Format } from "../../src/format"
-import { TestInstance } from "../fixture/fixture"
+import { provideInstanceEffect, TestInstance } from "../fixture/fixture"
+import { Global } from "@opencode-ai/core/global"
 import { awaitWithTimeout, pollWithTimeout, testEffect } from "../lib/effect"
 import { reply, TestLLMServer } from "../lib/llm-server"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -2859,4 +2860,74 @@ it.instance(
       yield* Fiber.await(fiber)
     }),
   15_000,
+)
+
+// 25 Nov: a chat thread's tools run in its own folder (<state>/chat/<sessionID>), but the desktop app lists and
+// answers permission requests and questions in the chat workspace (<state>/chat). Made from the thread's folder, the
+// destructive-action guard's request never showed in the app and the tool waited forever.
+unix(
+  "a chat thread's question and guard request are made in the chat workspace, where the app answers them",
+  () =>
+    withSh(() =>
+      Effect.gen(function* () {
+        const llm = yield* TestLLMServer
+        const workspace = Global.Path.chat
+        yield* writeConfig(workspace, providerCfg(llm.url))
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => rmSync(path.join(workspace, "opencode.json"), { force: true })),
+        )
+        yield* Effect.gen(function* () {
+          const prompt = yield* SessionPrompt.Service
+          const sessions = yield* Session.Service
+          const permission = yield* Permission.Service
+          const question = yield* Question.Service
+          const chat = yield* sessions.create({
+            title: "Chat guard",
+            permission: [{ permission: "destructive", pattern: "*", action: "ask" }],
+          })
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => rmSync(path.join(workspace, chat.id), { recursive: true, force: true })),
+          )
+          yield* prompt.prompt({
+            sessionID: chat.id,
+            agent: "chat",
+            noReply: true,
+            parts: [{ type: "text", text: "force push main" }],
+          })
+          yield* llm.tool("question", {
+            questions: [
+              {
+                question: "Which branch?",
+                header: "Branch",
+                options: [{ label: "main", description: "The main branch" }],
+              },
+            ],
+          })
+          yield* llm.tool("bash", { command: "git push --force origin main", description: "Force push main" })
+          yield* llm.text("not pushed")
+
+          const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+          const asked = yield* pollWithTimeout(
+            question.list().pipe(Effect.map((items) => items.find((item) => item.sessionID === chat.id))),
+            "the question did not show up in the chat workspace",
+          )
+          yield* question.reply({ requestID: asked.id, answers: [["main"]] })
+
+          const request = yield* pendingRequest(chat.id)
+          expect(request.permission).toBe("bash")
+          expect(request.patterns).toEqual(["git push --force origin main"])
+          expect(typeof request.metadata.guard).toBe("string")
+          yield* permission.reply({ requestID: request.id, reply: "reject" })
+          yield* Fiber.await(fiber)
+
+          const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+          const parts = msgs.flatMap((msg) => msg.parts)
+          const asking = parts.find((part) => part.type === "tool" && part.tool === "question")
+          expect(asking?.type === "tool" && asking.state.status).toBe("completed")
+          const bash = parts.find((part) => part.type === "tool" && part.tool === "bash")
+          expect(bash?.type === "tool" && bash.state.status).toBe("error")
+        }).pipe(provideInstanceEffect(workspace))
+      }),
+    ),
+  30_000,
 )
