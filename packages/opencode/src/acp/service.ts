@@ -91,7 +91,7 @@ export function make(input: {
   const initialize = Effect.fn("ACP.initialize")(function* (params: InitializeRequest) {
     const started = performance.now()
     const authMethod: AuthMethod = {
-      description: "Run `praex auth login` in the terminal",
+      description: "Run `praex login` in the terminal",
       name: "Sign in to Praex",
       id: AuthMethodID,
     }
@@ -99,8 +99,11 @@ export function make(input: {
     if (params.clientCapabilities?._meta?.["terminal-auth"] === true) {
       authMethod._meta = {
         "terminal-auth": {
-          command: "opencode",
-          args: ["auth", "login"],
+          // 28 Nov: this launched the parent project's binary ("opencode auth login"), which an
+          // editor that installed Praex from the ACP registry does not have. `praex login` is the
+          // Praex account sign-in.
+          command: "praex",
+          args: ["login"],
           label: "Praex Login",
         },
       }

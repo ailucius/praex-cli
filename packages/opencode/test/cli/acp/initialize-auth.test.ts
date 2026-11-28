@@ -35,6 +35,8 @@ describe("opencode acp initialize/auth subprocess", () => {
 
         expect(initialized.authMethods?.[0]?.id).toBe("praex-login")
         expect(initialized.authMethods?.[0]?._meta?.["terminal-auth"]).toBeDefined()
+        // the editor runs this to sign in: it must be Praex's own binary and command
+        expect(initialized.authMethods?.[0]?._meta?.["terminal-auth"]).toMatchObject({ command: "praex", args: ["login"] })
         expect(yield* acp.request<AuthenticateResponse>("authenticate", { methodId: "praex-login" })).toMatchObject({
           result: {},
         })
