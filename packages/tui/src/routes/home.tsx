@@ -24,9 +24,9 @@ const placeholder = {
   shell: ["ls -la", "git status", "pwd"],
 }
 
-// Brand ink stays imperial purple even under the terminal-adaptive "system" theme. The mark
-// itself is black and white (the theme's text colour), so only the name carries the ink.
-const BRAND = RGBA.fromHex("#a78bfa")
+// The name is set like the wordmark (capitals) in the brand purple, also under the terminal-adaptive "system" theme.
+// The mark itself is black and white (the theme's text colour), so only the name carries the colour.
+const BRAND = RGBA.fromHex("#cf4a93")
 // The mark: a sine wave in a rounded square, drawn with box rules so it stays crisp in any
 // terminal font. 7 cells by 3 rows reads close to square at the usual 1:2 cell ratio.
 const MARK = ["╭─────╮", "│  ∿  │", "╰─────╯"]
@@ -78,7 +78,7 @@ function HomeHeader() {
       </pluginRuntime.Slot>
       <box flexDirection="column" minWidth={0} flexShrink={1}>
         <text wrapMode="none">
-          <span style={{ fg: BRAND, bold: true }}>Praex</span>
+          <span style={{ fg: BRAND, bold: true }}>PRAEX</span>
           <span style={{ fg: theme.textMuted }}> {version}</span>
         </text>
         <Show when={local.model.ready} fallback={<text fg={theme.textMuted}> </text>}>
