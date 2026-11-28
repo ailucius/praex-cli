@@ -528,7 +528,7 @@ export const dict = {
 
   "home.welcome.signIn": "Sign in with Google",
 
-  "home.welcome.skip": "Continue without signing in",
+  "home.welcome.skip": "Use my own model key instead",
 
   "praex.signin.title": "Sign in to use Praex models",
 

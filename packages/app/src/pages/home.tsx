@@ -22,6 +22,7 @@ import { DateTime } from "luxon"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useDirectoryPicker } from "@/components/directory-picker"
 import { openPraexSignIn } from "@/components/praex-sign-in-card"
+import { DialogSelectProvider } from "@/components/dialog-select-provider"
 import { DialogSelectServer, useServerManagementController } from "@/components/dialog-select-server"
 import { DialogServerV2 } from "@/components/settings-v2/dialog-server-v2"
 import { ServerConnection, useServer } from "@/context/server"
@@ -1201,6 +1202,13 @@ function LegacyHome() {
     writeWelcomeDismissed()
     setWelcomeDismissed(true)
   }
+  // 28 Nov: the second button said "Continue without signing in" and led to a chat that answered
+  // the first message with a sign-in card. Without a Praex account the app needs the person's
+  // own model key, so the button says that and opens the provider list.
+  const ownKey = () => {
+    dismissWelcome()
+    dialog.show(() => <DialogSelectProvider />)
+  }
   const signIn = () => openPraexSignIn(dialog)
 
   return (
@@ -1227,7 +1235,7 @@ function LegacyHome() {
                 <Button size="large" variant="primary" class="w-full justify-center" onClick={signIn}>
                   {language.t("home.welcome.signIn")}
                 </Button>
-                <Button size="large" variant="ghost" class="w-full justify-center text-text-weak" onClick={dismissWelcome}>
+                <Button size="large" variant="ghost" class="w-full justify-center text-text-weak" onClick={ownKey}>
                   {language.t("home.welcome.skip")}
                 </Button>
               </div>

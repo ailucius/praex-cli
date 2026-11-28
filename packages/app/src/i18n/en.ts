@@ -679,7 +679,7 @@ export const dict = {
 
   "home.welcome.signIn": "Sign in with Google",
 
-  "home.welcome.skip": "Continue without signing in",
+  "home.welcome.skip": "Use my own model key instead",
 
   "praex.account.plan": "{{plan}} plan",
   "praex.account.left": "{{percent}}% of today's allowance left",
