@@ -31,12 +31,12 @@ describe("CommandPlugin.Plugin", () => {
 
       expect(yield* command.get("init")).toMatchObject({
         name: "init",
-        description: "guided AGENTS.md setup",
+        description: "Set up this project (AGENTS.md)",
       })
       expect((yield* command.get("init"))?.template).toContain("`/repo`")
       expect(yield* command.get("review")).toMatchObject({
         name: "review",
-        description: "review changes [commit|branch|pr], defaults to uncommitted",
+        description: "Review changes (uncommitted by default)",
         subtask: true,
       })
     }),

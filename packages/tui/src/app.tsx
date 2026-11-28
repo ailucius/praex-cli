@@ -753,9 +753,11 @@ function App(props: {
       },
       {
         name: "mcp.list",
-        title: "Toggle MCPs",
+        // 28 Nov: named for what it is to the user; the old names stay as aliases.
+        title: "Connectors: tools Praex can use",
         category: "Agent",
-        slashName: "mcps",
+        slashName: "connectors",
+        slashAliases: ["mcps", "mcp"],
         run: () => {
           dialog.replace(() => <DialogMcp />)
         },
@@ -844,10 +846,10 @@ function App(props: {
       },
       {
         name: "provider.connect",
-        title: "Connect provider (bring your own key)",
+        title: "Use your own model key",
         suggested: !connected(),
-        slashName: "connect",
-        slashAliases: ["byok"],
+        slashName: "keys",
+        slashAliases: ["connect", "byok"],
         run: () => {
           dialog.replace(() => <DialogProviderList />)
         },
@@ -870,7 +872,7 @@ function App(props: {
         : []),
       {
         name: "permission.saved",
-        title: "Saved permissions (allow always) for this project",
+        title: "Saved permissions for this project",
         slashName: "permissions",
         run: () => {
           void permissionsDialog()
@@ -934,7 +936,7 @@ function App(props: {
       },
       {
         name: "app.remote_control",
-        title: remoteOn() ? "Remote Control: turn off" : "Remote Control: continue this session from your phone",
+        title: remoteOn() ? "Remote Control: turn off" : "Remote Control: continue on your phone",
         slashName: "rc",
         slashAliases: ["remote-control", "remote", "afk"],
         category: "System",
@@ -998,6 +1000,8 @@ function App(props: {
         name: "app.debug",
         title: "Toggle debug panel",
         category: "System",
+        // 28 Nov: a developer tool; shown only when PRAEX_DEBUG is set.
+        hidden: !process.env.PRAEX_DEBUG,
         run: () => {
           renderer.toggleDebugOverlay()
           dialog.clear()

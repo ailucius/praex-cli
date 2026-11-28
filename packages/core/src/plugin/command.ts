@@ -17,11 +17,11 @@ export const Plugin = PluginV2.define({
     yield* transform((editor) => {
       editor.update("init", (command) => {
         command.template = PROMPT_INITIALIZE.replace("${path}", location.project.directory)
-        command.description = "guided AGENTS.md setup"
+        command.description = "Set up this project (AGENTS.md)"
       })
       editor.update("review", (command) => {
         command.template = PROMPT_REVIEW.replace("${path}", location.project.directory)
-        command.description = "review changes [commit|branch|pr], defaults to uncommitted"
+        command.description = "Review changes (uncommitted by default)"
         command.subtask = true
       })
     })
