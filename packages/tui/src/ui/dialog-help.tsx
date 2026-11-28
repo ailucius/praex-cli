@@ -120,7 +120,7 @@ export function DialogHelp() {
           <Section title="Account and models">
             <Row k="/login" v="Sign in with Google for the hosted models. No card, no key." width={14} />
             <Row k="/models" v="One hosted model is free with a Praex account; Pro and Max add the larger ones." width={14} />
-            <Row k="/connect" v="Bring your own keys: OpenAI, Anthropic, Google, Ollama and more." width={14} />
+            <Row k="/keys" v="Use your own model key: OpenAI, Anthropic, Google, Ollama and more." width={14} />
             <Row k="praex update" v="Update the CLI. Patch updates install themselves." width={14} />
           </Section>
 

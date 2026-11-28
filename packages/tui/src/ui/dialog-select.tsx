@@ -24,6 +24,8 @@ export interface DialogSelectProps<T> {
   title: string
   titleView?: JSX.Element
   placeholder?: string
+  /** Shown when the list has nothing in it and nothing is typed in the search row. */
+  emptyText?: string
   footer?: JSX.Element
   options: DialogSelectOption<T>[]
   flat?: boolean
@@ -73,6 +75,11 @@ export type DialogSelectRef<T> = {
   filter: string
   filtered: DialogSelectOption<T>[]
   moveTo(value: T): void
+}
+
+// Footer hints read like the home status line: the key, then a lower-case word ("ctrl+f favorite").
+function hint(title: string) {
+  return title.charAt(0).toLowerCase() + title.slice(1)
 }
 
 export function DialogSelect<T>(props: DialogSelectProps<T>) {
@@ -455,10 +462,8 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     if (!isActionItem(action.item))
       return (
         <text>
-          <span style={{ fg: theme.text }}>
-            <b>{action.item.title}</b>{" "}
-          </span>
-          <span style={{ fg: theme.textMuted }}>{action.item.label}</span>
+          <span style={{ fg: theme.text }}>{action.item.label} </span>
+          <span style={{ fg: theme.textMuted }}>{hint(action.item.title)}</span>
         </text>
       )
     const item = action.item
@@ -474,9 +479,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           fg={disabled() ? theme.textMuted : active() ? theme.primary : theme.text}
           attributes={active() ? TextAttributes.BOLD : undefined}
         >
-          {item.title}
+          {item.label}
         </text>
-        <text fg={disabled() ? theme.textMuted : active() ? theme.text : theme.textMuted}> {item.label}</text>
+        <text fg={active() ? theme.text : theme.textMuted}> {hint(item.title)}</text>
       </box>
     )
   }
@@ -495,8 +500,12 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           </text>
         </box>
         <Show when={props.renderFilter !== false}>
-          <box paddingTop={1}>
+          <box paddingTop={1} flexDirection="row">
+            <text fg={theme.textMuted} flexShrink={0}>
+              ›{" "}
+            </text>
             <input
+              flexGrow={1}
               onInput={(e) => {
                 if (props.locked) return
                 batch(() => {
@@ -527,7 +536,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           when={grouped().length > 0}
           fallback={
             <box paddingLeft={4} paddingRight={4} paddingTop={1}>
-              <text fg={theme.textMuted}>No results found</text>
+              <text fg={theme.textMuted} wrapMode="word">
+                {store.filter ? `Nothing matches "${store.filter}"` : (props.emptyText ?? "Nothing here yet")}
+              </text>
             </box>
           }
         >
@@ -601,6 +612,11 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                                 : RGBA.fromInts(0, 0, 0, 0)
                             }
                           >
+                            <Show when={active() && !actionFocused() && !option.bg}>
+                              <box position="absolute" left={0} flexShrink={0}>
+                                <text fg={theme.primary}>▎</text>
+                              </box>
+                            </Show>
                             <Show when={!current() && option.margin}>
                               <box position="absolute" left={1} flexShrink={0}>
                                 {option.margin}
@@ -641,7 +657,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
       </box>
       <Show when={props.footer || visibleActions().length} fallback={<box flexShrink={0} />}>
         <box paddingRight={2} paddingLeft={4} flexDirection="row" justifyContent="space-between" flexShrink={0}>
-          <box flexDirection="row" gap={2}>
+          <box flexDirection="row" gap={3}>
             {props.footer}
             <For each={left()}>{(item) => <FooterAction item={item} />}</For>
           </box>
@@ -669,13 +685,12 @@ function Option(props: {
   onMouseOver?: () => void
 }) {
   const { theme } = useTheme()
-  // Focus is the one accent in a list: the focused title takes the primary colour on a quiet
-  // fill; the current item is marked with a check, and everything else stays in text colours.
+  // Focus is the one accent in a list: a violet bar at the row's left edge (drawn by the row)
+  // on a quiet fill, with the title in bold; the current item is marked with a check.
   // A row filled with a signal colour (a delete waiting for confirmation) keeps a contrasting
   // foreground instead.
   const text = createMemo(() => {
     if (props.fill) return selectedForeground(theme, props.fill)
-    if (props.active && !props.muted) return theme.primary
     if (props.muted && (props.active || props.current)) return theme.textMuted
     return theme.text
   })
@@ -683,6 +698,14 @@ function Option(props: {
     if (props.fill) return selectedForeground(theme, props.fill)
     return props.active && !props.muted ? theme.text : theme.textMuted
   })
+
+  const title = () =>
+    props.titleView ??
+    (props.truncateTitle === false
+      ? props.title
+      : props.truncateTitle === "left"
+        ? Locale.truncateLeft(props.title, props.titleWidth ?? 61)
+        : Locale.truncate(props.title, props.titleWidth ?? 61))
 
   return (
     <>
@@ -696,27 +719,21 @@ function Option(props: {
           {props.gutter?.()}
         </box>
       </Show>
-      <text
-        flexGrow={1}
-        fg={text()}
-        attributes={props.active && !props.muted ? TextAttributes.BOLD : undefined}
-        overflow="hidden"
-        wrapMode="none"
-        paddingLeft={3}
-      >
-        {props.titleView ??
-          (props.truncateTitle === false
-            ? props.title
-            : props.truncateTitle === "left"
-              ? Locale.truncateLeft(props.title, props.titleWidth ?? 61)
-              : Locale.truncate(props.title, props.titleWidth ?? 61))}
+      <text flexGrow={1} fg={text()} overflow="hidden" wrapMode="none" paddingLeft={3}>
+        {/* Only the title goes bold on the focused row; the note after it stays quiet. */}
+        <Show when={props.active && !props.muted} fallback={title()}>
+          <b>{title()}</b>
+        </Show>
         <Show when={props.description}>
-          <span style={{ fg: detail() }}> {props.description}</span>
+          <span style={{ fg: props.fill ? detail() : theme.textMuted }}>
+            {"  "}
+            {props.description}
+          </span>
         </Show>
       </text>
       <Show when={props.footer}>
         <box flexShrink={0}>
-          <text fg={detail()}>{props.footer}</text>
+          <text fg={props.fill ? detail() : theme.textMuted}>{props.footer}</text>
         </box>
       </Show>
     </>

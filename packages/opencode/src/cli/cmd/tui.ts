@@ -150,16 +150,21 @@ export const TuiThreadCommand = cmd({
             .json()
             .catch(() => ({}))
           if (!auth || typeof auth !== "object" || Object.keys(auth).length === 0) {
-            // 10-22: the free model's name comes from the lineup; inside the TUI the commands are /login and /connect
+            // 10-22: the free model's name comes from the lineup; inside the TUI the commands are /login and /keys
             const { cachedFreeModelName } = await import("@/plugin/praex-cloud")
+            // Same header as the home screen (the tide mark in its box, the name in violet) and the
+            // same hint grammar as the status line: the key, then what it does.
+            const color = !process.env.NO_COLOR
+            const paint = (code: string, text: string) => (color ? `\x1b[${code}m${text}\x1b[0m` : text)
+            const dim = (text: string) => paint("2", text)
             console.log()
-            console.log("  Welcome to Praex.")
-            console.log(`  ${await cachedFreeModelName()} is free. Sign in with your Google account to start.`)
-            console.log("  Using your own API keys instead? Skip, then type /connect in Praex any time.")
+            console.log(`  ${dim("╭─────╮")}  ${paint("1;38;2;167;139;250", "Praex")}`)
+            console.log(`  ${dim("│")}  ∿  ${dim("│")}  ${await cachedFreeModelName()} is free. Sign in with your Google account to start.`)
+            console.log(`  ${dim("╰─────╯")}  ${dim("Using your own model key? Skip, then type")} /keys ${dim("inside Praex.")}`)
             console.log()
             const readline = await import("node:readline/promises")
             const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
-            const answer = await rl.question("  Press Enter to sign in with Google, or type s to skip: ")
+            const answer = await rl.question(`  enter ${dim("sign in with Google")} ${dim("·")} s ${dim("skip")}  › `)
             rl.close()
             if (!answer.trim().toLowerCase().startsWith("s")) {
               // They already chose Google sign-in; skip the method menu when a local browser can

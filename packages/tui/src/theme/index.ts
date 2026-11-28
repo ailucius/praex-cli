@@ -13,7 +13,6 @@ import flexoki from "./assets/flexoki.json" with { type: "json" }
 import github from "./assets/github.json" with { type: "json" }
 import gruvbox from "./assets/gruvbox.json" with { type: "json" }
 import kanagawa from "./assets/kanagawa.json" with { type: "json" }
-import lucentOrng from "./assets/lucent-orng.json" with { type: "json" }
 import material from "./assets/material.json" with { type: "json" }
 import matrix from "./assets/matrix.json" with { type: "json" }
 import mercury from "./assets/mercury.json" with { type: "json" }
@@ -22,7 +21,6 @@ import nightowl from "./assets/nightowl.json" with { type: "json" }
 import nord from "./assets/nord.json" with { type: "json" }
 import onedark from "./assets/one-dark.json" with { type: "json" }
 import peach from "./assets/peach.json" with { type: "json" }
-import orng from "./assets/orng.json" with { type: "json" }
 import osakaJade from "./assets/osaka-jade.json" with { type: "json" }
 import palenight from "./assets/palenight.json" with { type: "json" }
 import praex from "./assets/praex.json" with { type: "json" }
@@ -150,8 +148,6 @@ export const DEFAULT_THEMES: Record<string, ThemeJson> = {
   nord,
   ["one-dark"]: onedark,
   ["osaka-jade"]: osakaJade,
-  orng,
-  ["lucent-orng"]: lucentOrng,
   palenight,
   peach,
   praex,

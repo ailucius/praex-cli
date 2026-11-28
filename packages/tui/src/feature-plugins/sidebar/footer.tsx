@@ -57,11 +57,11 @@ function View(props: { api: TuiPluginApi; sessionID: string }) {
             </box>
             <text fg={theme().textMuted}>Praex includes free models so you can start immediately.</text>
             <text fg={theme().textMuted}>
-              Connect from 75+ providers to use other models, including Claude, GPT and Gemini.
+              Add your own key to use other models, including Claude, GPT and Gemini.
             </text>
             <box flexDirection="row" gap={1} justifyContent="space-between">
-              <text fg={theme().text}>Connect provider</text>
-              <text fg={theme().textMuted}>/connect</text>
+              <text fg={theme().text}>Use your own key</text>
+              <text fg={theme().textMuted}>/keys</text>
             </box>
           </box>
         </box>

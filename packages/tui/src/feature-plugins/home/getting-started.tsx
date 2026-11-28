@@ -31,7 +31,7 @@ function View(props: { api: TuiPluginApi; first: boolean; signedIn: boolean }) {
         <box flexDirection="row">
           <text fg={theme().textMuted} wrapMode="word">
             Type <span style={{ fg: theme().text }}>/login</span> to use {free()} for free, or{" "}
-            <span style={{ fg: theme().text }}>{connect() || "/connect"}</span> for your own keys.
+            <span style={{ fg: theme().text }}>{connect() || "/keys"}</span> for your own keys.
           </text>
         </box>
       </Show>

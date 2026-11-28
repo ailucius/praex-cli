@@ -68,7 +68,7 @@ function parse(tip: string): TipPart[] {
   return parts
 }
 
-const NO_MODELS_TIP = "Run {highlight}/connect{/highlight} to add an AI provider and start coding"
+const NO_MODELS_TIP = "Run {highlight}/keys{/highlight} to add your own model key and start coding"
 const NO_MODELS_PARTS = parse(NO_MODELS_TIP)
 
 function shortcutText(value: string) {
@@ -184,7 +184,7 @@ const TIPS: Tip[] = [
   (shortcuts) => `Use ${commandText("/export", shortcuts.sessionExport())} to save the conversation as Markdown`,
   (shortcuts) => press(shortcuts.messagesCopy(), "to copy the assistant's last message to clipboard"),
   (shortcuts) => press(shortcuts.commandList(), "to see all available actions and commands"),
-  "Run {highlight}/connect{/highlight} to add API keys for 75+ supported LLM providers",
+  "Run {highlight}/keys{/highlight} to use your own key from OpenAI, Anthropic, Google and more",
   (shortcuts) => `The leader key is ${shortcutText(shortcuts.leader())}; combine with other keys for quick actions`,
   (shortcuts) => press(shortcuts.modelCycleRecent(), "to quickly switch between recently used models"),
   (shortcuts) => press(shortcuts.sessionSidebarToggle(), "in a session to show or hide the sidebar panel"),
@@ -269,7 +269,7 @@ const TIPS: Tip[] = [
     shortcuts.commandList()
       ? `Toggle username display in chat via the command palette (${shortcutText(shortcuts.commandList())})`
       : "Toggle username display in chat via the command palette",
-  "Use {highlight}/connect{/highlight} to add your own provider keys alongside the hosted Praex models",
+  "Use {highlight}/keys{/highlight} to add your own model keys next to the hosted Praex models",
   "Commit your project's {highlight}AGENTS.md{/highlight} file to Git for team sharing",
   "Use {highlight}/review{/highlight} to review uncommitted changes, branches, or PRs",
   (shortcuts) => `Use ${commandText("/help", shortcuts.helpShow())} to show the help dialog`,

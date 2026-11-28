@@ -866,7 +866,7 @@ function DiffViewer(props: { api: TuiPluginApi }) {
           <Show when={switchFocusShortcut()}>
             {(shortcut) => (
               <text fg={theme().text}>
-                {shortcut()} <span style={{ fg: theme().textMuted }}>focus file tree</span>
+                {shortcut()} <span style={{ fg: theme().textMuted }}>file list</span>
               </text>
             )}
           </Show>
@@ -887,21 +887,21 @@ function DiffViewer(props: { api: TuiPluginApi }) {
           <Show when={previousHunkShortcut()}>
             {(shortcut) => (
               <text fg={theme().text}>
-                {shortcut()} <span style={{ fg: theme().textMuted }}>previous hunk</span>
+                {shortcut()} <span style={{ fg: theme().textMuted }}>prev hunk</span>
               </text>
             )}
           </Show>
           <Show when={previousFileShortcut()}>
             {(shortcut) => (
               <text fg={theme().text}>
-                {shortcut()} <span style={{ fg: theme().textMuted }}>previous file</span>
+                {shortcut()} <span style={{ fg: theme().textMuted }}>prev file</span>
               </text>
             )}
           </Show>
           <Show when={switchSourceShortcut()}>
             {(shortcut) => (
               <text fg={theme().text}>
-                {shortcut()} <span style={{ fg: theme().textMuted }}>switch source</span>
+                {shortcut()} <span style={{ fg: theme().textMuted }}>source</span>
               </text>
             )}
           </Show>
@@ -915,7 +915,7 @@ function DiffViewer(props: { api: TuiPluginApi }) {
           <Show when={helpShortcut()}>
             {(shortcut) => (
               <text fg={theme().text}>
-                {shortcut()} <span style={{ fg: theme().textMuted }}>all</span>
+                {shortcut()} <span style={{ fg: theme().textMuted }}>all keys</span>
               </text>
             )}
           </Show>

@@ -85,9 +85,9 @@ export function DialogStatus() {
           {local.model.current()?.providerID === "praex-cloud" ? "" : ` · ${local.model.parsed().provider}`}
         </text>
       </box>
-      <Show when={Object.keys(sync.data.mcp).length > 0} fallback={<text fg={theme.text}>No MCP servers</text>}>
+      <Show when={Object.keys(sync.data.mcp).length > 0} fallback={<text fg={theme.text}>No connectors</text>}>
         <box>
-          <text fg={theme.text}>{Object.keys(sync.data.mcp).length} MCP {Object.keys(sync.data.mcp).length === 1 ? "server" : "servers"}</text>
+          <text fg={theme.text}>{Object.keys(sync.data.mcp).length} {Object.keys(sync.data.mcp).length === 1 ? "connector" : "connectors"}</text>
           <For each={Object.entries(sync.data.mcp)}>
             {([key, item]) => (
               <box flexDirection="row" gap={1}>

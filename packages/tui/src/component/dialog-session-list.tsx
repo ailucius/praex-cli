@@ -216,6 +216,7 @@ export function DialogSessionList() {
   return (
     <DialogSelect
       title="Sessions"
+      emptyText="No sessions in this folder yet. Your first message starts one."
       options={options()}
       skipFilter={true}
       current={currentSessionID()}

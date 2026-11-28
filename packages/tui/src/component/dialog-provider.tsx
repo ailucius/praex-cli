@@ -60,11 +60,11 @@ export function providerOptions(list: { id: string; name: string }[]): ProviderO
         value: provider.id,
         providerID: provider.id,
         description: {
-          "praex-cloud": "(Recommended · Velox III is free)",
-          anthropic: "(API key)",
-          openai: "(ChatGPT Plus/Pro or API key)",
+          "praex-cloud": "Recommended · Velox III is free",
+          anthropic: "API key",
+          openai: "ChatGPT Plus/Pro or API key",
         }[provider.id],
-        category: provider.id in PROVIDER_PRIORITY ? "Popular" : "Providers",
+        category: provider.id in PROVIDER_PRIORITY ? "Popular" : "All providers",
       })),
     ),
     {
@@ -72,7 +72,7 @@ export function providerOptions(list: { id: string; name: string }[]): ProviderO
       title: "Other",
       value: CUSTOM_PROVIDER_OPTION_VALUE,
       description: "Custom provider",
-      category: "Providers",
+      category: "All providers",
     },
   ]
 }
@@ -157,7 +157,7 @@ export function createDialogProviderOptions() {
                 dialog.replace(
                   () => (
                     <DialogSelect
-                      title="Select auth method"
+                      title="How do you want to sign in?"
                       options={methods.map((x, index) => ({
                         title: x.label,
                         value: index,
@@ -227,7 +227,7 @@ export function createDialogProviderOptions() {
 
 export function DialogProvider() {
   const options = createDialogProviderOptions()
-  return <DialogSelect title="Connect a provider" options={options()} />
+  return <DialogSelect title="Use your own model key" options={options()} />
 }
 
 // 10-22: /login signs in to the Praex account directly: the Google sign-in that /connect offers under
@@ -247,7 +247,7 @@ export function usePraexLogin() {
     const index = headless && code !== -1 ? code : 0
     const method = methods[index]
     if (!method || method.type !== "oauth") {
-      toast.show({ variant: "error", message: "Praex sign-in is not available in this build. Try /connect." })
+      toast.show({ variant: "error", message: "Praex sign-in is not available in this build. Try /keys." })
       return
     }
     const result = await sdk.client.provider.oauth.authorize({ providerID: "praex-cloud", method: index })
@@ -316,7 +316,7 @@ function AutoMethod(props: AutoMethodProps) {
         variant: "error",
         message:
           "name" in result.error && result.error.name === "ProviderAuthOauthCallbackFailed"
-            ? `Sign-in did not finish. Try ${props.onDone ? "/login" : "/connect"} again.`
+            ? `Sign-in did not finish. Try ${props.onDone ? "/login" : "/keys"} again.`
             : errorMessage(result.error),
       })
       dialog.clear()

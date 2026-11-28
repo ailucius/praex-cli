@@ -80,8 +80,10 @@ export function DialogModel(props: { providerID?: string }) {
             title: info.name ?? model,
             releaseDate: info.release_date,
             description: favorites.some((item) => item.providerID === provider.id && item.modelID === model)
-              ? "(Favorite)"
-              : undefined,
+              ? "favorite"
+              : provider.id === "praex-cloud"
+                ? praexBlurb(info.name ?? model)
+                : undefined,
             category: connected() ? provider.name : undefined,
             disabled: provider.id === "opencode" && model.includes("-nano"),
             footer: info.cost?.input === 0 && provider.id === "opencode" ? "Free" : undefined,
@@ -115,7 +117,7 @@ export function DialogModel(props: { providerID?: string }) {
           providers(),
           map((option) => ({
             ...option,
-            category: "Popular providers",
+            category: "Use your own key",
           })),
           take(6),
         )
@@ -137,7 +139,7 @@ export function DialogModel(props: { providerID?: string }) {
 
   const title = createMemo(() => {
     const value = provider()
-    if (!value) return "Select model"
+    if (!value) return "Models"
     return value.name
   })
 
@@ -162,7 +164,7 @@ export function DialogModel(props: { providerID?: string }) {
       actions={[
         {
           command: "model.dialog.provider",
-          title: connected() ? "Connect provider" : "View all providers",
+          title: connected() ? "Your own key" : "Every provider",
           onTrigger() {
             dialog.replace(() => <DialogProvider />)
           },
@@ -183,6 +185,14 @@ export function DialogModel(props: { providerID?: string }) {
       current={local.model.current()}
     />
   )
+}
+
+// One line on what each hosted tier is for, keyed by the tier name so a new generation keeps it.
+export function praexBlurb(name: string) {
+  if (name.startsWith("Velox")) return "Fast, for everyday work"
+  if (name.startsWith("Faber")) return "Balanced, the daily driver"
+  if (name.startsWith("Lucia")) return "The largest, for the heavy lifting"
+  return undefined
 }
 
 // Praex tiers carry their plan in the display name ("Velox II · free"); order them by plan,

@@ -32,5 +32,5 @@ export function DialogSkill(props: DialogSkillProps) {
     }))
   })
 
-  return <DialogSelect title="Skills" placeholder="Search skills..." options={options()} />
+  return <DialogSelect title="Skills" emptyText="No skills yet." options={options()} />
 }

@@ -6,12 +6,12 @@ describe("providerOptions", () => {
     expect(providerOptions([{ id: "openai", name: "OpenAI" }]).at(-1)).toMatchObject({
       title: "Other",
       description: "Custom provider",
-      category: "Providers",
+      category: "All providers",
     })
   })
 
   test("does not use Other as the generic provider category", () => {
-    expect(providerOptions([{ id: "mistral", name: "Mistral" }])[0]?.category).toBe("Providers")
+    expect(providerOptions([{ id: "mistral", name: "Mistral" }])[0]?.category).toBe("All providers")
   })
 
   test("keeps popular providers first and sorts the rest alphabetically", () => {

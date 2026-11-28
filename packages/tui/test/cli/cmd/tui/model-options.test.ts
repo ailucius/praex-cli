@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { sortModelOptions } from "../../../../src/component/dialog-model"
+import { sortModelOptions, praexBlurb } from "../../../../src/component/dialog-model"
 
 describe("sortModelOptions", () => {
   test("orders provider-scoped model choices by newest release first", () => {
@@ -26,5 +26,17 @@ describe("sortModelOptions", () => {
     )
 
     expect(sorted.map((model) => model.title)).toEqual(["Alpha", "Gamma", "Beta"])
+  })
+})
+
+describe("praexBlurb", () => {
+  test("says what each hosted tier is for, whatever its generation", () => {
+    expect(praexBlurb("Velox III · Free")).toBe("Fast, for everyday work")
+    expect(praexBlurb("Faber II · Pro")).toBe("Balanced, the daily driver")
+    expect(praexBlurb("Lucia IV · Max")).toBe("The largest, for the heavy lifting")
+  })
+
+  test("leaves other models without a note", () => {
+    expect(praexBlurb("gpt-5")).toBeUndefined()
   })
 })

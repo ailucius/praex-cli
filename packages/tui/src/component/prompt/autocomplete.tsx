@@ -14,7 +14,6 @@ import { getScrollAcceleration } from "../../util/scroll"
 import { useTuiPaths } from "../../context/runtime"
 import { useTuiConfig } from "../../config"
 import { useTheme, tint } from "../../context/theme"
-import { SplitBorder } from "../../ui/border"
 import { useTerminalDimensions } from "@opentui/solid"
 import { Locale } from "../../util/locale"
 import type { PromptInfo } from "../../prompt/history"
@@ -716,8 +715,6 @@ export function Autocomplete(props: {
       left={position().x}
       width={position().width}
       zIndex={100}
-      {...SplitBorder}
-      borderColor={theme.borderSubtle}
     >
       <scrollbox
         ref={(r: ScrollBoxRenderable) => (scroll = r)}
@@ -736,10 +733,10 @@ export function Autocomplete(props: {
         >
           {(option, index) => (
             <box
-              paddingLeft={1}
+              paddingLeft={2}
               paddingRight={1}
-              // Same focus language as the dialogs: a quiet lift of the menu colour and an
-              // accent command name, no solid brand-colour bar.
+              // Same focus language as the dialogs: the violet bar at the row's left edge on a
+              // quiet lift of the menu colour. No side rules around the menu.
               backgroundColor={index === store.selected ? tint(theme.backgroundMenu, theme.text, 0.08) : undefined}
               flexDirection="row"
               onMouseMove={() => {
@@ -755,7 +752,12 @@ export function Autocomplete(props: {
               }}
               onMouseUp={() => select()}
             >
-              <text fg={index === store.selected ? theme.primary : theme.text} flexShrink={0}>
+              <Show when={index === store.selected}>
+                <box position="absolute" left={0} flexShrink={0}>
+                  <text fg={theme.primary}>▎</text>
+                </box>
+              </Show>
+              <text fg={theme.text} flexShrink={0}>
                 {option().display}
               </text>
               <Show when={option().description}>
