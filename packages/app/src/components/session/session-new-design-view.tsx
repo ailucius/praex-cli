@@ -8,7 +8,7 @@ export function NewSessionDesignView(props: { children: JSX.Element }) {
       <div class="absolute inset-x-0 top-[25.375%] flex justify-center px-6">
         <div class={NEW_SESSION_CONTENT_WIDTH}>
           {/* Praex wordmark: the mark stays white on black in both themes, only the text follows the theme */}
-          <Logo class="mx-auto h-auto w-[min(18rem,60%)]" />
+          <Logo class="mx-auto h-auto w-[min(12rem,45%)]" />
           <div class="mt-8">{props.children}</div>
         </div>
       </div>

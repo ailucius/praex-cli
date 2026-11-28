@@ -51,7 +51,7 @@
 
   /* One focus language: a 2px ring in the accent at reduced strength, never a hard border.
      --accent-* tokens are set by the Praex theme; other themes fall back to their own neutrals. */
-  --focus-ring-color: color-mix(in srgb, var(--accent-base, var(--border-selected, #a78bfa)) 55%, transparent);
+  --focus-ring-color: color-mix(in srgb, var(--accent-base, var(--border-selected, #c0347f)) 55%, transparent);
   --focus-ring: 0 0 0 2px var(--focus-ring-color);
   --scrollbar-thumb: color-mix(in srgb, var(--text-weaker, #767676) 45%, transparent);
 

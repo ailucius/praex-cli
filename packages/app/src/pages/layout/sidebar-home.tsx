@@ -9,7 +9,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Mark } from "@opencode-ai/ui/logo"
+import { Mark, Wordmark } from "@opencode-ai/ui/logo"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { WorkingMark } from "@opencode-ai/ui/working-mark"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
@@ -250,7 +250,7 @@ export function SidebarHome(props: SidebarHomeProps) {
             aria-label={language.t("sidebar.account.menu")}
           >
             <Mark class="w-5 shrink-0" />
-            <span class="truncate text-14-medium text-text-strong">Praex</span>
+            <Wordmark class="h-[10px] w-auto shrink-0 text-text-strong" />
             <Icon name="chevron-down" size="small" class="shrink-0 text-icon-weak" />
           </DropdownMenu.Trigger>
           {accountMenu("bottom")}

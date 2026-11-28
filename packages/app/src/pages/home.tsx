@@ -1210,7 +1210,7 @@ function LegacyHome() {
         fallback={
           <div class="size-full overflow-y-auto">
             <div class="mx-auto flex min-h-full w-full max-w-[400px] flex-col items-center justify-center gap-6 px-4 py-12 text-center">
-              <Logo class="w-[min(15rem,70%)]" />
+              <Logo class="w-[min(10rem,60%)]" />
               <div class="text-15-regular text-text-weak max-w-[360px] [text-wrap:pretty]">{language.t("home.welcome.tagline")}</div>
               <div class="flex w-full flex-col rounded-xl border border-border-weak-base bg-background-stronger text-left">
                 <div class="px-4 pt-3 pb-1 text-12-regular text-text-weaker">{language.t("home.welcome.tiers")}</div>
